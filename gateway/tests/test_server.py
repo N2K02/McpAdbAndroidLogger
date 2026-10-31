@@ -43,3 +43,17 @@ def test_invalid_payload_is_rejected(monkeypatch, client):
     header = {"X-Device-Key": "unit-device"}
     assert client.post("/ingest", headers=header, content=b"[]").status_code == 400
     assert client.post("/ingest", headers=header, content=b"x" * 512001).status_code == 413
+
+
+def test_public_health_discloses_no_data(client):
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"service": "mcp-adb-logger", "status": "ok"}
+    assert "device" not in response.text
+    assert "token" not in response.text
+    assert client.post("/health").status_code == 401
+
+
+def test_mcp_remains_authenticated(client, monkeypatch):
+    monkeypatch.setattr(server, "client_token", "unit-client")
+    assert client.get("/mcp").status_code == 401

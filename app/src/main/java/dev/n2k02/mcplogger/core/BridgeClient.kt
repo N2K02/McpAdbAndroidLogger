@@ -16,13 +16,48 @@ object BridgeClient {
     private fun prefs(context: Context) = context.getSharedPreferences("mcp_logger", Context.MODE_PRIVATE)
     fun configured(context: Context): Boolean =
         prefs(context).getBoolean("bridge_enabled", false) &&
-        prefs(context).getString("gateway", "")!!.startsWith("https://") &&
+        McpConnectionSetup.gatewayBaseOrNull(
+            prefs(context).getString("gateway", "").orEmpty()) != null &&
         !prefs(context).getString("device_key", "").isNullOrBlank()
+
     fun configure(context: Context, url: String, key: String, enabled: Boolean) {
-        require(url.isBlank() || (url.startsWith("https://") && !url.contains("@")))
-        require(!enabled || (url.startsWith("https://") && key.isNotBlank()))
-        prefs(context).edit().putString("gateway", url.trimEnd('/'))
+        val normalized = McpConnectionSetup.gatewayBaseOrNull(url)
+        require(url.isBlank() || normalized != null) { "Expected an HTTPS gateway URL" }
+        require(!enabled || (normalized != null && key.isNotBlank())) {
+            "A deployed HTTPS gateway and device key are required"
+        }
+        prefs(context).edit().putString("gateway", normalized.orEmpty())
             .putString("device_key", key).putBoolean("bridge_enabled", enabled).apply()
+    }
+
+    fun clientToken(context: Context): String =
+        prefs(context).getString("mcp_client_token", "").orEmpty()
+
+    fun saveClientToken(context: Context, token: String) {
+        prefs(context).edit().putString("mcp_client_token", token).apply()
+    }
+
+    /** Reachability/identity check only; upload auth is tested on actual upload. */
+    suspend fun checkGateway(url: String): Boolean = withContext(Dispatchers.IO) {
+        val base = McpConnectionSetup.gatewayBaseOrNull(url) ?: return@withContext false
+        try {
+            val connection = URL("$base/health").openConnection() as HttpURLConnection
+            try {
+                connection.requestMethod = "GET"
+                connection.connectTimeout = 7000
+                connection.readTimeout = 7000
+                connection.useCaches = false
+                if (connection.responseCode != 200) return@withContext false
+                val body = connection.inputStream.bufferedReader().use { it.readText() }
+                val result = JSONObject(body)
+                result.optString("service") == "mcp-adb-logger" &&
+                    result.optString("status") == "ok"
+            } finally {
+                connection.disconnect()
+            }
+        } catch (_: Exception) {
+            false
+        }
     }
     fun settings(context: Context): Triple<String, String, Boolean> {
         val p = prefs(context)

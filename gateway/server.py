@@ -50,6 +50,11 @@ def trimmed(value: Any, limit: int) -> str:
     return redact(str(value))[:limit]
 
 
+async def health(request):
+    """Unauthenticated liveness only: never expose phone, log or token data."""
+    return JSONResponse({"service": "mcp-adb-logger", "status": "ok"})
+
+
 async def ingest(request):
     if request.headers.get("content-length", "").isdigit() and int(request.headers["content-length"]) > MAX_UPLOAD:
         return JSONResponse({"error": "payload too large"}, status_code=413)
@@ -152,6 +157,7 @@ async def lifespan(app):
 
 http = Starlette(
     routes=[
+        Route("/health", health, methods=["GET"]),
         Route("/ingest", ingest, methods=["POST"]),
         Mount("/", app=mcp.streamable_http_app()),
     ],
@@ -167,6 +173,9 @@ async def application(scope, receive, send):
         origin = headers.get(b"origin", b"").decode("utf-8", "replace")
         if origin and (not allowed_origins or origin not in allowed_origins):
             await Response("Origin not permitted", status_code=403)(scope, receive, send)
+            return
+        if path == "/health" and scope.get("method") == "GET":
+            await http(scope, receive, send)
             return
         if path == "/ingest":
             provided = headers.get(b"x-device-key", b"").decode("utf-8", "replace")

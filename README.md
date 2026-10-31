@@ -29,9 +29,11 @@ This repository's Actions secrets must be configured; secrets from other reposit
 2. Open **ADB connection**, choose Android's **Pair device with pairing code**, and enter the code and port (or enable the optional Accessibility pairing helper to read a visible Settings pairing dialog automatically). Android must authorize the initial connection.
 3. The app validates `id -u == 2000` before starting capture. TCP/5555 is enabled by default but can expose an ADB listener to the LAN; disable in Settings if not wanted.
 4. Start monitoring and select a package. Logcat access varies by Android build, and monitoring requires a visible foreground notification.
-5. For AI access, deploy the gateway and enter its HTTPS URL and `DEVICE_API_KEY` in **MCP connection**, then opt in to upload.
+5. For AI access, deploy the gateway and enter its HTTPS URL in **MCP connection**. Tap **Generate secure keys** to create separate device and MCP-client credentials. Copy the server configuration into the gateway deployment, then enable log upload. **Copy MCP URL** gives the `https://.../mcp` endpoint to add to Claude or ChatGPT, together with the MCP client token in the client's authentication settings.
 
 ## MCP gateway
+
+The app's **Generate secure keys** button only creates secrets; it does not register or deploy a public hostname. **Test gateway** calls the non-sensitive public `GET /health` endpoint to verify that the deployed HTTPS gateway is reachable, but does not authenticate the MCP client. Key rotation requires updating gateway environment variables and restarting the gateway. Don't give Claude or ChatGPT the **device upload key**; use the separate **MCP client token**.
 
 ```bash
 export DEVICE_API_KEY='different-strong-device-secret'
