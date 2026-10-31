@@ -67,6 +67,13 @@ class LoggerNavigationTest {
         assertTrue(stopBlock.contains("LocalMcpServer.stop()"))
     }
 
+    @Test fun aiClientButtonsOpenConnectorPages() {
+        val path = "app/src/main/java/dev/n2k02/mcplogger/LoggerUi.kt"
+        val ui = listOf(File(path), File("../$path")).first { it.isFile }.readText()
+        assertTrue(ui.contains("\"https://claude.ai/new#customize/connectors/yours\""))
+        assertTrue(ui.contains("\"https://chatgpt.com/plugins\""))
+    }
+
     @Test fun toolbarAndGestureShareHandler() {
         val path = "app/src/main/java/dev/n2k02/mcplogger/LoggerUi.kt"
         val ui = listOf(File(path), File("../$path")).first { it.isFile }.readText()

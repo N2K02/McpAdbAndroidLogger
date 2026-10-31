@@ -441,13 +441,13 @@ private fun BridgePage(modifier: Modifier) {
             OutlinedButton(onClick = {
                 runCatching {
                     context.startActivity(Intent(Intent.ACTION_VIEW,
-                        android.net.Uri.parse("https://claude.ai")))
+                        android.net.Uri.parse("https://claude.ai/new#customize/connectors/yours")))
                 }
             }) { Text("Open Claude") }
             OutlinedButton(onClick = {
                 runCatching {
                     context.startActivity(Intent(Intent.ACTION_VIEW,
-                        android.net.Uri.parse("https://chatgpt.com")))
+                        android.net.Uri.parse("https://chatgpt.com/plugins")))
                 }
             }) { Text("Open ChatGPT") }
         }
