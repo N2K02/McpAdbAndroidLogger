@@ -70,6 +70,7 @@ fun LoggerApp(onStart: () -> Unit, onStop: () -> Unit, onQuit: () -> Unit) {
                                 Page.SETTINGS -> Icons.Rounded.Settings
                                 Page.ADB -> Icons.Rounded.SettingsInputAntenna
                                 Page.BRIDGE -> Icons.Rounded.Cloud
+                                Page.MCP_AUDITS -> Icons.Rounded.ManageSearch
                                 Page.LOGS -> Icons.Rounded.List
                                 Page.UPDATES -> Icons.Rounded.SystemUpdate
                             }, null, modifier = Modifier.size(22.dp))
@@ -118,6 +119,8 @@ fun LoggerApp(onStart: () -> Unit, onStop: () -> Unit, onQuit: () -> Unit) {
                     Icons.Rounded.SettingsInputAntenna) { navigateTo(Page.ADB) }
                 SettingsRow("MCP connection", "Local MCP server and secure public tunnel",
                     Icons.Rounded.Cloud) { navigateTo(Page.BRIDGE) }
+                SettingsRow("MCP audits", "Requests and responses by authorized AI agent",
+                    Icons.Rounded.History) { navigateTo(Page.MCP_AUDITS) }
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 ListItem(headlineContent = { Text("About & updates") },
                     supportingContent = { Text("Stable and experimental APK updates") },
@@ -127,6 +130,7 @@ fun LoggerApp(onStart: () -> Unit, onStop: () -> Unit, onQuit: () -> Unit) {
             }
             Page.ADB -> AdbPage(Modifier.padding(padding))
             Page.BRIDGE -> BridgePage(Modifier.padding(padding))
+            Page.MCP_AUDITS -> McpAuditsScreen(Modifier.padding(padding))
             Page.LOGS -> LogsPage(Modifier.padding(padding))
             Page.UPDATES -> {
                 val experiment by LiveUpdater.experimentalEnabled.collectAsState()

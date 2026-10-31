@@ -180,3 +180,30 @@ or external OAuth hosting and therefore cannot connect to this version.
 
 Phone-hosted OAuth remains available only while the connectedDevice foreground
 service and its public tunnel are running.
+
+
+## Settings → MCP audits
+
+The **MCP audits** subpage captures MCP JSON-RPC requests processed by the
+embedded phone server, linked to the OAuth agent's registered name, callback
+domain and client ID. Direct shared bearer-key requests appear as **Direct
+key** (that key cannot identify which application sent them). Unauthorized MCP
+attempts are counted but their untrusted payloads and submitted credentials
+are not stored.
+
+For each request the screen shows timestamp, agent, method/tool, result,
+duration, and expandable **sanitized request and response payloads**. Requests
+and responses are recorded at the server socket after writing the response,
+before any further tunnel or external network transport. The audit can show
+what was handed off to the network, not prove that the remote AI received it.
+All audit payloads are redacted and bounded: input previews are limited to
+10,000 characters, response previews to 25,000 characters, with truncation
+labels; the actual MCP response is never shortened. Only the latest 160
+records persist in app-private **no-backup** storage. Audits are preserved
+across app Quit and restart until cleared or overwritten by retention.
+
+Search and filter by agent, tool, status and time. Tap an entry to see payloads
+and copy details. **Export** uses Android's system document picker to save the
+filtered audit snapshot. **Clear** deletes the local journal without revoking
+the agents or clearing Android Logcat. No OAuth browser authorization forms,
+API keys, bearer tokens or HTTP headers are written to the audit journal.

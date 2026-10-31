@@ -3,7 +3,7 @@ package dev.n2k02.mcplogger
 /** Home, Logs and Settings are root destinations; details belong to Home or Settings. */
 internal enum class Page(val title: String) {
     HOME("Home"), LOGS("Android Logcat"), SETTINGS("Settings"),
-    ADB("ADB connection"), BRIDGE("MCP connection"),
+    ADB("ADB connection"), BRIDGE("MCP connection"), MCP_AUDITS("MCP audits"),
     UPDATES("About & updates")
 }
 
