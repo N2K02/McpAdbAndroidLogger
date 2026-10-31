@@ -322,6 +322,25 @@ internal object LocalMcpOAuth {
             else -> failure("unsupported_grant_type")
         }
     }
+    /** Map an already-authenticated OAuth access token to its registered agent.
+     * Master keys and revoked/expired tokens never resolve as OAuth clients.
+     */
+    fun clientForToken(c: Context, token: String): ConnectedClient? = synchronized(lock) {
+        if (token.length !in 20..256) return@synchronized null
+        val s = current(c)
+        val record = table(s,"tokens").optJSONObject(digest(token))
+            ?: return@synchronized null
+        if (record.optString("kind") != "access" ||
+            !record.optString("scope").split(Regex("\\s+")).contains(SCOPE) ||
+            record.optString("aud") != resource() ||
+            record.optLong("expiry") <= System.currentTimeMillis())
+            return@synchronized null
+        val id = record.optString("client")
+        val client = table(s,"clients").optJSONObject(id) ?: return@synchronized null
+        ConnectedClient(id,client.optString("name").ifBlank { "MCP agent" },
+            client.optString("domain"))
+    }
+
     fun validate(c: Context, token: String): Boolean = synchronized(lock) {
         if (token.length !in 20..256) return@synchronized false
         val s = current(c)

@@ -150,11 +150,21 @@ object LocalMcpServer {
                     actual.toByteArray(StandardCharsets.UTF_8),
                     expected.toByteArray(StandardCharsets.UTF_8))
                 if (!legacy && !LocalMcpOAuth.validate(context, actual)) {
+                    // Denials are counted without storing any untrusted payload,
+                    // supplied credentials, access token, cookies or headers.
+                    if (path == "/mcp") McpAuditStore.record(context,
+                        McpAuditStore.Agent("unauthenticated", "Unauthenticated", "Unknown"),
+                        "[unauthenticated request; payload withheld]",
+                        "HTTP 401 Unauthorized", "MCP", "", "Denied", 0)
                     val challenge = LocalMcpOAuth.challenge()
                     respond(output, 401, "Unauthorized", extra = if (challenge != null)
                         mapOf("WWW-Authenticate" to challenge) else emptyMap())
                     return
                 }
+                val agent = if (legacy) McpAuditStore.DIRECT
+                    else LocalMcpOAuth.clientForToken(context, actual)?.let {
+                        McpAuditStore.Agent(it.id, it.name, it.domain)
+                    } ?: McpAuditStore.DIRECT
                 if (method != "POST" || path != "/mcp") {
                     respond(output, 405, "Use Streamable HTTP POST")
                     return
@@ -172,9 +182,22 @@ object LocalMcpServer {
                         "application/json")
                     return
                 }
+                val started = System.nanoTime()
                 val result = LocalMcpProtocol.execute(request)
+                val status = if (result == null) "Accepted"
+                    else if (result.has("error")) "Error" else "OK"
+                val responseBody = result?.toString().orEmpty()
                 if (result == null) respond(output, 202, "")
-                else respond(output, 200, result.toString(), "application/json")
+                else respond(output, 200, responseBody, "application/json")
+                // Capture the same response payload prepared for and written to
+                // this authenticated MCP connection. No HTTP/OAuth headers saved.
+                McpAuditStore.record(context, agent,
+                    String(data, StandardCharsets.UTF_8),
+                    responseBody, request.optString("method"),
+                    if (request.optString("method") == "tools/call")
+                        request.optJSONObject("params")?.optString("name").orEmpty()
+                    else request.optString("method"),
+                    status, (System.nanoTime() - started) / 1_000_000)
             } catch (_: Exception) {
                 // A malformed client must never crash the monitor process.
             }
