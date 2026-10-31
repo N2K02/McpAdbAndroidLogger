@@ -1,0 +1,3 @@
+-keep class org.conscrypt.** { *; }
+-dontwarn org.bouncycastle.**
+-dontwarn org.conscrypt.**
