@@ -177,16 +177,8 @@ private fun AdbPage(modifier: Modifier) {
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ElevatedCard(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(if (verified) Icons.Rounded.CheckCircle else Icons.Rounded.SettingsInputAntenna,
-                        null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(10.dp))
-                    Text("ADB connection", style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.weight(1f))
-                    AssistChip(onClick = {}, label = {
-                        Text(if (verified) "UID 2000 ✓" else "Not ready")
-                    })
-                }
+                CardHeader(if (verified) Icons.Rounded.CheckCircle else Icons.Rounded.SettingsInputAntenna,
+                    "ADB connection", adbTone(status), if (verified) "UID 2000" else "Not ready")
                 Text(if (verified) "Authorized Android shell is ready" else
                     "First-time setup: enable Wireless debugging and pair once.",
                     style = MaterialTheme.typography.bodyMedium)
@@ -278,7 +270,9 @@ private fun AdbPage(modifier: Modifier) {
         }
         ElevatedCard(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Connection recovery", style = MaterialTheme.typography.titleSmall)
+                CardHeader(Icons.Rounded.Autorenew, "Connection recovery",
+                    if (tcp || boot) Tone.GOOD else Tone.IDLE,
+                    if (tcp && boot) "Auto" else if (tcp || boot) "Partial" else "Off")
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Automatic TCP/5555 after pairing", Modifier.weight(1f))
                     Switch(tcp, onCheckedChange = {
@@ -322,9 +316,7 @@ private fun BridgePage(modifier: Modifier) {
     val local by MonitorState.localMcp.collectAsState()
     val tunnel by MonitorState.tunnel.collectAsState()
     val publicUrl by MonitorState.publicMcpUrl.collectAsState()
-    var clientToken by rememberSaveable {
-        mutableStateOf(BridgeClient.clientToken(context))
-    }
+    val clientToken = BridgeClient.clientTokenState(context).collectAsState().value.orEmpty()
     var hint by remember { mutableStateOf("") }
     val localUrl = dev.n2k02.mcplogger.core.LocalMcpServer.URL
     var rotating by remember { mutableStateOf(false) }
@@ -359,11 +351,6 @@ private fun BridgePage(modifier: Modifier) {
                 androidx.core.content.ContextCompat.startForegroundService(context,
                     Intent(context, LogMonitorService::class.java)
                         .setAction(LogMonitorService.TUNNEL_ROTATE))
-                // Service writes the new key synchronously before restarting the tunnel.
-                scope.launch {
-                    kotlinx.coroutines.delay(500)
-                    clientToken = BridgeClient.clientToken(context)
-                }
                 hint = "Rotating URL and key…"
             }.onFailure { hint = "Cannot rotate: " + it.javaClass.simpleName }
         }) { Text("Rotate") } },
@@ -372,9 +359,14 @@ private fun BridgePage(modifier: Modifier) {
 
     Column(modifier.verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Phone-hosted MCP", style = MaterialTheme.typography.titleMedium)
-        Text("The MCP server runs on this Android phone. Only read-only, redacted Logcat diagnostics are accessible with your private token.")
-        Text("Local server: $local", style = MaterialTheme.typography.bodySmall)
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        CardHeader(Icons.Rounded.PhoneAndroid, "Phone-hosted MCP", localMcpTone(local),
+            if (localMcpTone(local) == Tone.GOOD) "Running" else local.ifBlank { "Stopped" },
+            subtitle = "Local server on this phone")
+        Text("Only read-only, redacted Logcat diagnostics are accessible with your private token.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
         OutlinedTextField(value = localUrl, onValueChange = {}, readOnly = true,
             label = { Text("Local MCP URL (other apps on this phone)") },
             singleLine = true, modifier = Modifier.fillMaxWidth(),
@@ -383,9 +375,15 @@ private fun BridgePage(modifier: Modifier) {
                     Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy local MCP URL")
                 }
             })
-        HorizontalDivider()
-        Text("Public MCP for Claude / ChatGPT", style = MaterialTheme.typography.titleMedium)
-        Text("Quick Tunnel: $tunnel", style = MaterialTheme.typography.bodySmall)
+        }
+        }
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        CardHeader(Icons.Rounded.Cloud, "Public MCP", tunnelTone(tunnel),
+            when (tunnelTone(tunnel)) {
+                Tone.GOOD -> "Online"; Tone.BUSY -> "Connecting"
+                Tone.BAD -> "Offline"; Tone.IDLE -> "Stopped"
+            }, subtitle = "Quick Tunnel: $tunnel")
         if (publicUrl.isBlank()) {
             Text("A public URL appears here once Cloudflare confirms the tunnel. It is saved and reused; it requires the phone to be online.",
                 style = MaterialTheme.typography.bodySmall)
@@ -400,10 +398,7 @@ private fun BridgePage(modifier: Modifier) {
                 }
             })
         OutlinedTextField(value = clientToken,
-            onValueChange = {
-                clientToken = it
-                BridgeClient.saveClientToken(context, it)
-            }, label = { Text("MCP client access key") }, singleLine = true,
+            onValueChange = { BridgeClient.saveClientToken(context, it) }, label = { Text("MCP client access key") }, singleLine = true,
             modifier = Modifier.fillMaxWidth(),
             visualTransformation = PasswordVisualTransformation(),
             trailingIcon = {
@@ -444,8 +439,11 @@ private fun BridgePage(modifier: Modifier) {
         Text("The URL and key are saved and stay the same across reconnects and restarts. Rotate only when you need new ones.",
             style = MaterialTheme.typography.bodySmall)
         if (hint.isNotEmpty()) Text(hint, style = MaterialTheme.typography.bodySmall)
-        HorizontalDivider()
-        Text("Connect your AI client", style = MaterialTheme.typography.titleSmall)
+        }
+        }
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        CardHeader(Icons.Rounded.Link, "Connect your AI client", Tone.BUSY, null)
         Text("Copy the public HTTPS MCP URL into Claude or ChatGPT's custom MCP connector settings. Use the separate client key as Bearer authentication when supported. You must approve the connector in that service. Some accounts or clients require OAuth rather than a static token.",
             style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -464,6 +462,8 @@ private fun BridgePage(modifier: Modifier) {
         }
         Text("No separate Docker gateway or continuous log upload is required. Logs stay on the phone and are returned only when an authenticated MCP tool is called.",
             style = MaterialTheme.typography.bodySmall)
+        }
+        }
     }
 }
 

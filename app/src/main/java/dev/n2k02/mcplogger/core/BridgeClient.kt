@@ -2,6 +2,8 @@ package dev.n2k02.mcplogger.core
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -45,6 +47,7 @@ object BridgeClient {
             .putString("mcp_client_token", clientToken)
             .putBoolean("bridge_enabled", base != null && key.isNotBlank())
             .apply()
+        tokenFlow.value = clientToken
         if (base == null) MonitorState.gateway.value = "Gateway not configured"
     }
 
@@ -60,8 +63,17 @@ object BridgeClient {
     fun clientToken(context: Context): String =
         prefs(context).getString("mcp_client_token", "").orEmpty()
 
+    private val tokenFlow = MutableStateFlow<String?>(null)
+
+    /** Observable key so every screen (Home card, MCP page) updates after rotation. */
+    fun clientTokenState(context: Context): StateFlow<String?> {
+        if (tokenFlow.value == null) tokenFlow.value = clientToken(context)
+        return tokenFlow
+    }
+
     fun saveClientToken(context: Context, value: String) {
         prefs(context).edit().putString("mcp_client_token", value).apply()
+        tokenFlow.value = value
     }
 
     /** Reachability/identity check only; upload auth is tested on actual upload. */
