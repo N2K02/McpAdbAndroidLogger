@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.IBinder
 import android.os.Build
 import dev.n2k02.mcplogger.MainActivity
+import dev.n2k02.mcplogger.R
 import dev.n2k02.mcplogger.adb.AdbCoordinator
 import dev.n2k02.mcplogger.adb.AdbTransport
 import kotlinx.coroutines.CoroutineScope
@@ -66,7 +67,7 @@ class LogMonitorService : Service() {
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val notification = Notification.Builder(this, channelId)
-            .setSmallIcon(android.R.drawable.ic_menu_info_details)
+            .setSmallIcon(R.drawable.ic_app_notification)
             .setContentTitle("MCP ADB Logger")
             .setContentText("Reading Logcat with authorized shell access")
             .setContentIntent(open)
