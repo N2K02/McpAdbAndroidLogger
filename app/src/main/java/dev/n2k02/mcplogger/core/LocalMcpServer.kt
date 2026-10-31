@@ -4,6 +4,7 @@ import android.content.Context
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.net.InetAddress
+import java.net.URLDecoder
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketException
@@ -89,12 +90,15 @@ object LocalMcpServer {
                     }
                     headers[name] = line.substring(index + 1).trim()
                 }
-                if (path != "/health" && path != "/mcp") {
+                val oauthMetadata = path.startsWith("/.well-known/oauth-")
+                val oauthPath = path.startsWith("/oauth/")
+                if (path != "/health" && path != "/mcp" && !oauthMetadata && !oauthPath) {
                     respond(output, 404, "Not found")
                     return
                 }
                 val origin = headers["origin"]
-                if (origin != null && origin !in allowedOrigins) {
+                if (origin != null && origin !in allowedOrigins &&
+                    origin != LocalMcpOAuth.publicOrigin()) {
                     respond(output, 403, "Untrusted Origin")
                     return
                 }
@@ -103,14 +107,52 @@ object LocalMcpServer {
                         "application/json")
                     return
                 }
+                if (oauthMetadata && method == "GET") {
+                    val result = LocalMcpOAuth.metadata(path)
+                    respond(output, result.status, result.body, result.type, result.headers)
+                    return
+                }
+                if (path == "/oauth/authorize" && method == "GET") {
+                    val result = LocalMcpOAuth.authorize(context,
+                        parseParams(parts[1].substringAfter('?', "")))
+                    respond(output, result.status, result.body, result.type, result.headers)
+                    return
+                }
+                if (oauthPath) {
+                    val length = headers["content-length"]?.toIntOrNull()
+                    if (method != "POST" || length == null || length !in 1..16384 ||
+                        headers["transfer-encoding"] != null) {
+                        respond(output, 400, "Invalid OAuth request")
+                        return
+                    }
+                    val bytes = readBody(input, length) ?: return
+                    val body = String(bytes, StandardCharsets.UTF_8)
+                    val result = when (path) {
+                        "/oauth/register" -> {
+                            val json = runCatching { JSONObject(body) }.getOrNull()
+                            if (json == null) LocalMcpOAuth.Reply(400,
+                                """{"error":"invalid_client_metadata"}""")
+                            else LocalMcpOAuth.register(context, json)
+                        }
+                        "/oauth/token" -> LocalMcpOAuth.token(context, parseParams(body))
+                        "/oauth/approve" -> LocalMcpOAuth.approve(context, parseParams(body))
+                        "/oauth/revoke" -> LocalMcpOAuth.revokeToken(context, parseParams(body))
+                        else -> LocalMcpOAuth.Reply(404, """{"error":"not_found"}""")
+                    }
+                    respond(output, result.status, result.body, result.type, result.headers)
+                    return
+                }
                 val authorization = headers["authorization"].orEmpty()
                 val actual = if (authorization.startsWith("Bearer "))
                     authorization.removePrefix("Bearer ") else ""
                 val expected = BridgeClient.clientToken(context)
-                if (expected.isEmpty() || !MessageDigest.isEqual(
-                        actual.toByteArray(StandardCharsets.UTF_8),
-                        expected.toByteArray(StandardCharsets.UTF_8))) {
-                    respond(output, 401, "Unauthorized")
+                val legacy = expected.isNotBlank() && MessageDigest.isEqual(
+                    actual.toByteArray(StandardCharsets.UTF_8),
+                    expected.toByteArray(StandardCharsets.UTF_8))
+                if (!legacy && !LocalMcpOAuth.validate(context, actual)) {
+                    val challenge = LocalMcpOAuth.challenge()
+                    respond(output, 401, "Unauthorized", extra = if (challenge != null)
+                        mapOf("WWW-Authenticate" to challenge) else emptyMap())
                     return
                 }
                 if (method != "POST" || path != "/mcp") {
@@ -122,13 +164,7 @@ object LocalMcpServer {
                     respond(output, 413, "Invalid request length")
                     return
                 }
-                val data = ByteArray(size)
-                var offset = 0
-                while (offset < size) {
-                    val count = input.read(data, offset, size - offset)
-                    if (count < 0) return
-                    offset += count
-                }
+                val data = readBody(input, size) ?: return
                 val request = try {
                     JSONObject(String(data, StandardCharsets.UTF_8))
                 } catch (_: Exception) {
@@ -145,6 +181,31 @@ object LocalMcpServer {
         }
     }
 
+    private fun readBody(input: BufferedInputStream, length: Int): ByteArray? {
+        val bytes = ByteArray(length)
+        var read = 0
+        while (read < length) {
+            val count = input.read(bytes, read, length - read)
+            if (count < 0) return null
+            read += count
+        }
+        return bytes
+    }
+
+    private fun parseParams(raw: String): Map<String, String> {
+        if (raw.length > 16384) return emptyMap()
+        val result = mutableMapOf<String,String>()
+        for (part in raw.split('&').take(24)) {
+            val name = runCatching { URLDecoder.decode(part.substringBefore('='), "UTF-8") }
+                .getOrElse { return emptyMap() }
+            val value = runCatching { URLDecoder.decode(part.substringAfter('=', ""), "UTF-8") }
+                .getOrElse { return emptyMap() }
+            if (name.isBlank() || result.containsKey(name)) return emptyMap()
+            result[name] = value
+        }
+        return result
+    }
+
     private fun readLine(input: BufferedInputStream, max: Int): String? {
         val bytes = java.io.ByteArrayOutputStream()
         while (bytes.size() <= max) {
@@ -157,17 +218,24 @@ object LocalMcpServer {
     }
 
     private fun respond(output: BufferedOutputStream, code: Int, text: String,
-                        type: String = "text/plain") {
+                        type: String = "text/plain", extra: Map<String,String> = emptyMap()) {
         val reason = when (code) {
             200 -> "OK"; 202 -> "Accepted"; 400 -> "Bad Request"; 401 -> "Unauthorized"
             403 -> "Forbidden"; 404 -> "Not Found"; 405 -> "Method Not Allowed"
-            413 -> "Content Too Large"; else -> "Error"
+            413 -> "Content Too Large"; 302 -> "Found"; 201 -> "Created"
+            429 -> "Too Many Requests"; 503 -> "Service Unavailable"; else -> "Error"
         }
         val bytes = text.toByteArray(StandardCharsets.UTF_8)
+        val safeHeaders = extra.entries.filter { (key, value) ->
+            key.matches(Regex("[A-Za-z-]+")) && !value.contains('\\r') && !value.contains('\\n')
+        }.joinToString("") { it.key + ": " + it.value + "\\r\\n" }
         val header = "HTTP/1.1 " + code + " " + reason + "\r\n" +
             "Content-Type: " + type + "; charset=utf-8\r\n" +
             "Content-Length: " + bytes.size + "\r\n" +
-            "Cache-Control: no-store\r\nConnection: close\r\n\r\n"
+            "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n" +
+            "Referrer-Policy: no-referrer\r\n" +
+            "Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'\r\n" +
+            safeHeaders + "Connection: close\r\n\r\n"
         output.write(header.toByteArray(StandardCharsets.UTF_8))
         output.write(bytes)
         output.flush()
