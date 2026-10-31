@@ -1,7 +1,7 @@
 package dev.n2k02.mcplogger.core
 
 import android.content.Context
-import android.util.Base64
+import java.util.Base64
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
@@ -40,8 +40,7 @@ internal object LocalMcpOAuth {
     private fun nonce(): String {
         val bytes = ByteArray(32)
         random.nextBytes(bytes)
-        return Base64.encodeToString(bytes,
-            Base64.NO_WRAP or Base64.URL_SAFE or Base64.NO_PADDING)
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
     }
     private fun digest(v: String): String = MessageDigest.getInstance("SHA-256")
         .digest(v.toByteArray(StandardCharsets.UTF_8))
@@ -165,8 +164,7 @@ internal object LocalMcpOAuth {
             !Regex("[A-Za-z0-9_-]{43,128}").matches(challenge)) return false
         val hashed = MessageDigest.getInstance("SHA-256")
             .digest(verifier.toByteArray(StandardCharsets.US_ASCII))
-        val value = Base64.encodeToString(hashed,
-            Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+        val value = Base64.getUrlEncoder().withoutPadding().encodeToString(hashed)
         return same(value,challenge)
     }
     /** A provider-supplied name is never an identity assertion: show the redirect domain too. */
@@ -340,6 +338,13 @@ internal object LocalMcpOAuth {
         val tokens = table(s,"tokens")
         for (key in tokens.keys().asSequence().toList()) {
             if (tokens.optJSONObject(key)?.optString("client") == id) tokens.remove(key)
+        }
+        // Also revoke outstanding approvals and authorization codes for this client.
+        for (name in listOf("pending", "codes")) {
+            val entries = table(s,name)
+            for (key in entries.keys().asSequence().toList()) {
+                if (entries.optJSONObject(key)?.optString("client") == id) entries.remove(key)
+            }
         }
         // Clients can reauthorize later only by entering the existing master key.
         save(c,s); updateConnected(s)

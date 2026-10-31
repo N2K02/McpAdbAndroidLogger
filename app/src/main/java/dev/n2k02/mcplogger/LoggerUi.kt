@@ -539,10 +539,21 @@ private fun BridgePage(modifier: Modifier) {
         ElevatedCard(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         CardHeader(Icons.Rounded.Link, "Connect your AI client", Tone.BUSY, null)
-        Text("For Claude, ChatGPT or any OAuth-compatible agent: add this public HTTPS MCP URL. Choose OAuth / automatic registration. When its authorization page opens, enter your existing MCP client access key here on your phone, then approve. Each agent gets its own revocable OAuth tokens; no custom headers are needed.",
+        Text("One connection flow for Claude, ChatGPT and any compatible MCP agent.",
+            style = MaterialTheme.typography.bodyMedium)
+        Text("1. Keep the MCP server and public tunnel running (status: Online). Copy the Public HTTPS MCP URL above.",
             style = MaterialTheme.typography.bodySmall)
-        Text("Only approve agents whose callback domains you recognize. Your original key is never shared with an agent.",
+        Text("2. In your AI agent's custom MCP connector, paste that URL. Select OAuth and automatic client registration (DCR) if requested. No custom headers are needed.",
             style = MaterialTheme.typography.bodySmall)
+        Text("3. The agent opens this phone-hosted authorization page. Check the requesting agent name and redirect domain before approving.",
+            style = MaterialTheme.typography.bodySmall)
+        Text("4. Enter the existing MCP client access key shown above on the authorization page, then tap Approve access.",
+            style = MaterialTheme.typography.bodySmall)
+        Text("5. The agent connects with its own access token. Manage or revoke its access below without affecting other agents.",
+            style = MaterialTheme.typography.bodySmall)
+        Text("The original key stays private. Each new agent repeats the same flow. It must support OAuth with dynamic client registration; some providers require other registration methods.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = {
                 runCatching {
