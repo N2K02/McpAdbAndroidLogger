@@ -60,7 +60,7 @@ Release setup matches AAYouTube/VRec. **Both PR and stable produce an R8-minifie
 - Signed APKs are retained as Actions artifacts and source Releases; `ANDROID_DISTRIBUTION_TOKEN` additionally publishes the public APK and per-channel SHA-256 manifest.
 - `n2k02updater` uses the same stable/experimental toggle, installation-time signer validation, and user-triggered update flow as the other apps. Updates are blocked while live log capture is active.
 
-CI validates MCP gateway tests, Android unit tests/lint, R8 release builds, and public version-resolution regression tests.
+CI validates MCP gateway tests, Android unit tests/lint, R8 release builds, and public version-resolution regression tests. The signed release APK is installed on an Android API 35 emulator and cold-launched three times before it can be published, catching WorkManager/Room startup crashes that debug/unit tests miss.
 
 ## Hardware validation needed
 
