@@ -30,6 +30,8 @@ class LogMonitorService : Service() {
         const val START = "dev.n2k02.mcplogger.START"
         const val LOCAL_START = "dev.n2k02.mcplogger.LOCAL_MCP_START"
         const val TUNNEL_RESTART = "dev.n2k02.mcplogger.TUNNEL_RESTART"
+        /** New public URL and new client key; everything else keeps running. */
+        const val TUNNEL_ROTATE = "dev.n2k02.mcplogger.TUNNEL_ROTATE"
         const val STOP = "dev.n2k02.mcplogger.STOP"
         const val LOCAL_STOP = "dev.n2k02.mcplogger.LOCAL_MCP_STOP"
         const val QUIT = "dev.n2k02.mcplogger.QUIT"
@@ -86,8 +88,12 @@ class LogMonitorService : Service() {
                 }
                 return START_STICKY
             }
-            TUNNEL_RESTART -> {
+            TUNNEL_RESTART, TUNNEL_ROTATE -> {
                 ensureForeground()
+                if (intent?.action == TUNNEL_ROTATE) {
+                    BridgeClient.saveClientToken(applicationContext, McpConnectionSetup.newSecret())
+                    QuickMcpTunnel.forget(applicationContext)
+                }
                 LocalMcpServer.start(applicationContext)
                 QuickMcpTunnel.stop()
                 tunnelJob?.cancel()

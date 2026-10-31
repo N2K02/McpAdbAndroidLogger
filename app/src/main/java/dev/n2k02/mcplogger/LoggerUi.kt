@@ -351,13 +351,22 @@ private fun BridgePage(modifier: Modifier) {
 
     if (rotating) AlertDialog(
         onDismissRequest = { rotating = false },
-        title = { Text("Rotate MCP access key?") },
-        text = { Text("The previous MCP key will stop working immediately. Update the key in Claude and ChatGPT.") },
+        title = { Text("Rotate URL and access key?") },
+        text = { Text("A new public URL and a new MCP access key are created. The current ones stop working immediately, so update both in Claude and ChatGPT.") },
         confirmButton = { TextButton(onClick = {
-            clientToken = McpConnectionSetup.newSecret()
-            BridgeClient.saveClientToken(context, clientToken)
             rotating = false
-        }) { Text("Rotate key") } },
+            runCatching {
+                androidx.core.content.ContextCompat.startForegroundService(context,
+                    Intent(context, LogMonitorService::class.java)
+                        .setAction(LogMonitorService.TUNNEL_ROTATE))
+                // Service writes the new key synchronously before restarting the tunnel.
+                scope.launch {
+                    kotlinx.coroutines.delay(500)
+                    clientToken = BridgeClient.clientToken(context)
+                }
+                hint = "Rotating URL and key…"
+            }.onFailure { hint = "Cannot rotate: " + it.javaClass.simpleName }
+        }) { Text("Rotate") } },
         dismissButton = { TextButton(onClick = { rotating = false }) { Text("Cancel") } },
     )
 
@@ -378,7 +387,7 @@ private fun BridgePage(modifier: Modifier) {
         Text("Public MCP for Claude / ChatGPT", style = MaterialTheme.typography.titleMedium)
         Text("Quick Tunnel: $tunnel", style = MaterialTheme.typography.bodySmall)
         if (publicUrl.isBlank()) {
-            Text("A public URL appears here only when Cloudflare confirms a tunnel connection. It changes when the tunnel restarts; it requires the phone to be online.",
+            Text("A public URL appears here once Cloudflare confirms the tunnel. It is saved and reused; it requires the phone to be online.",
                 style = MaterialTheme.typography.bodySmall)
         }
         OutlinedTextField(value = publicUrl, onValueChange = {}, readOnly = true,
@@ -431,7 +440,9 @@ private fun BridgePage(modifier: Modifier) {
                 Text("Reconnect tunnel")
             }
         }
-        TextButton(onClick = { rotating = true }) { Text("Rotate access key") }
+        TextButton(onClick = { rotating = true }) { Text("Rotate URL and access key") }
+        Text("The URL and key are saved and stay the same across reconnects and restarts. Rotate only when you need new ones.",
+            style = MaterialTheme.typography.bodySmall)
         if (hint.isNotEmpty()) Text(hint, style = MaterialTheme.typography.bodySmall)
         HorizontalDivider()
         Text("Connect your AI client", style = MaterialTheme.typography.titleSmall)
