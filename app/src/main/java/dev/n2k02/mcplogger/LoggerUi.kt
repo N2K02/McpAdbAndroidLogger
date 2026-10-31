@@ -3,6 +3,7 @@ package dev.n2k02.mcplogger
 import android.content.Context
 import android.content.Intent
 import android.provider.Settings
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -29,14 +31,25 @@ import dev.n2k02.updater.N2K02UpdateBadge
 import dev.n2k02.updater.N2K02UpdateBadgedIcon
 import kotlinx.coroutines.launch
 
-private enum class Page(val title: String) {
-    HOME("Home"), SETTINGS("Settings"), ADB("ADB connection"), BRIDGE("MCP connection"),
-    LOGS("Logs"), DIAGNOSTICS("Diagnostics"), UPDATES("About & updates")
-}
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoggerApp(onStart: () -> Unit, onStop: () -> Unit, onQuit: () -> Unit) {
-    var page by remember { mutableStateOf(Page.HOME) }
+    var page by rememberSaveable { mutableStateOf(Page.HOME) }
+    var subpageParent by rememberSaveable { mutableStateOf(Page.SETTINGS) }
+    fun navigateTo(destination: Page) {
+        val next = LoggerNavigation(page, subpageParent).open(destination)
+        page = next.page
+        subpageParent = next.parent
+    }
+    fun navigateBack() {
+        val next = LoggerNavigation(page, subpageParent).back()
+        page = next.page
+        subpageParent = next.parent
+    }
+    // mRadio-style system/predictive Back: subpage -> parent, Settings -> Home.
+    // Home does not intercept Back, so Android keeps its normal exit behavior.
+    BackHandler(enabled = page != Page.HOME) { navigateBack() }
+
     val context = LocalContext.current
     val status by LiveUpdater.controller.status.collectAsState()
     Scaffold(
@@ -59,7 +72,7 @@ fun LoggerApp(onStart: () -> Unit, onStop: () -> Unit, onQuit: () -> Unit) {
                     }
                 },
                 navigationIcon = if (page !in listOf(Page.HOME, Page.SETTINGS)) {
-                    { IconButton(onClick = { page = Page.SETTINGS }) {
+                    { IconButton(onClick = { navigateBack() }) {
                         Icon(Icons.Rounded.ArrowBack, "Back")
                     } }
                 } else { {} },
@@ -75,34 +88,36 @@ fun LoggerApp(onStart: () -> Unit, onStop: () -> Unit, onQuit: () -> Unit) {
         },
         bottomBar = {
             NavigationBar {
-                NavigationBarItem(selected = page == Page.HOME, onClick = { page = Page.HOME },
+                NavigationBarItem(selected = LoggerNavigation(page, subpageParent).homeSelected,
+                    onClick = { navigateTo(Page.HOME) },
                     icon = { Icon(Icons.Rounded.Home, null) }, label = { Text("Home") })
-                NavigationBarItem(selected = page != Page.HOME, onClick = { page = Page.SETTINGS },
+                NavigationBarItem(selected = LoggerNavigation(page, subpageParent).settingsSelected,
+                    onClick = { navigateTo(Page.SETTINGS) },
                     icon = { N2K02UpdateBadgedIcon(status) {
                         Icon(Icons.Rounded.Settings, null) } }, label = { Text("Settings") })
-                NavigationBarItem(selected = false, onClick = { onQuit(); page = Page.HOME },
+                NavigationBarItem(selected = false, onClick = { onQuit(); navigateTo(Page.HOME) },
                     icon = { Icon(Icons.Rounded.PowerSettingsNew, null) }, label = { Text("Quit") })
             }
         }
     ) { padding ->
         when (page) {
             Page.HOME -> HomePage(Modifier.padding(padding), onStart, onStop,
-                onAdb = { page = Page.ADB }, onLogs = { page = Page.LOGS })
+                onAdb = { navigateTo(Page.ADB) }, onLogs = { navigateTo(Page.LOGS) })
             Page.SETTINGS -> Column(Modifier.padding(padding).verticalScroll(rememberScrollState())) {
                 SettingsRow("ADB connection", "Pair, authorize and recover shell UID 2000",
-                    Icons.Rounded.SettingsInputAntenna) { page = Page.ADB }
+                    Icons.Rounded.SettingsInputAntenna) { navigateTo(Page.ADB) }
                 SettingsRow("MCP connection", "Secure outbound HTTPS gateway",
-                    Icons.Rounded.Cloud) { page = Page.BRIDGE }
+                    Icons.Rounded.Cloud) { navigateTo(Page.BRIDGE) }
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 SettingsRow("Diagnostics", "Connection status and failures",
-                    Icons.Rounded.BugReport) { page = Page.DIAGNOSTICS }
+                    Icons.Rounded.BugReport) { navigateTo(Page.DIAGNOSTICS) }
                 SettingsRow("Logs", "Search, filter and review Logcat",
-                    Icons.Rounded.List) { page = Page.LOGS }
+                    Icons.Rounded.List) { navigateTo(Page.LOGS) }
                 ListItem(headlineContent = { Text("About & updates") },
                     supportingContent = { Text("Stable and experimental APK updates") },
                     leadingContent = { Icon(Icons.Rounded.SystemUpdate, null) },
                     trailingContent = { N2K02UpdateBadge(status) },
-                    modifier = Modifier.clickable { page = Page.UPDATES })
+                    modifier = Modifier.clickable { navigateTo(Page.UPDATES) })
             }
             Page.ADB -> AdbPage(Modifier.padding(padding))
             Page.BRIDGE -> BridgePage(Modifier.padding(padding))
