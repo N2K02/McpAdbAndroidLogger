@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.net.Socket
@@ -19,7 +20,15 @@ import java.net.InetSocketAddress
  * Independent same-device ADB controller. A TLS port is a discovery hint, NOT authorization:
  * every connection is authenticated and validated using id -u == 2000.
  */
+data class AdbDiscoveryState(
+    val pairingPort: Int? = null,
+    val connectPort: Int? = null,
+    val status: String = "Discovering Wireless debugging",
+)
+
 object AdbCoordinator {
+    /** UI observes discovery just as VRec observes its Wireless ADB status. */
+    val discoveryState = MutableStateFlow(AdbDiscoveryState())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mutex = Mutex()
     @Volatile var connectPort: Int? = null
@@ -37,11 +46,17 @@ object AdbCoordinator {
             val listener = object : NsdManager.DiscoveryListener {
                 override fun onDiscoveryStarted(type: String) = Unit
                 override fun onStartDiscoveryFailed(type: String, errorCode: Int) {
+                    discoveryState.value = discoveryState.value.copy(status = "Discovery failed ($errorCode)")
                     MonitorState.error("ADB discovery failed: " + errorCode)
                 }
                 override fun onStopDiscoveryFailed(type: String, errorCode: Int) = Unit
                 override fun onDiscoveryStopped(type: String) = Unit
-                override fun onServiceLost(info: NsdServiceInfo) = Unit
+                override fun onServiceLost(info: NsdServiceInfo) {
+                    val current = discoveryState.value
+                    discoveryState.value = if (service.contains("pairing"))
+                        current.copy(pairingPort = null)
+                    else current.copy(connectPort = null)
+                }
                 @Suppress("DEPRECATION")
                 override fun onServiceFound(info: NsdServiceInfo) {
                     manager.resolveService(info, object : NsdManager.ResolveListener {
@@ -51,8 +66,16 @@ object AdbCoordinator {
                             val port = serviceInfo.port.takeIf { it in 1..65535 } ?: return
                             if (service.contains("pairing")) {
                                 pairingPort = port
+                                discoveryState.value = discoveryState.value.copy(
+                                    pairingPort = port, status = "Pairing code available")
                                 PairingAccessibilityService.onPairingPortDiscovered()
-                            } else connectPort = port
+                            } else {
+                                connectPort = port
+                                discoveryState.value = discoveryState.value.copy(
+                                    connectPort = port, status = "Wireless ADB discovered")
+                                if (!MonitorState.adb.value.startsWith("UID 2000 verified"))
+                                    connectAsync(context.applicationContext)
+                            }
                         }
                     })
                 }
@@ -68,12 +91,16 @@ object AdbCoordinator {
         listeners.forEach { runCatching { manager.stopServiceDiscovery(it) } }
         listeners.clear()
         discovery = null
+        pairingPort = null
+        connectPort = null
+        discoveryState.value = AdbDiscoveryState(status = "Discovery stopped")
     }
 
     suspend fun pair(context: Context, port: Int, code: String): Result<Unit> = mutex.withLock {
         if (port !in 1..65535 || !code.matches(Regex("[0-9]{6}"))) {
             return@withLock Result.failure(IllegalArgumentException("Enter a valid six-digit Android pairing code and port"))
         }
+        discoveryState.value = discoveryState.value.copy(status = "Pairing with Android")
         AdbTransport.pairLocal(context, port, code).onFailure {
             MonitorState.error("Pairing failed: " + (it.message ?: "unknown"))
         }
@@ -81,6 +108,7 @@ object AdbCoordinator {
 
     suspend fun connect(context: Context, preferred: Int? = null): Result<Unit> = mutex.withLock {
         val app = context.applicationContext
+        MonitorState.adb.value = "Connecting..."
         val candidates = listOfNotNull(
             5555.takeIf { tcpListening() },
             preferred?.takeIf { it in 1..65535 },
@@ -95,6 +123,7 @@ object AdbCoordinator {
                 val output = AdbTransport.exec("id -u").getOrThrow().trim()
                 check(output == "2000") { "ADB shell identity was " + output + " (expected UID 2000)" }
                 MonitorState.adb.value = "UID 2000 verified • 127.0.0.1:" + port
+                discoveryState.value = discoveryState.value.copy(status = "Authorized shell UID 2000")
                 if (port != 5555 && prefs(app).getBoolean("tcp_mode", true)) {
                     AdbTransport.switchToTcpip().getOrThrow()
                     delay(1500)
@@ -110,6 +139,7 @@ object AdbCoordinator {
             }
         }
         MonitorState.adb.value = "Disconnected"
+        discoveryState.value = discoveryState.value.copy(status = "ADB authorization required")
         Result.failure(lastError)
     }
 
@@ -132,5 +162,6 @@ object AdbCoordinator {
         stopDiscovery()
         mutex.withLock { AdbTransport.close() }
         MonitorState.adb.value = "Stopped"
+        discoveryState.value = AdbDiscoveryState(status = "Stopped")
     }
 }

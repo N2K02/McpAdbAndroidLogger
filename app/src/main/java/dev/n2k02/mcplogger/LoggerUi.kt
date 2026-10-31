@@ -214,55 +214,159 @@ private fun AdbPage(modifier: Modifier) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val status by MonitorState.adb.collectAsState()
+    val discovery by AdbCoordinator.discoveryState.collectAsState()
+    val verified = status.startsWith("UID 2000 verified")
+    val pairingPort = discovery.pairingPort
+    val discoveredPort = discovery.connectPort
     var code by remember { mutableStateOf("") }
-    var pairPort by remember { mutableStateOf("") }
-    var connectPort by remember { mutableStateOf("") }
+    var pairPort by rememberSaveable { mutableStateOf("") }
+    var connectPort by rememberSaveable { mutableStateOf("") }
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    var working by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf("") }
     var tcp by remember { mutableStateOf(AdbCoordinator.tcpEnabled(context)) }
     var boot by remember { mutableStateOf(AdbCoordinator.autoStart(context)) }
+    val autoCode = dev.n2k02.mcplogger.adb.PairingAccessibilityService.enabled(context)
+
     Column(modifier.verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(status, style = MaterialTheme.typography.titleMedium)
-        Text("Enable USB debugging and Wireless debugging. On Android, select Pair device with pairing code. Android must approve the first pairing.")
-        Text("Discovered pairing port: " + (AdbCoordinator.pairingPort?.toString() ?: "Searching"))
-        Text("Discovered connect port: " + (AdbCoordinator.connectPort?.toString() ?: "Searching"))
-        OutlinedTextField(code, { code = it.filter(Char::isDigit).take(6) },
-            label = { Text("Six-digit pairing code") }, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(pairPort, { pairPort = it.filter(Char::isDigit) },
-            label = { Text("Pairing port (optional if discovered)") }, modifier = Modifier.fillMaxWidth())
-        Button(onClick = {
-            scope.launch {
-                val port = pairPort.toIntOrNull() ?: AdbCoordinator.pairingPort
-                if (port == null) MonitorState.error("No pairing port found")
-                else AdbCoordinator.pair(context, port, code).onSuccess {
-                    AdbCoordinator.connect(context).onFailure { MonitorState.error(it.message ?: "ADB failed") }
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(if (verified) Icons.Rounded.CheckCircle else Icons.Rounded.SettingsInputAntenna,
+                        null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(10.dp))
+                    Text("ADB connection", style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f))
+                    AssistChip(onClick = {}, label = {
+                        Text(if (verified) "UID 2000 ✓" else "Not ready")
+                    })
+                }
+                Text(if (verified) "Authorized Android shell is ready" else
+                    "First-time setup: enable Wireless debugging and pair once.",
+                    style = MaterialTheme.typography.bodyMedium)
+                Text(status, style = MaterialTheme.typography.bodySmall)
+                Text(discovery.status, style = MaterialTheme.typography.bodySmall)
+                Text("Active: " + (if (verified) status.substringAfter("• ").trim()
+                    else "Disconnected") +
+                    "   ·   Wireless TLS: " + (discoveredPort?.toString() ?: "not found"),
+                    style = MaterialTheme.typography.bodySmall)
+                if (pairingPort != null && !verified) {
+                    Text("Pairing listener: $pairingPort", style = MaterialTheme.typography.bodySmall)
+                }
+                if (!verified) {
+                    Button(onClick = {
+                        runCatching {
+                            context.startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
+                        }.onFailure { message = "Developer options are unavailable on this device." }
+                    }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Rounded.Settings, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Open Android Developer options")
+                    }
+                    Text("1. Enable USB debugging and Wireless debugging (Wi-Fi required).\n" +
+                        "2. Choose Pair device with pairing code in Android Settings.\n" +
+                        "3. Pair here or let the optional pairing-code helper read the visible Android dialog.\n" +
+                        "4. The app connects, verifies UID 2000 and switches to TCP/5555 if enabled.",
+                        style = MaterialTheme.typography.bodySmall)
+                    if (autoCode) {
+                        Text("Automatic pairing-code detection is enabled.",
+                            style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        OutlinedButton(onClick = {
+                            runCatching {
+                                context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                            }.onFailure { message = "Accessibility Settings unavailable." }
+                        }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Enable automatic pairing-code detection")
+                        }
+                        Text("Optional: the helper reads only the visible Android pairing dialog.",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                    // VRec-style guided entry: show the code field after Android publishes
+                    // a pairing listener, or when the user expands manual port controls.
+                    if (pairingPort != null || expanded) {
+                        OutlinedTextField(code, { code = it.filter(Char::isDigit).take(6) },
+                            label = { Text("Six-digit pairing code") },
+                            modifier = Modifier.fillMaxWidth(), singleLine = true,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                keyboardType = androidx.compose.ui.text.input.KeyboardType.NumberPassword))
+                        Button(onClick = {
+                            working = true
+                            scope.launch {
+                                try {
+                                    val port = pairPort.toIntOrNull() ?: pairingPort
+                                    if (port == null) {
+                                        message = "Open Android's pairing code dialog first."
+                                    } else {
+                                        val result = AdbCoordinator.pair(context, port, code)
+                                        code = ""
+                                        message = if (result.isSuccess) {
+                                            val connected = AdbCoordinator.connect(context)
+                                            if (connected.isSuccess) "ADB connected, UID 2000 verified."
+                                            else "Paired; enable Wireless debugging to connect."
+                                        } else "Pairing failed: " + (result.exceptionOrNull()?.message ?: "Unknown error")
+                                    }
+                                } finally { working = false }
+                            }
+                        }, enabled = code.length == 6 && !working, modifier = Modifier.fillMaxWidth()) {
+                            Text(if (working) "Pairing..." else "Pair and connect ADB")
+                        }
+                    }
+                }
+                OutlinedButton(onClick = {
+                    working = true
+                    scope.launch {
+                        try {
+                            val result = AdbCoordinator.connect(context, connectPort.toIntOrNull())
+                            message = if (result.isSuccess) "UID 2000 verified."
+                                else "Could not connect: " + (result.exceptionOrNull()?.message ?: "not authorized")
+                        } finally { working = false }
+                    }
+                }, modifier = Modifier.fillMaxWidth(), enabled = !working) {
+                    Icon(Icons.Rounded.Refresh, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (working) "Connecting..." else "Reconnect / verify ADB")
+                }
+                if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Connection recovery", style = MaterialTheme.typography.titleSmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Automatic TCP/5555 after pairing", Modifier.weight(1f))
+                    Switch(tcp, onCheckedChange = {
+                        tcp = it
+                        AdbCoordinator.setTcpEnabled(context, it)
+                    })
+                }
+                Text("Enabled by default, like VRec. TCP/5555 may be reachable over your LAN; turn it off if you don't need it.",
+                    style = MaterialTheme.typography.bodySmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Recover on boot", Modifier.weight(1f))
+                    Switch(boot, onCheckedChange = {
+                        boot = it
+                        AdbCoordinator.setAutoStart(context, it)
+                    })
                 }
             }
-        }, enabled = code.length == 6) { Text("Pair and verify UID 2000") }
-        OutlinedTextField(connectPort, { connectPort = it.filter(Char::isDigit) },
-            label = { Text("ADB connect port (optional)") }, modifier = Modifier.fillMaxWidth())
-        OutlinedButton(onClick = {
-            scope.launch { AdbCoordinator.connect(context, connectPort.toIntOrNull()) }
-        }) { Text("Connect / Retry") }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Automatic TCP/5555", Modifier.weight(1f)); Switch(tcp, onCheckedChange = {
-                tcp = it; AdbCoordinator.setTcpEnabled(context, it)
-            })
         }
-        Text("Warning: TCP/5555 may listen on network interfaces, not just localhost.")
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Recover on boot", Modifier.weight(1f)); Switch(boot, onCheckedChange = {
-                boot = it; AdbCoordinator.setAutoStart(context, it)
-            })
+        TextButton(onClick = { expanded = !expanded }) {
+            Text(if (expanded) "Hide advanced port controls" else "Advanced: manual ports")
+            Spacer(Modifier.width(8.dp))
+            Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null)
         }
-        Text("Automatic pairing-code detection: " +
-            if (dev.n2k02.mcplogger.adb.PairingAccessibilityService.enabled(context))
-                "enabled" else "requires Accessibility approval")
-        OutlinedButton(onClick = {
-            context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-        }) { Text("Authorize pairing-code helper") }
-        OutlinedButton(onClick = {
-            context.startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
-        }) { Text("Open Developer options") }
+        if (expanded) {
+            OutlinedTextField(pairPort, { pairPort = it.filter(Char::isDigit).take(5) },
+                label = { Text("Manual pairing port (optional)") },
+                modifier = Modifier.fillMaxWidth(), singleLine = true)
+            OutlinedTextField(connectPort, { connectPort = it.filter(Char::isDigit).take(5) },
+                label = { Text("Manual connect port (optional)") },
+                modifier = Modifier.fillMaxWidth(), singleLine = true)
+            Text("Manual ports are fallback values. Auto-discovered ports are preferred.",
+                style = MaterialTheme.typography.bodySmall)
+        }
     }
 }
 
@@ -274,13 +378,13 @@ private fun BridgePage(modifier: Modifier) {
     var url by rememberSaveable { mutableStateOf(saved.first) }
     var key by rememberSaveable { mutableStateOf(saved.second) }
     var clientToken by rememberSaveable { mutableStateOf(BridgeClient.clientToken(context)) }
-    var enabled by rememberSaveable { mutableStateOf(saved.third) }
-    var confirmed by remember { mutableStateOf(false) }
     var generateConfirmation by remember { mutableStateOf(false) }
     var checking by remember { mutableStateOf(false) }
     var verification by remember { mutableStateOf("") }
     val mcpUrl = McpConnectionSetup.mcpUrlOrNull(url)
     val status by MonitorState.gateway.collectAsState()
+
+    fun save() = BridgeClient.autoSave(context, url, key, clientToken)
 
     fun copy(label: String, value: String, sensitive: Boolean = false) {
         if (value.isBlank()) return
@@ -309,8 +413,8 @@ private fun BridgePage(modifier: Modifier) {
             confirmButton = { TextButton(onClick = {
                 key = McpConnectionSetup.newSecret()
                 clientToken = McpConnectionSetup.newSecret()
-                enabled = false
-                verification = "Two new keys generated locally. Configure them on your gateway before enabling upload."
+                save()
+                verification = "Keys rotated and saved. Update both keys on your gateway server to restore access."
                 generateConfirmation = false
             }) { Text("Generate") } },
             dismissButton = { TextButton(onClick = { generateConfirmation = false }) {
@@ -325,6 +429,7 @@ private fun BridgePage(modifier: Modifier) {
         Text("Connect a hosted MCP gateway to Claude or ChatGPT. This phone cannot invent an internet-reachable address: deploy the included gateway first or provide an existing HTTPS gateway URL.")
         OutlinedTextField(url, {
             url = it
+            save()
             verification = ""
         }, label = { Text("Gateway HTTPS URL (base or /mcp)") },
             modifier = Modifier.fillMaxWidth(), singleLine = true,
@@ -333,7 +438,7 @@ private fun BridgePage(modifier: Modifier) {
                     Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy gateway URL")
                 }
             })
-        OutlinedTextField(key, { key = it }, label = { Text("Device API key (for log uploads)") },
+        OutlinedTextField(key, { key = it; save() }, label = { Text("Device API key (for log uploads)") },
             modifier = Modifier.fillMaxWidth(), singleLine = true,
             visualTransformation = PasswordVisualTransformation(),
             trailingIcon = {
@@ -342,7 +447,7 @@ private fun BridgePage(modifier: Modifier) {
                     Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy device API key")
                 }
             })
-        OutlinedTextField(clientToken, { clientToken = it },
+        OutlinedTextField(clientToken, { clientToken = it; save() },
             label = { Text("MCP client token (for Claude / ChatGPT)") },
             modifier = Modifier.fillMaxWidth(), singleLine = true,
             visualTransformation = PasswordVisualTransformation(),
@@ -356,15 +461,27 @@ private fun BridgePage(modifier: Modifier) {
         OutlinedButton(onClick = { generateConfirmation = true }) {
             Icon(Icons.Rounded.AutoAwesome, null)
             Spacer(Modifier.width(8.dp))
-            Text("Generate secure keys")
+            Text("Regenerate secure keys")
         }
-        Text("The keys are generated on your phone, not registered automatically. Use Copy server configuration to set matching DEVICE_API_KEY and MCP_CLIENT_TOKEN on your hosted gateway.",
+        Text("Keys are generated on first install, then saved automatically. The gateway must use matching DEVICE_API_KEY and MCP_CLIENT_TOKEN values.",
             style = MaterialTheme.typography.bodySmall)
         OutlinedButton(onClick = {
             copy("Gateway server configuration",
                 McpConnectionSetup.dockerEnvironment(key, clientToken))
         }, enabled = key.isNotBlank() && clientToken.isNotBlank()) {
             Text("Copy server configuration")
+        }
+
+        FilledTonalButton(onClick = {
+            if (mcpUrl == null) {
+                verification = "A shareable MCP URL needs a deployed HTTPS gateway. Set its address first; a random URL cannot connect by itself."
+            } else {
+                copy("MCP URL", mcpUrl)
+            }
+        }) {
+            Icon(Icons.Rounded.Link, null)
+            Spacer(Modifier.width(8.dp))
+            Text("Generate / copy MCP URL")
         }
 
         if (mcpUrl != null) {
@@ -414,24 +531,11 @@ private fun BridgePage(modifier: Modifier) {
             Text(verification, style = MaterialTheme.typography.bodySmall)
         }
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Enable log upload", Modifier.weight(1f))
-            Switch(enabled, onCheckedChange = { enabled = it })
-        }
-        Text("Uploads are opt-in. An MCP URL alone does not start a gateway, create an account or authorize AI access.",
-            style = MaterialTheme.typography.bodySmall)
-        Button(onClick = {
-            runCatching {
-                BridgeClient.configure(context, url, key, enabled)
-                BridgeClient.saveClientToken(context, clientToken)
-                confirmed = true
-                verification = "Saved. Start log monitoring to upload after the gateway credentials match."
-            }.onFailure {
-                verification = "Invalid gateway configuration: use an HTTPS URL and device API key."
-                MonitorState.error("Invalid HTTPS gateway configuration")
-            }
-        }) { Text("Save MCP connection") }
-        if (confirmed) Text("MCP settings saved on this phone.",
+        HorizontalDivider()
+        Text("Configuration saved automatically", style = MaterialTheme.typography.titleSmall)
+        Text(if (McpConnectionSetup.gatewayBaseOrNull(url) != null && key.isNotBlank())
+            "Log upload is enabled by default and starts with monitoring. The server must accept the generated device key."
+        else "Enter a deployed HTTPS gateway URL. Upload stays inactive until the address is valid.",
             style = MaterialTheme.typography.bodySmall)
     }
 }

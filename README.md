@@ -29,7 +29,7 @@ This repository's Actions secrets must be configured; secrets from other reposit
 2. Open **ADB connection**, choose Android's **Pair device with pairing code**, and enter the code and port (or enable the optional Accessibility pairing helper to read a visible Settings pairing dialog automatically). Android must authorize the initial connection.
 3. The app validates `id -u == 2000` before starting capture. TCP/5555 is enabled by default but can expose an ADB listener to the LAN; disable in Settings if not wanted.
 4. Start monitoring and select a package. Logcat access varies by Android build, and monitoring requires a visible foreground notification.
-5. For AI access, deploy the gateway and enter its HTTPS URL in **MCP connection**. Tap **Generate secure keys** to create separate device and MCP-client credentials. Copy the server configuration into the gateway deployment, then enable log upload. **Copy MCP URL** gives the `https://.../mcp` endpoint to add to Claude or ChatGPT, together with the MCP client token in the client's authentication settings.
+5. For AI access, deploy the gateway and enter its HTTPS URL in **MCP connection**. Tap **Generate secure keys** to create separate device and MCP-client credentials. Copy the server configuration into the gateway deployment, then start monitoring; upload is automatically on with a valid gateway URL. **Copy MCP URL** gives the `https://.../mcp` endpoint to add to Claude or ChatGPT, together with the MCP client token in the client's authentication settings.
 
 ## MCP gateway
 
@@ -67,3 +67,6 @@ CI validates MCP gateway tests, Android unit tests/lint, R8 release builds, and 
 ## Hardware validation needed
 
 Initial pairing and permission approvals, Android 13+ Logcat availability, TCP/5555 handoff, OEM reboot recovery, foreground-service time limits, update signer continuity and Claude OAuth integration must be tested on an Android device and deployment. CI passing alone cannot verify these.
+
+
+The ADB setup page uses VRec-style guided wireless pairing, a live port/status display, automatic attempts on discovered TLS endpoints, an optional pairing-code Accessibility helper, and advanced manual port fallback. The system still requires the user to authorize the initial pairing; shell UID 2000 is always verified.
