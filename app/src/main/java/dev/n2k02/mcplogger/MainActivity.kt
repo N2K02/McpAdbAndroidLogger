@@ -21,6 +21,15 @@ class MainActivity : ComponentActivity() {
         LiveUpdater.init(this)
         BridgeClient.initialize(this)
         AdbCoordinator.discover(this)
+        // User-launched foreground activity may start the foreground service.
+        // Local MCP stays available until Quit.
+        if (!getSharedPreferences("mcp_logger", MODE_PRIVATE).getBoolean("manual_quit", false)) {
+            runCatching {
+                ContextCompat.startForegroundService(this,
+                    Intent(this, LogMonitorService::class.java)
+                        .setAction(LogMonitorService.LOCAL_START))
+            }.onFailure { MonitorState.error("Local MCP startup: " + it.javaClass.simpleName) }
+        }
         lifecycleScope.launch {
             if (!getSharedPreferences("mcp_logger", MODE_PRIVATE).getBoolean("manual_quit", false))
                 AdbCoordinator.connect(this@MainActivity)

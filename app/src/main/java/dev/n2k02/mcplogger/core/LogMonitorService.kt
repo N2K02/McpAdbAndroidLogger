@@ -28,6 +28,7 @@ import kotlinx.coroutines.launch
 class LogMonitorService : Service() {
     companion object {
         const val START = "dev.n2k02.mcplogger.START"
+        const val LOCAL_START = "dev.n2k02.mcplogger.LOCAL_MCP_START"
         const val STOP = "dev.n2k02.mcplogger.STOP"
         const val QUIT = "dev.n2k02.mcplogger.QUIT"
         private val buffer = LogBuffer()
@@ -39,41 +40,65 @@ class LogMonitorService : Service() {
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
+    private var tunnelJob: Job? = null
+    private var foreground = false
     override fun onBind(intent: Intent?): IBinder? = null
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            STOP, QUIT -> {
-                stop()
-                if (intent.action == QUIT) {
-                    getSharedPreferences("mcp_logger", MODE_PRIVATE).edit()
-                        .putBoolean("manual_quit", true).apply()
-                    scope.launch { AdbCoordinator.quit() }
-                    MonitorState.quit()
-                }
+            QUIT -> {
+                stopCapture()
+                QuickMcpTunnel.stop()
+                tunnelJob?.cancel()
+                tunnelJob = null
+                LocalMcpServer.stop()
+                getSharedPreferences("mcp_logger", MODE_PRIVATE).edit()
+                    .putBoolean("manual_quit", true).apply()
+                scope.launch { AdbCoordinator.quit() }
+                MonitorState.quit()
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                foreground = false
                 stopSelf()
                 return START_NOT_STICKY
             }
-            START -> start()
+            STOP -> {
+                stopCapture()
+                // MCP stays available; only Quit shuts down the server.
+                return START_STICKY
+            }
+            LOCAL_START, START -> {
+                ensureForeground()
+                val started = LocalMcpServer.start(applicationContext)
+                if (started && tunnelJob?.isActive != true) {
+                    tunnelJob = scope.launch { QuickMcpTunnel.start(applicationContext) }
+                }
+                if (intent.action == START) startCapture()
+            }
         }
-        return START_NOT_STICKY
+        return START_STICKY
     }
-    private fun start() {
-        if (job?.isActive == true) return
-        getSharedPreferences("mcp_logger", MODE_PRIVATE).edit()
-            .putBoolean("manual_quit", false).apply()
+
+    private fun ensureForeground() {
+        if (foreground) return
         val channelId = "logger_monitor"
         getSystemService(NotificationManager::class.java)?.createNotificationChannel(
-            NotificationChannel(channelId, "Live Android log monitoring", NotificationManager.IMPORTANCE_LOW))
+            NotificationChannel(channelId, "MCP ADB local server", NotificationManager.IMPORTANCE_LOW))
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val notification = Notification.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_app_notification)
             .setContentTitle("MCP ADB Logger")
-            .setContentText("Reading Logcat with authorized shell access")
+            .setContentText("Read-only MCP server active on this phone")
             .setContentIntent(open)
-            .setOngoing(true)
-            .build()
+            .setOngoing(true).build()
         startForeground(2026, notification)
+        foreground = true
+    }
+
+    private fun start() {
+        if (job?.isActive == true) return
+        getSharedPreferences("mcp_logger", MODE_PRIVATE).edit()
+            .putBoolean("manual_quit", false).apply()
         MonitorState.active.value = true
         job = scope.launch {
             AdbCoordinator.discover(applicationContext)
@@ -102,8 +127,6 @@ class LogMonitorService : Service() {
                     if (newEntries.isNotEmpty()) {
                         MonitorState.logs.value = buffer.snapshot(0, 1000)
                     }
-                    if (BridgeClient.configured(applicationContext))
-                        BridgeClient.upload(applicationContext, newEntries)
                     attempt = 0
                     delay(2500L)
                 } catch (cancelled: kotlinx.coroutines.CancellationException) {
@@ -116,14 +139,17 @@ class LogMonitorService : Service() {
             }
         }
     }
-    private fun stop() {
+    private fun stopCapture() {
         MonitorState.active.value = false
         job?.cancel()
         job = null
-        stopForeground(STOP_FOREGROUND_REMOVE)
     }
     override fun onDestroy() {
-        stop()
+        stopCapture()
+        QuickMcpTunnel.stop()
+        tunnelJob?.cancel()
+        LocalMcpServer.stop()
+        if (foreground) stopForeground(STOP_FOREGROUND_REMOVE)
         scope.cancel()
         super.onDestroy()
     }
