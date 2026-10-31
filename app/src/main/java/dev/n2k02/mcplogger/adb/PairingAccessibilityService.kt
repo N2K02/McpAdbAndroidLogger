@@ -59,7 +59,7 @@ class PairingAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (!PairingCodeUiPolicy.isSettingsPackage(event?.packageName?.toString())) return
+        if (event == null || !PairingCodeUiPolicy.isSettingsPackage(event.packageName?.toString())) return
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
             event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) scheduleRead()
     }
