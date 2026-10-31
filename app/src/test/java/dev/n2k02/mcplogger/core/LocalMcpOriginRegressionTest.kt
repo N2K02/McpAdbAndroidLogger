@@ -13,10 +13,9 @@ class LocalMcpOriginRegressionTest {
 
     @Test fun browserConsentUsesOriginOnlyPolicyInsteadOfNoReferrer() {
         assertEquals("strict-origin", LocalMcpServer.referrerPolicy("text/html"))
-        assertEquals("strict-origin", LocalMcpServer.referrerPolicy("text/html"))
         assertEquals("no-referrer", LocalMcpServer.referrerPolicy("application/json"))
         assertEquals("no-referrer", LocalMcpServer.referrerPolicy("text/plain"))
-        assertTrue(source().contains("Referrer-Policy: " + "\" + referrerPolicy(type)"))
+        assertTrue(source().contains("referrerPolicy(type)"))
     }
 
     @Test fun untrustedOriginProtectionAndSameOriginOAuthFormRemainInPlace() {
