@@ -156,6 +156,10 @@ object AdbCoordinator {
                 if (port != 5555) AdbRecoverySettings.rememberVerifiedTls(app, port)
                 MonitorState.adb.value = "UID 2000 verified • 127.0.0.1:" + port
                 discoveryState.value = discoveryState.value.copy(status = "Authorized shell UID 2000")
+                if (AdbRecoverySettings.restoreAfterRestart(app)) {
+                    // Only an explicitly enabled preference may request this grant.
+                    AdbRecoverySettings.grantSecureSettings(app)
+                }
                 if (port != 5555 && AdbRecoverySettings.tcpMode(app)) {
                     AdbTransport.switchToTcpip().getOrThrow()
                     delay(1500)
@@ -216,6 +220,7 @@ object AdbCoordinator {
         }
     }
 
+    fun isTcpListening(): Boolean = tcpListening()
     private fun tcpListening(): Boolean = runCatching {
         Socket().use { it.connect(InetSocketAddress("127.0.0.1", 5555), 500); true }
     }.getOrDefault(false)
