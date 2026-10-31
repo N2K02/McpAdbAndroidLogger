@@ -21,6 +21,7 @@ import java.security.SecureRandom
  */
 internal object LocalMcpOAuth {
     private const val SCOPE = "logcat:read"
+    private const val OFFLINE = "offline_access"
     private const val ACCESS_MS = 60L * 60 * 1000
     private const val REFRESH_MS = 30L * 24 * 60 * 60 * 1000
     private const val CODE_MS = 5L * 60 * 1000
@@ -129,7 +130,7 @@ internal object LocalMcpOAuth {
             "/.well-known/oauth-protected-resource/mcp" -> reply(200,
                 JSONObject().put("resource", origin + "/mcp")
                     .put("authorization_servers", JSONArray().put(origin))
-                    .put("scopes_supported", JSONArray().put(SCOPE)))
+                    .put("scopes_supported", JSONArray().put(SCOPE).put(OFFLINE)))
             "/.well-known/oauth-authorization-server" -> reply(200,
                 JSONObject().put("issuer",origin)
                     .put("authorization_endpoint",origin + "/oauth/authorize")
@@ -208,7 +209,7 @@ internal object LocalMcpOAuth {
             !Regex("[A-Za-z0-9_-]{43,128}").matches(args["code_challenge"].orEmpty()) ||
             args["state"].orEmpty().length !in 8..2048 ||
             (args["resource"] != null && args["resource"] != origin + "/mcp") ||
-            (args["scope"].orEmpty().isNotBlank() && args["scope"] != SCOPE))
+            !validScopes(args["scope"].orEmpty()))
             return@synchronized failure("invalid_request")
         prune(s,System.currentTimeMillis())
         val pending = table(s,"pending")
@@ -217,6 +218,7 @@ internal object LocalMcpOAuth {
         pending.put(digest(ticket),JSONObject().put("client",args["client_id"])
             .put("redirect",callback).put("challenge",args["code_challenge"])
             .put("state",args["state"]).put("aud",origin + "/mcp")
+            .put("scope",args["scope"].orEmpty().ifBlank { SCOPE })
             .put("expiry",System.currentTimeMillis()+CODE_MS).put("attempts",0))
         save(c,s)
         val display = html(client.optString("name"))
@@ -245,27 +247,28 @@ internal object LocalMcpOAuth {
             .put("redirect",record.getString("redirect"))
             .put("challenge",record.getString("challenge"))
             .put("aud",record.getString("aud"))
+            .put("scope",record.getString("scope"))
             .put("expiry",System.currentTimeMillis()+CODE_MS))
         save(c,s)
         val issuer = issuer() ?: return@synchronized failure("temporarily_unavailable",503)
         redirect(withParams(record.getString("redirect"),mapOf(
             "code" to code,"state" to record.getString("state"),"iss" to issuer)))
     }
-    private fun issue(s: JSONObject, client: String, audience: String): Reply {
+    private fun issue(s: JSONObject, client: String, audience: String, scopes: String): Reply {
         val now = System.currentTimeMillis()
         val access = nonce()
         val refresh = nonce()
         val tokens = table(s,"tokens")
         if (tokens.length() >= 256) return failure("token_capacity_reached",429)
         tokens.put(digest(access), JSONObject().put("kind","access")
-            .put("client",client).put("aud",audience).put("scope",SCOPE)
+            .put("client",client).put("aud",audience).put("scope",scopes)
             .put("expiry",now+ACCESS_MS))
         tokens.put(digest(refresh), JSONObject().put("kind","refresh")
             .put("client",client).put("aud",audience).put("scope",SCOPE)
             .put("expiry",now+REFRESH_MS))
         return reply(200,JSONObject().put("access_token",access)
             .put("refresh_token",refresh).put("token_type","Bearer")
-            .put("expires_in",ACCESS_MS/1000).put("scope",SCOPE))
+            .put("expires_in",ACCESS_MS/1000).put("scope",scopes))
     }
     fun token(c: Context, form: Map<String,String>): Reply = synchronized(lock) {
         val s = current(c)
@@ -289,7 +292,7 @@ internal object LocalMcpOAuth {
                     record.optLong("expiry") <= System.currentTimeMillis() ||
                     !pkceMatches(form["code_verifier"].orEmpty(),record.optString("challenge")))
                     return@synchronized failure("invalid_grant")
-                val response = issue(s,id,audience)
+                val response = issue(s,id,audience,record.optString("scope",SCOPE))
                 save(c,s); updateConnected(s)
                 response
             }
@@ -318,7 +321,7 @@ internal object LocalMcpOAuth {
         val record = table(s,"tokens").optJSONObject(digest(token))
             ?: return@synchronized false
         record.optString("kind") == "access" &&
-            record.optString("scope") == SCOPE &&
+            record.optString("scope").split(Regex("\\s+")).contains(SCOPE) &&
             record.optString("aud") == resource() &&
             record.optLong("expiry") > System.currentTimeMillis() &&
             table(s,"clients").has(record.optString("client"))

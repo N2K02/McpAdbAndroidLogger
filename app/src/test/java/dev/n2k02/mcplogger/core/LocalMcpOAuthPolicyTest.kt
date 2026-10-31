@@ -20,6 +20,15 @@ class LocalMcpOAuthPolicyTest {
         assertFalse(LocalMcpOAuth.validRedirect("https://agent.example"))
     }
 
+    @Test fun offlineRefreshScopeDoesNotGrantAdditionalOperations() {
+        assertTrue(LocalMcpOAuth.validScopes("logcat:read"))
+        assertTrue(LocalMcpOAuth.validScopes("logcat:read offline_access"))
+        assertTrue(LocalMcpOAuth.validScopes("offline_access logcat:read"))
+        assertFalse(LocalMcpOAuth.validScopes("offline_access"))
+        assertFalse(LocalMcpOAuth.validScopes("logcat:read logcat:write"))
+        assertFalse(LocalMcpOAuth.validScopes("logcat:read logcat:read"))
+    }
+
     @Test fun pkceS256RequiresExactVerifierAndChallenge() {
         val verifier = "correct-verifier-with-valid-length-0123456789abc"
         val challenge = Base64.getUrlEncoder().withoutPadding().encodeToString(
@@ -46,6 +55,7 @@ class LocalMcpOAuthPolicyTest {
             assertEquals("https://live-tunnel.example/oauth/token",
                 server.getString("token_endpoint"))
             assertEquals("S256", server.getJSONArray("code_challenge_methods_supported").getString(0))
+            assertTrue(server.getJSONArray("scopes_supported").toString().contains("offline_access"))
         } finally {
             MonitorState.publicMcpUrl.value = previous
         }
