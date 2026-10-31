@@ -217,6 +217,16 @@ object LocalMcpServer {
         return null
     }
 
+    /**
+     * Chrome may send Origin: null for a regular form POST if the page was served
+     * with Referrer-Policy: no-referrer. Keep the real Origin on the OAuth consent
+     * form without revealing state, challenge or ticket query parameters.
+     *
+     * All JSON, MCP and diagnostic responses still use no-referrer.
+     */
+    internal fun referrerPolicy(contentType: String): String =
+        if (contentType == "text/html") "strict-origin" else "no-referrer"
+
     private fun respond(output: BufferedOutputStream, code: Int, text: String,
                         type: String = "text/plain", extra: Map<String,String> = emptyMap()) {
         val reason = when (code) {
@@ -233,7 +243,7 @@ object LocalMcpServer {
             "Content-Type: " + type + "; charset=utf-8\r\n" +
             "Content-Length: " + bytes.size + "\r\n" +
             "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n" +
-            "Referrer-Policy: no-referrer\r\n" +
+            "Referrer-Policy: " + referrerPolicy(type) + "\r\n" +
             "Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'\r\n" +
             safeHeaders + "Connection: close\r\n\r\n"
         output.write(header.toByteArray(StandardCharsets.UTF_8))
