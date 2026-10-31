@@ -138,7 +138,7 @@ object QuickMcpTunnel {
             c.doOutput = true
             c.setRequestProperty("Content-Type", "application/json")
             c.setRequestProperty("User-Agent", "McpAdbAndroidLogger/1.0")
-            c.outputStream.use { it.write("{}".toByteArray(Charsets.UTF_8)) }
+            c.outputStream.use { it.write(ByteArray(0)) }
             check(c.responseCode in 200..299) { "Tunnel registration rejected" }
             val data = c.inputStream.bufferedReader().use { it.readText().take(16000) }
             val reply = JSONObject(data)

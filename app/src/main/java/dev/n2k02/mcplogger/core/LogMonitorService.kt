@@ -46,7 +46,8 @@ class LogMonitorService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
+        // Android may restart a sticky foreground service without the original Intent.
+        when (intent?.action ?: LOCAL_START) {
             QUIT -> {
                 stopCapture()
                 QuickMcpTunnel.stop()
@@ -78,6 +79,8 @@ class LogMonitorService : Service() {
                 }
             }
             LOCAL_START, START -> {
+                if (intent?.action == LOCAL_START) getSharedPreferences("mcp_logger", MODE_PRIVATE)
+                    .edit().putBoolean("manual_quit", false).apply()
                 ensureForeground()
                 val started = LocalMcpServer.start(applicationContext)
                 if (started && tunnelJob?.isActive != true) {
@@ -106,7 +109,7 @@ class LogMonitorService : Service() {
         foreground = true
     }
 
-    private fun start() {
+    private fun startCapture() {
         if (job?.isActive == true) return
         getSharedPreferences("mcp_logger", MODE_PRIVATE).edit()
             .putBoolean("manual_quit", false).apply()
