@@ -20,11 +20,9 @@ object LogViewPolicy {
         val uid = packageUids[filter.packageName]
         return events.filter { event ->
             if (filter.packageName.isNotBlank()) {
-                // Never return all-device logs when the selected UID is unknown.
-                if (uid == null) {
-                    if (!event.raw.contains(filter.packageName, ignoreCase = true)) return@filter false
-                } else if (event.uid != uid &&
-                    !event.raw.contains(filter.packageName, ignoreCase = true)) return@filter false
+                // Strict UID match. A log message mentioning a package is not
+                // evidence that it originated from the selected application.
+                if (uid == null || event.uid != uid) return@filter false
             }
             if (filter.windowMinutes > 0 &&
                 event.epochMillis < now - filter.windowMinutes.toLong() * 60_000L) return@filter false

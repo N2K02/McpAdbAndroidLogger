@@ -22,6 +22,9 @@ class LogViewPolicyTest {
         assertTrue(LogViewPolicy.select(logs,
             LogViewFilter(packageName="unavailable"), uids, 600000).isEmpty())
         assertEquals(4, LogViewPolicy.select(logs, LogViewFilter(), uids, 600000).size)
+        val mentioning = line(5, uid="10002", msg="app.a")
+        assertTrue(LogViewPolicy.select(listOf(mentioning),
+            LogViewFilter(packageName="app.a"), uids, 600000).isEmpty())
     }
 
     @Test fun severityAndCrashesAreCombinable() {
