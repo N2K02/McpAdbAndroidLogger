@@ -177,7 +177,7 @@ private fun AdbPage(modifier: Modifier) {
     var pairPort by rememberSaveable { mutableStateOf("") }
     var connectPort by rememberSaveable { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
-    val tcpOpen = status.contains("TCP/5555") || AdbCoordinator.isTcpListening()
+    val tcpOpen by AdbCoordinator.tcpPortOpen.collectAsState()
 
     @Composable
     fun PreferenceRow(title: String, subtitle: String, checked: Boolean,

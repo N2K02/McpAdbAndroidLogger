@@ -32,6 +32,7 @@ object AdbCoordinator {
     /** UI observes discovery just as VRec observes its Wireless ADB status. */
     val discoveryState = MutableStateFlow(AdbDiscoveryState())
     val verified = MutableStateFlow(false)
+    val tcpPortOpen = MutableStateFlow(false)
     val manualRetryRequired = MutableStateFlow(false)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mutex = Mutex()
@@ -137,6 +138,7 @@ object AdbCoordinator {
             lastDiscoveredAttempt = null
         }
         MonitorState.adb.value = "Connecting..."
+        tcpPortOpen.value = tcpListening()
         val candidates = listOfNotNull(
             5555.takeIf { tcpListening() },
             preferred?.takeIf { it in 1..65535 },
@@ -167,7 +169,9 @@ object AdbCoordinator {
                     AdbTransport.connect(app, AdbTransport.LOOPBACK, 5555).getOrThrow()
                     check(AdbTransport.exec("id -u").getOrThrow().trim() == "2000")
                     MonitorState.adb.value = "UID 2000 verified • TCP/5555"
+                    tcpPortOpen.value = true
                 }
+                tcpPortOpen.value = tcpListening()
                 manualRetryRequired.value = false
                 return@withLock Result.success(Unit)
             } catch (cancelled: CancellationException) {
@@ -209,6 +213,7 @@ object AdbCoordinator {
             }
             AdbTransport.close()
             verified.value = false
+            tcpPortOpen.value = tcpListening()
             MonitorState.adb.value = "TCP/5555 disabled; reconnect with Wireless debugging"
             // Return success ONLY after probing the TCP listener.
             if (tcpListening()) Result.failure(IllegalStateException("TCP/5555 still listening"))
@@ -237,6 +242,7 @@ object AdbCoordinator {
         scope.coroutineContext.cancelChildren()
         mutex.withLock { AdbTransport.close() }
         verified.value = false
+        tcpPortOpen.value = false
         manualRetryRequired.value = false
         lastDiscoveredAttempt = null
         MonitorState.adb.value = "Stopped"
