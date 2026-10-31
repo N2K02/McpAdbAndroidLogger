@@ -36,7 +36,9 @@ internal object McpAuditStore {
     }
 
     fun record(c: Context, identity: Agent, request: String, response: String,
-               method: String, tool: String, status: String, durationMs: Long) =
+               method: String, tool: String, status: String, durationMs: Long,
+               httpMethod: String = "", endpoint: String = "",
+               httpStatus: Int = 0, reason: String = "") =
         synchronized(lock) {
             runCatching {
                 val input = McpAuditPolicy.snapshot(request, McpAuditPolicy.MAX_REQUEST_CHARS)
@@ -49,7 +51,11 @@ internal object McpAuditStore {
                     McpAuditPolicy.snapshot(method, 100).text,
                     McpAuditPolicy.snapshot(tool, 100).text, status.take(32),
                     durationMs.coerceAtLeast(0), input.text, output.text,
-                    input.truncated, output.truncated)
+                    input.truncated, output.truncated,
+                    McpAuditPolicy.snapshot(httpMethod, 12).text,
+                    McpAuditPolicy.snapshot(endpoint, 100).text,
+                    httpStatus.coerceIn(0, 599),
+                    McpAuditPolicy.snapshot(reason, 160).text)
                 val all = (read(c) + entry).takeLast(McpAuditPolicy.KEEP)
                 val json = JSONArray()
                 all.forEach { json.put(it.toJson()) }
@@ -70,15 +76,35 @@ internal object McpAuditStore {
     /** Cap unauthenticated disk writes to one security event per 15 seconds.
      * Public internet scanners must not fill the journal or delay MCP work.
      */
-    fun recordDenied(c: Context) = synchronized(lock) {
-        val now = android.os.SystemClock.elapsedRealtime()
-        if (now - lastDeniedAtMs >= 15_000 || lastDeniedAtMs == 0L) {
-            lastDeniedAtMs = now
-            record(c, Agent("unauthenticated", "Unauthenticated", "Unknown"),
-                "[unauthenticated request; payload withheld]",
-                "HTTP 401 Unauthorized", "MCP", "", "Denied", 0)
+    fun recordDenied(c: Context, httpMethod: String = "GET", endpoint: String = "/mcp",
+                     hasAuthorization: Boolean = false,
+                     clientHint: String = "Unknown (unverified)", httpStatus: Int = 401) =
+        synchronized(lock) {
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (now - lastDeniedAtMs >= 15_000 || lastDeniedAtMs == 0L) {
+                lastDeniedAtMs = now
+                val safeHint = when (clientHint) {
+                    "ChatGPT (unverified)", "Claude (unverified)",
+                    "Browser (unverified)" -> clientHint
+                    else -> "Unknown (unverified)"
+                }
+                val reason = when (httpStatus) {
+                    403 -> "Origin not allowed"
+                    else -> if (hasAuthorization) "Invalid or expired authorization"
+                        else "Bearer authorization missing"
+                }
+                val safeMethod = httpMethod.takeIf {
+                    it in setOf("GET", "POST", "HEAD", "OPTIONS", "DELETE", "PUT", "PATCH")
+                } ?: "OTHER"
+                record(c, Agent("unauthenticated-" + safeHint.substringBefore(' ').lowercase(),
+                    safeHint, "Identity not verified"),
+                    "[unauthenticated request; payload withheld]",
+                    if (httpStatus == 403) "HTTP 403 Forbidden" else "HTTP 401 Unauthorized",
+                    "MCP", "", "Denied", 0,
+                    httpMethod = safeMethod, endpoint = "/mcp", httpStatus = httpStatus,
+                    reason = reason)
+            }
         }
-    }
 
     data class Agent(val id: String, val name: String, val domain: String)
     val DIRECT = Agent("direct-key", "Direct key", "Shared bearer key")

@@ -46,10 +46,41 @@ class McpAuditPolicyTest {
         assertEquals(3, McpAuditPolicy.select(entries, McpAuditPolicy.Filter(), 600000).size)
     }
 
+    @Test fun deniedClientHintIsClearlyUnverifiedAndNeverStoresRawHeaders() {
+        assertEquals("ChatGPT (unverified)",
+            McpAuditPolicy.clientHint("https://chatgpt.com", "custom agent"))
+        assertEquals("Claude (unverified)",
+            McpAuditPolicy.clientHint(null, "claude-mcp/1.0"))
+        assertEquals("Browser (unverified)",
+            McpAuditPolicy.clientHint(null, "Mozilla/5.0 Chrome/123"))
+        assertEquals("Unknown (unverified)",
+            McpAuditPolicy.clientHint("https://secret.example/path?token=x", "private-client"))
+        assertFalse(McpAuditPolicy.clientHint("https://secret.example", "secret-value")
+            .contains("secret-value"))
+    }
+
+    @Test fun httpMetadataSurvivesJsonAndLegacyRowsStillOpen() {
+        val updated = entry("1").copy(httpMethod = "GET", endpoint = "/mcp",
+            httpStatus = 401, reason = "Bearer authorization missing")
+        assertEquals(updated, McpAuditEntry.fromJson(updated.toJson()))
+        val old = entry("2").toJson()
+        old.remove("http_method"); old.remove("endpoint")
+        old.remove("http_status"); old.remove("reason")
+        val decoded = McpAuditEntry.fromJson(old)
+        assertEquals("", decoded.httpMethod)
+        assertEquals(0, decoded.httpStatus)
+    }
+
     @Test fun auditExportShowsAgentAndPayloads() {
         val export = McpAuditPolicy.export(listOf(entry("1")))
         assertTrue(export.contains("Agent:"))
         assertTrue(export.contains("Request [redacted"))
         assertTrue(export.contains("Response [redacted"))
+        val denied = McpAuditPolicy.export(listOf(entry("2").copy(
+            agentName = "Browser (unverified)", httpMethod = "GET",
+            endpoint = "/mcp", httpStatus = 401,
+            reason = "Bearer authorization missing")))
+        assertTrue(denied.contains("HTTP: GET /mcp"))
+        assertTrue(denied.contains("Reason: Bearer authorization missing"))
     }
 }

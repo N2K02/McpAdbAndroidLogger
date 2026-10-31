@@ -99,6 +99,9 @@ object LocalMcpServer {
                 val origin = headers["origin"]
                 if (origin != null && origin !in allowedOrigins &&
                     origin != LocalMcpOAuth.publicOrigin()) {
+                    if (path == "/mcp") McpAuditStore.recordDenied(context, method, path,
+                        clientHint = McpAuditPolicy.clientHint(origin, headers["user-agent"]),
+                        httpStatus = 403)
                     respond(output, 403, "Untrusted Origin")
                     return
                 }
@@ -152,7 +155,9 @@ object LocalMcpServer {
                 if (!legacy && !LocalMcpOAuth.validate(context, actual)) {
                     // Denials are counted without storing any untrusted payload,
                     // supplied credentials, access token, cookies or headers.
-                    if (path == "/mcp") McpAuditStore.recordDenied(context)
+                    if (path == "/mcp") McpAuditStore.recordDenied(context, method, path,
+                        hasAuthorization = authorization.isNotBlank(),
+                        clientHint = McpAuditPolicy.clientHint(origin, headers["user-agent"]))
                     val challenge = LocalMcpOAuth.challenge()
                     respond(output, 401, "Unauthorized", extra = if (challenge != null)
                         mapOf("WWW-Authenticate" to challenge) else emptyMap())
@@ -164,19 +169,31 @@ object LocalMcpServer {
                     } ?: McpAuditStore.Agent("unknown-oauth", "Unknown OAuth agent", "Expired or revoked")
                 if (method != "POST" || path != "/mcp") {
                     respond(output, 405, "Use Streamable HTTP POST")
+                    McpAuditStore.record(context, agent, "[request body not read]",
+                        "HTTP 405 Method Not Allowed", "MCP", "", "Error", 0,
+                        httpMethod = method, endpoint = path, httpStatus = 405,
+                        reason = "Streamable HTTP requires POST /mcp")
                     return
                 }
                 val size = headers["content-length"]?.toIntOrNull()
                 if (size == null || size !in 1..MAX_BODY || headers["transfer-encoding"] != null) {
                     respond(output, 413, "Invalid request length")
+                    McpAuditStore.record(context, agent, "[request body not read]",
+                        "HTTP 413 Payload Too Large", "MCP", "", "Error", 0,
+                        httpMethod = method, endpoint = path, httpStatus = 413,
+                        reason = "Invalid body framing or size")
                     return
                 }
                 val data = readBody(input, size) ?: return
                 val request = try {
                     JSONObject(String(data, StandardCharsets.UTF_8))
                 } catch (_: Exception) {
-                    respond(output, 200, LocalMcpProtocol.invalidJson().toString(),
-                        "application/json")
+                    val invalidResponse = LocalMcpProtocol.invalidJson().toString()
+                    respond(output, 200, invalidResponse, "application/json")
+                    McpAuditStore.record(context, agent, String(data, StandardCharsets.UTF_8),
+                        invalidResponse, "invalid_json", "", "Error", 0,
+                        httpMethod = method, endpoint = path, httpStatus = 200,
+                        reason = "Malformed JSON-RPC request")
                     return
                 }
                 val started = System.nanoTime()
@@ -194,7 +211,9 @@ object LocalMcpServer {
                     if (request.optString("method") == "tools/call")
                         request.optJSONObject("params")?.optString("name").orEmpty()
                     else request.optString("method"),
-                    status, (System.nanoTime() - started) / 1_000_000)
+                    status, (System.nanoTime() - started) / 1_000_000,
+                    httpMethod = method, endpoint = path,
+                    httpStatus = if (result == null) 202 else 200)
             } catch (_: Exception) {
                 // A malformed client must never crash the monitor process.
             }

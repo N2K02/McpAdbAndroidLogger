@@ -8,6 +8,7 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -105,7 +106,7 @@ internal fun McpAuditsScreen(modifier: Modifier = Modifier) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("MCP activity by AI agent", style = MaterialTheme.typography.titleMedium)
-            Text("Agent names are self-registered, not verified identities. " +
+            Text("OAuth agent names are self-registered. Unverified client hints may be spoofed. " +
                 "Read-only MCP requests, redacted request parameters, and the response sent. " +
                 "Stored only on this phone. Up to 160 records are retained; large payload previews are truncated.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -254,13 +255,22 @@ private fun McpAuditRow(entry: McpAuditEntry, onCopy: (String) -> Unit) {
         modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.SmartToy, null,
-                    tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(entry.agentName, fontWeight = FontWeight.SemiBold,
-                        style = MaterialTheme.typography.titleSmall, maxLines = 1,
-                        overflow = TextOverflow.Ellipsis)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Surface(shape = RoundedCornerShape(50),
+                        color = if (entry.agentId.startsWith("unauthenticated"))
+                            MaterialTheme.colorScheme.errorContainer
+                        else MaterialTheme.colorScheme.secondaryContainer) {
+                        Row(Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            Icon(Icons.Rounded.SmartToy, contentDescription = null,
+                                modifier = Modifier.size(15.dp))
+                            Text(entry.agentName.ifBlank { "Unknown agent" },
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
                     Text(entry.domain, style = MaterialTheme.typography.labelSmall,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
@@ -268,14 +278,28 @@ private fun McpAuditRow(entry: McpAuditEntry, onCopy: (String) -> Unit) {
                     color = if (entry.status == "OK" || entry.status == "Accepted")
                         MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
             }
-            Text(if (entry.tool != entry.method) entry.tool + " · " + entry.method
-                else entry.method, style = MaterialTheme.typography.bodyMedium)
+            Text((if (entry.tool.isNotBlank()) entry.tool else entry.method) +
+                (if (entry.httpMethod.isNotBlank()) " · " + entry.httpMethod +
+                    " " + entry.endpoint else ""),
+                style = MaterialTheme.typography.bodyMedium)
             Text(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.MEDIUM)
                 .format(Date(entry.timestamp)) + " · " + entry.durationMs + " ms",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (expanded) {
                 HorizontalDivider()
+                Text("Agent: " + entry.agentName + " · " + entry.domain,
+                    style = MaterialTheme.typography.bodySmall)
+                Text("MCP method: " + entry.method +
+                    (if (entry.tool.isNotBlank()) " · tool: " + entry.tool else ""),
+                    style = MaterialTheme.typography.bodySmall)
+                if (entry.httpMethod.isNotBlank()) Text(
+                    "HTTP: " + entry.httpMethod + " " + entry.endpoint +
+                        " · status " + entry.httpStatus,
+                    style = MaterialTheme.typography.bodySmall)
+                if (entry.reason.isNotBlank()) Text("Reason: " + entry.reason,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall)
                 Text("Request · redacted" +
                     if (entry.requestTruncated) " · truncated" else "",
                     style = MaterialTheme.typography.labelMedium)

@@ -52,6 +52,24 @@ internal object McpAuditPolicy {
         else Snapshot(clean, false)
     }
 
+    /**
+     * Hints from Origin/User-Agent are never verified agent identities.
+     * Whitelist labels only; never persist arbitrary headers or their values.
+     */
+    fun clientHint(origin: String?, userAgent: String?): String {
+        val o = origin.orEmpty().lowercase()
+        val ua = userAgent.orEmpty().lowercase()
+        return when {
+            o == "https://chatgpt.com" || o == "https://chat.openai.com" ||
+                ua.contains("chatgpt") || ua.contains("openai") -> "ChatGPT (unverified)"
+            o == "https://claude.ai" || ua.contains("claude") || ua.contains("anthropic") ->
+                "Claude (unverified)"
+            ua.contains("mozilla/") || ua.contains("chrome/") || ua.contains("safari/") ->
+                "Browser (unverified)"
+            else -> "Unknown (unverified)"
+        }
+    }
+
     data class Filter(
         val agentId: String = "",
         val query: String = "",
@@ -66,14 +84,20 @@ internal object McpAuditPolicy {
             (filter.status.isEmpty() || e.status == filter.status) &&
             (filter.minutes <= 0 || e.timestamp >= now - filter.minutes.toLong() * 60_000) &&
             (filter.query.isBlank() || listOf(e.agentName, e.domain, e.method, e.tool,
-                e.request, e.response, e.status).any { it.contains(filter.query.trim(), true) })
+                e.request, e.response, e.status, e.httpMethod, e.endpoint, e.reason,
+                e.httpStatus.toString()).any { it.contains(filter.query.trim(), true) })
         }
 
     fun export(entries: List<McpAuditEntry>): String =
         entries.joinToString("\n\n") { e ->
-            "Time: " + e.timestamp + "\nAgent: " + e.agentName + " (" + e.domain + ")\n" +
+            "Time: " + e.timestamp + " (" +
+                java.text.DateFormat.getDateTimeInstance().format(java.util.Date(e.timestamp)) +
+                ")\nAgent: " + e.agentName + " (" + e.domain + ")\n" +
                 "Method: " + e.method + "\nTool: " + e.tool + "\n" +
                 "Status: " + e.status + " · " + e.durationMs + " ms\n" +
+                (if (e.httpMethod.isNotBlank()) "HTTP: " + e.httpMethod + " " + e.endpoint +
+                    " · " + e.httpStatus + "\n" else "") +
+                (if (e.reason.isNotBlank()) "Reason: " + e.reason + "\n" else "") +
                 "Request [redacted" + (if (e.requestTruncated) ", truncated" else "") + "]:\n" + e.request + "\n" +
                 "Response [redacted" + (if (e.responseTruncated) ", truncated" else "") + "]:\n" + e.response
         }
@@ -92,7 +116,11 @@ internal data class McpAuditEntry(
     val request: String,
     val response: String,
     val requestTruncated: Boolean,
-    val responseTruncated: Boolean
+    val responseTruncated: Boolean,
+    val httpMethod: String = "",
+    val endpoint: String = "",
+    val httpStatus: Int = 0,
+    val reason: String = ""
 ) {
     fun toJson() = JSONObject()
         .put("id", id).put("time", timestamp).put("agent_id", agentId)
@@ -101,6 +129,8 @@ internal data class McpAuditEntry(
         .put("duration_ms", durationMs).put("request", request).put("response", response)
         .put("request_truncated", requestTruncated)
         .put("response_truncated", responseTruncated)
+        .put("http_method", httpMethod).put("endpoint", endpoint)
+        .put("http_status", httpStatus).put("reason", reason)
 
     companion object {
         fun fromJson(j: JSONObject) = McpAuditEntry(
@@ -108,6 +138,8 @@ internal data class McpAuditEntry(
             j.getString("agent_name"), j.optString("domain"), j.optString("method"),
             j.optString("tool"), j.optString("status"), j.optLong("duration_ms"),
             j.optString("request"), j.optString("response"),
-            j.optBoolean("request_truncated"), j.optBoolean("response_truncated"))
+            j.optBoolean("request_truncated"), j.optBoolean("response_truncated"),
+            j.optString("http_method"), j.optString("endpoint"),
+            j.optInt("http_status"), j.optString("reason"))
     }
 }

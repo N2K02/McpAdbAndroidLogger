@@ -25,7 +25,10 @@ class McpAuditsContractTest {
         assertTrue(server.contains("McpAuditStore.record(context, agent"))
         assertTrue(server.contains("LocalMcpOAuth.clientForToken(context, actual)"))
         assertTrue(server.contains("McpAuditStore.DIRECT"))
-        assertTrue(server.contains("McpAuditStore.recordDenied(context)"))
+        assertTrue(server.contains("McpAuditStore.recordDenied(context, method, path"))
+        assertTrue(server.contains("clientHint = McpAuditPolicy.clientHint"))
+        assertTrue(server.contains("httpStatus = 403"))
+        assertTrue(server.contains("httpStatus = if (result == null) 202 else 200"))
         val store = source(root + "core/McpAuditStore.kt")
         assertTrue(store.contains("[unauthenticated request; payload withheld]"))
         assertTrue(store.contains("lastDeniedAtMs"))
@@ -54,6 +57,7 @@ class McpAuditsContractTest {
         for (token in listOf("All agents", "All tools", "All results", "Any time",
                 "McpAuditPolicy.select", "CreateDocument(\"text/plain\")",
                 "Tap to inspect request and response", "Copy details", "Clear history",
-                "Export")) assertTrue("Missing " + token, screen.contains(token))
+                "Export", "RoundedCornerShape(50)", "HTTP: ",
+                "Reason: ", "Unknown agent")) assertTrue("Missing " + token, screen.contains(token))
     }
 }
