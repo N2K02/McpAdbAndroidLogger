@@ -20,6 +20,7 @@ object MonitorState {
     val logs = MutableStateFlow<List<LogEvent>>(emptyList())
     val errors = MutableStateFlow<List<String>>(emptyList())
     val packages = MutableStateFlow<List<String>>(emptyList())
+    val packageUids = MutableStateFlow<Map<String, String>>(emptyMap())
     fun error(message: String) {
         errors.value = (errors.value + message.take(300)).takeLast(100)
     }

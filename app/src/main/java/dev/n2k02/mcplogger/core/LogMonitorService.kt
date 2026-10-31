@@ -83,11 +83,17 @@ class LogMonitorService : Service() {
                         AdbCoordinator.connect(applicationContext).getOrThrow()
                         attempt = 0
                     }
+                    // Query package identities through the authorized shell rather than
+                    // requesting broad Android QUERY_ALL_PACKAGES app visibility.
+                    val packagesOutput = AdbTransport.exec("pm list packages -3 -U", timeoutMs = 12000)
+                        .getOrNull().orEmpty()
+                    if (packagesOutput.isNotBlank()) {
+                        val known = PackageListParser.parse(packagesOutput)
+                        MonitorState.packageUids.value = known
+                        MonitorState.packages.value = known.keys.sorted().take(500)
+                    }
                     val packageName = MonitorState.selectedPackage.value
-                    val uid = runCatching {
-                        if (packageName.isBlank()) null else packageManager
-                            .getApplicationInfo(packageName, 0).uid.toString()
-                    }.getOrNull()
+                    val uid = MonitorState.packageUids.value[packageName]
                     val output = AdbTransport.exec("logcat -b main -b system -b crash -v uid -v epoch -d -t 300",
                         timeoutMs = 12000).getOrThrow()
                     val newEntries = buffer.add(output.lineSequence().mapNotNull(LogFoxParser::parse).toList(),
@@ -97,13 +103,6 @@ class LogMonitorService : Service() {
                     }
                     if (BridgeClient.configured(applicationContext))
                         BridgeClient.upload(applicationContext, newEntries)
-                    val packagesOutput = AdbTransport.exec("pm list packages -3", timeoutMs = 12000)
-                        .getOrNull().orEmpty()
-                    if (packagesOutput.isNotBlank()) {
-                        MonitorState.packages.value = packagesOutput.lineSequence()
-                            .filter { it.startsWith("package:") }.map { it.removePrefix("package:") }
-                            .sorted().take(500).toList()
-                    }
                     attempt = 0
                     delay(2500L)
                 } catch (cancelled: kotlinx.coroutines.CancellationException) {

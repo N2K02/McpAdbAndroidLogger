@@ -10,8 +10,13 @@ class LogBuffer(private val capacity: Int = 2000) {
     @Synchronized fun add(newLines: List<LogEvent>, packageUid: String?, packageName: String?): List<LogEvent> {
         val result = mutableListOf<LogEvent>()
         for (line in newLines) {
-            if (packageUid != null && line.uid != packageUid &&
-                (packageName.isNullOrBlank() || !line.raw.contains(packageName, true))) continue
+            // Fail closed when a package is selected but its UID is unavailable.
+            // Never accidentally return all-device logs for a filtered request.
+            if (!packageName.isNullOrBlank()) {
+                if (packageUid == null && !line.raw.contains(packageName, ignoreCase = true)) continue
+                if (packageUid != null && line.uid != packageUid &&
+                    !line.raw.contains(packageName, ignoreCase = true)) continue
+            }
             if (!fingerprints.add(line.raw)) continue
             val event = line.copy(id = nextId++)
             saved.addLast(event)

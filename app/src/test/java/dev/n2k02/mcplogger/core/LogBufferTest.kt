@@ -21,6 +21,16 @@ class LogBufferTest {
         b.add(listOf(event(1), event(2, "20002")), "10001", "some.app")
         assertEquals(1, b.snapshot().size)
     }
+    @Test fun unknownPackageUidNeverLeaksOtherAppLogs() {
+        val buffer = LogBuffer()
+        buffer.add(listOf(event(1)), null, "com.example.other")
+        assertTrue(buffer.snapshot().isEmpty())
+    }
+    @Test fun readsPackageUidListFromAuthorizedShellOutput() {
+        val packageMap = PackageListParser.parse("package:dev.n2k02.foo uid:10234\\npackage:com.example uid:12345")
+        assertEquals("10234", packageMap["dev.n2k02.foo"])
+        assertEquals("12345", packageMap["com.example"])
+    }
     @Test fun redactionDoesNotExposeTokensOrEmails() {
         val input = "Authorization: Bearer987 token=secretvalue john@example.com 4111111111111111"
         val filtered = SensitiveLogRedactor.redact(input)
