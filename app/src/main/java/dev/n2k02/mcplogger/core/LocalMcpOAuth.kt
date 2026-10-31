@@ -237,7 +237,7 @@ internal object LocalMcpOAuth {
         val ticket = nonce()
         pending.put(digest(ticket),JSONObject().put("client",args["client_id"])
             .put("redirect",callback).put("challenge",args["code_challenge"])
-            .put("state",args["state"]).put("aud",origin + "/mcp")
+            .put("state",args["state"].orEmpty()).put("aud",origin + "/mcp")
             .put("scope",args["scope"].orEmpty().ifBlank { SCOPE })
             .put("expiry",System.currentTimeMillis()+CODE_MS).put("attempts",0))
         save(c,s)
