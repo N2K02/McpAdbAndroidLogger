@@ -3,6 +3,8 @@ package dev.n2k02.mcplogger
 import android.content.Context
 import android.content.Intent
 import android.content.ClipData
+import android.content.ClipDescription
+import android.os.Build
 import android.content.ClipboardManager
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
@@ -280,10 +282,19 @@ private fun BridgePage(modifier: Modifier) {
     val mcpUrl = McpConnectionSetup.mcpUrlOrNull(url)
     val status by MonitorState.gateway.collectAsState()
 
-    fun copy(label: String, value: String) {
+    fun copy(label: String, value: String, sensitive: Boolean = false) {
+        if (value.isBlank()) return
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText(label, value))
-        verification = "$label copied. Clear the clipboard after use if it contains secrets."
+        val clip = ClipData.newPlainText(label, value)
+        if (sensitive && Build.VERSION.SDK_INT >= 33) {
+            // Hide key previews in Android's clipboard overlay.
+            clip.description.extras = (clip.description.extras ?: android.os.PersistableBundle()).apply {
+                putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
+            }
+        }
+        clipboard.setPrimaryClip(clip)
+        verification = if (sensitive) "$label copied. Clear the clipboard after use."
+            else "$label copied."
     }
     fun openSite(address: String) {
         runCatching {
@@ -316,14 +327,31 @@ private fun BridgePage(modifier: Modifier) {
             url = it
             verification = ""
         }, label = { Text("Gateway HTTPS URL (base or /mcp)") },
-            modifier = Modifier.fillMaxWidth(), singleLine = true)
+            modifier = Modifier.fillMaxWidth(), singleLine = true,
+            trailingIcon = {
+                IconButton(onClick = { copy("Gateway URL", url) }, enabled = url.isNotBlank()) {
+                    Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy gateway URL")
+                }
+            })
         OutlinedTextField(key, { key = it }, label = { Text("Device API key (for log uploads)") },
             modifier = Modifier.fillMaxWidth(), singleLine = true,
-            visualTransformation = PasswordVisualTransformation())
+            visualTransformation = PasswordVisualTransformation(),
+            trailingIcon = {
+                IconButton(onClick = { copy("Device API key", key, sensitive = true) },
+                    enabled = key.isNotBlank()) {
+                    Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy device API key")
+                }
+            })
         OutlinedTextField(clientToken, { clientToken = it },
             label = { Text("MCP client token (for Claude / ChatGPT)") },
             modifier = Modifier.fillMaxWidth(), singleLine = true,
-            visualTransformation = PasswordVisualTransformation())
+            visualTransformation = PasswordVisualTransformation(),
+            trailingIcon = {
+                IconButton(onClick = { copy("MCP client token", clientToken, sensitive = true) },
+                    enabled = clientToken.isNotBlank()) {
+                    Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy MCP client token")
+                }
+            })
 
         OutlinedButton(onClick = { generateConfirmation = true }) {
             Icon(Icons.Rounded.AutoAwesome, null)
@@ -343,11 +371,15 @@ private fun BridgePage(modifier: Modifier) {
             HorizontalDivider()
             Text("MCP URL to paste into Claude / ChatGPT",
                 style = MaterialTheme.typography.titleSmall)
-            Text(mcpUrl, style = MaterialTheme.typography.bodyMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { copy("MCP URL", mcpUrl) }) {
-                    Text("Copy MCP URL")
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(mcpUrl, modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                IconButton(onClick = { copy("MCP URL", mcpUrl) }) {
+                    Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy MCP URL")
                 }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = {
                     checking = true
                     verification = "Checking gateway..."
