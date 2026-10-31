@@ -9,7 +9,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * Explicit opt-in outbound HTTPS transport. Never binds a listening socket on Android.
+ * User-configured outbound HTTPS transport. Never binds a listening socket on Android.
  * The device API key remains only in app-private preferences and HTTPS headers.
  */
 object BridgeClient {
@@ -81,11 +81,6 @@ object BridgeClient {
         } catch (_: Exception) {
             false
         }
-    }
-    fun settings(context: Context): Triple<String, String, Boolean> {
-        val p = prefs(context)
-        return Triple(p.getString("gateway", "") ?: "", p.getString("device_key", "") ?: "",
-            p.getBoolean("bridge_enabled", false))
     }
     suspend fun upload(context: Context, events: List<LogEvent>): Boolean = withContext(Dispatchers.IO) {
         if (!configured(context)) return@withContext false
