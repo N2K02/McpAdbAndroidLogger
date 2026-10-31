@@ -111,7 +111,7 @@ fun LoggerApp(onStart: () -> Unit, onStop: () -> Unit, onQuit: () -> Unit) {
             Page.SETTINGS -> Column(Modifier.padding(padding).verticalScroll(rememberScrollState())) {
                 SettingsRow("ADB connection", "Pair, authorize and recover shell UID 2000",
                     Icons.Rounded.SettingsInputAntenna) { navigateTo(Page.ADB) }
-                SettingsRow("MCP connection", "Secure outbound HTTPS gateway",
+                SettingsRow("MCP connection", "Local MCP server and secure public tunnel",
                     Icons.Rounded.Cloud) { navigateTo(Page.BRIDGE) }
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 SettingsRow("Diagnostics", "Connection status and failures",
@@ -155,7 +155,7 @@ private fun HomePage(modifier: Modifier, onStart: () -> Unit, onStop: () -> Unit
     onAdb: () -> Unit, onLogs: () -> Unit) {
     val active by MonitorState.active.collectAsState()
     val adb by MonitorState.adb.collectAsState()
-    val bridge by MonitorState.gateway.collectAsState()
+    val bridge by MonitorState.tunnel.collectAsState()
     val events by MonitorState.logs.collectAsState()
     val selected by MonitorState.selectedPackage.collectAsState()
     val packages by MonitorState.packages.collectAsState()
@@ -173,7 +173,7 @@ private fun HomePage(modifier: Modifier, onStart: () -> Unit, onStop: () -> Unit
             Column(Modifier.padding(16.dp)) {
                 Text("Monitoring", style = MaterialTheme.typography.titleMedium)
                 Text(if (active) "Running" else "Stopped")
-                Text("AI bridge: " + bridge)
+                Text("MCP tunnel: " + bridge)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = onStart, enabled = !active) { Text("Start monitoring") }
                     OutlinedButton(onClick = onStop, enabled = active) { Text("Stop") }
@@ -374,168 +374,126 @@ private fun AdbPage(modifier: Modifier) {
 private fun BridgePage(modifier: Modifier) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val saved = remember { BridgeClient.settings(context) }
-    var url by rememberSaveable { mutableStateOf(saved.first) }
-    var key by rememberSaveable { mutableStateOf(saved.second) }
-    var clientToken by rememberSaveable { mutableStateOf(BridgeClient.clientToken(context)) }
-    var generateConfirmation by remember { mutableStateOf(false) }
-    var checking by remember { mutableStateOf(false) }
-    var verification by remember { mutableStateOf("") }
-    val mcpUrl = McpConnectionSetup.mcpUrlOrNull(url)
-    val status by MonitorState.gateway.collectAsState()
-
-    fun save() = BridgeClient.autoSave(context, url, key, clientToken)
+    val local by MonitorState.localMcp.collectAsState()
+    val tunnel by MonitorState.tunnel.collectAsState()
+    val publicUrl by MonitorState.publicMcpUrl.collectAsState()
+    var clientToken by rememberSaveable {
+        mutableStateOf(BridgeClient.clientToken(context))
+    }
+    var hint by remember { mutableStateOf("") }
+    val localUrl = dev.n2k02.mcplogger.core.LocalMcpServer.URL
+    var rotating by remember { mutableStateOf(false) }
 
     fun copy(label: String, value: String, sensitive: Boolean = false) {
         if (value.isBlank()) return
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val clip = ClipData.newPlainText(label, value)
         if (sensitive && Build.VERSION.SDK_INT >= 33) {
-            // Hide key previews in Android's clipboard overlay.
             clip.description.extras = (clip.description.extras ?: android.os.PersistableBundle()).apply {
                 putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
             }
         }
         clipboard.setPrimaryClip(clip)
-        verification = if (sensitive) "$label copied. Clear the clipboard after use."
-            else "$label copied."
+        hint = if (sensitive) "$label copied. Clear the clipboard after use." else "$label copied."
     }
-    fun openSite(address: String) {
+
+    fun sendAction(action: String) {
         runCatching {
-            context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(address)))
-        }.onFailure { verification = "No browser available to open connector settings." }
+            androidx.core.content.ContextCompat.startForegroundService(context,
+                Intent(context, LogMonitorService::class.java).setAction(action))
+        }.onFailure { hint = "Cannot start MCP service: " + it.javaClass.simpleName }
     }
-    if (generateConfirmation) {
-        AlertDialog(
-            onDismissRequest = { generateConfirmation = false },
-            title = { Text("Replace MCP credentials?") },
-            text = { Text("New secrets must also be configured on your gateway server. Existing uploads and MCP access will stop until the server uses them.") },
-            confirmButton = { TextButton(onClick = {
-                key = McpConnectionSetup.newSecret()
-                clientToken = McpConnectionSetup.newSecret()
-                save()
-                verification = "Keys rotated and saved. Update both keys on your gateway server to restore access."
-                generateConfirmation = false
-            }) { Text("Generate") } },
-            dismissButton = { TextButton(onClick = { generateConfirmation = false }) {
-                Text("Cancel")
-            } },
-        )
-    }
+
+    if (rotating) AlertDialog(
+        onDismissRequest = { rotating = false },
+        title = { Text("Rotate MCP access key?") },
+        text = { Text("The previous MCP key will stop working immediately. Update the key in Claude and ChatGPT.") },
+        confirmButton = { TextButton(onClick = {
+            clientToken = McpConnectionSetup.newSecret()
+            BridgeClient.saveClientToken(context, clientToken)
+            rotating = false
+        }) { Text("Rotate key") } },
+        dismissButton = { TextButton(onClick = { rotating = false }) { Text("Cancel") } },
+    )
 
     Column(modifier.verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Bridge: $status", style = MaterialTheme.typography.titleMedium)
-        Text("Connect a hosted MCP gateway to Claude or ChatGPT. This phone cannot invent an internet-reachable address: deploy the included gateway first or provide an existing HTTPS gateway URL.")
-        OutlinedTextField(url, {
-            url = it
-            save()
-            verification = ""
-        }, label = { Text("Gateway HTTPS URL (base or /mcp)") },
-            modifier = Modifier.fillMaxWidth(), singleLine = true,
+        Text("Phone-hosted MCP", style = MaterialTheme.typography.titleMedium)
+        Text("The MCP server runs on this Android phone. Only read-only, redacted Logcat diagnostics are accessible with your private token.")
+        Text("Local server: $local", style = MaterialTheme.typography.bodySmall)
+        OutlinedTextField(value = localUrl, onValueChange = {}, readOnly = true,
+            label = { Text("Local MCP URL (other apps on this phone)") },
+            singleLine = true, modifier = Modifier.fillMaxWidth(),
             trailingIcon = {
-                IconButton(onClick = { copy("Gateway URL", url) }, enabled = url.isNotBlank()) {
-                    Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy gateway URL")
+                IconButton(onClick = { copy("Local MCP URL", localUrl) }) {
+                    Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy local MCP URL")
                 }
             })
-        OutlinedTextField(key, { key = it; save() }, label = { Text("Device API key (for log uploads)") },
-            modifier = Modifier.fillMaxWidth(), singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            trailingIcon = {
-                IconButton(onClick = { copy("Device API key", key, sensitive = true) },
-                    enabled = key.isNotBlank()) {
-                    Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy device API key")
-                }
-            })
-        OutlinedTextField(clientToken, { clientToken = it; save() },
-            label = { Text("MCP client token (for Claude / ChatGPT)") },
-            modifier = Modifier.fillMaxWidth(), singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            trailingIcon = {
-                IconButton(onClick = { copy("MCP client token", clientToken, sensitive = true) },
-                    enabled = clientToken.isNotBlank()) {
-                    Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy MCP client token")
-                }
-            })
-
-        OutlinedButton(onClick = { generateConfirmation = true }) {
-            Icon(Icons.Rounded.AutoAwesome, null)
-            Spacer(Modifier.width(8.dp))
-            Text("Regenerate secure keys")
-        }
-        Text("Keys are generated on first install, then saved automatically. The gateway must use matching DEVICE_API_KEY and MCP_CLIENT_TOKEN values.",
-            style = MaterialTheme.typography.bodySmall)
-        OutlinedButton(onClick = {
-            copy("Gateway server configuration",
-                McpConnectionSetup.dockerEnvironment(key, clientToken))
-        }, enabled = key.isNotBlank() && clientToken.isNotBlank()) {
-            Text("Copy server configuration")
-        }
-
-        FilledTonalButton(onClick = {
-            if (mcpUrl == null) {
-                verification = "A shareable MCP URL needs a deployed HTTPS gateway. Set its address first; a random URL cannot connect by itself."
-            } else {
-                copy("MCP URL", mcpUrl)
-            }
-        }) {
-            Icon(Icons.Rounded.Link, null)
-            Spacer(Modifier.width(8.dp))
-            Text("Generate / copy MCP URL")
-        }
-
-        if (mcpUrl != null) {
-            HorizontalDivider()
-            Text("MCP URL to paste into Claude / ChatGPT",
-                style = MaterialTheme.typography.titleSmall)
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(mcpUrl, modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                IconButton(onClick = { copy("MCP URL", mcpUrl) }) {
-                    Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy MCP URL")
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = {
-                    checking = true
-                    verification = "Checking gateway..."
-                    scope.launch {
-                        val ok = BridgeClient.checkGateway(url)
-                        verification = if (ok) "Gateway is reachable. This does not verify the client token or register your connector."
-                            else "Gateway unavailable or not an MCP ADB Logger server. Deploy the gateway and verify HTTPS."
-                        checking = false
-                    }
-                }, enabled = !checking) { Text("Test gateway") }
-            }
-            OutlinedButton(onClick = {
-                copy("MCP Authorization header", "Bearer $clientToken")
-            }, enabled = clientToken.isNotBlank()) {
-                Text("Copy MCP bearer token")
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = { openSite("https://claude.ai") }) {
-                    Text("Open Claude")
-                }
-                TextButton(onClick = { openSite("https://chatgpt.com/plugins") }) {
-                    Text("Open ChatGPT plugins")
-                }
-            }
-            Text("In Claude: Customize → Connectors → Add custom connector. In ChatGPT: Plugins → Add custom MCP server (when available for your account). Enter the MCP URL and authenticate using the MCP client token. You must approve the connection in Claude or ChatGPT.",
-                style = MaterialTheme.typography.bodySmall)
-        } else if (url.isNotBlank()) {
-            Text("Enter a valid HTTPS gateway address, without embedded credentials.",
-                color = MaterialTheme.colorScheme.error)
-        }
-        if (verification.isNotBlank()) {
-            Text(verification, style = MaterialTheme.typography.bodySmall)
-        }
-
         HorizontalDivider()
-        Text("Configuration saved automatically", style = MaterialTheme.typography.titleSmall)
-        Text(if (McpConnectionSetup.gatewayBaseOrNull(url) != null && key.isNotBlank())
-            "Log upload is enabled by default and starts with monitoring. The server must accept the generated device key."
-        else "Enter a deployed HTTPS gateway URL. Upload stays inactive until the address is valid.",
+        Text("Public MCP for Claude / ChatGPT", style = MaterialTheme.typography.titleMedium)
+        Text("Quick Tunnel: $tunnel", style = MaterialTheme.typography.bodySmall)
+        if (publicUrl.isBlank()) {
+            Text("A public URL appears here only when Cloudflare confirms a tunnel connection. It changes when the tunnel restarts; it requires the phone to be online.",
+                style = MaterialTheme.typography.bodySmall)
+        }
+        OutlinedTextField(value = publicUrl, onValueChange = {}, readOnly = true,
+            label = { Text("Public HTTPS MCP URL") },
+            modifier = Modifier.fillMaxWidth(), singleLine = true,
+            trailingIcon = {
+                IconButton(onClick = { copy("Public MCP URL", publicUrl) },
+                    enabled = publicUrl.isNotBlank()) {
+                    Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy public MCP URL")
+                }
+            })
+        OutlinedTextField(value = clientToken,
+            onValueChange = {
+                clientToken = it
+                BridgeClient.saveClientToken(context, it)
+            }, label = { Text("MCP client access key") }, singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            visualTransformation = PasswordVisualTransformation(),
+            trailingIcon = {
+                IconButton(onClick = {
+                    copy("MCP client access key", clientToken, sensitive = true)
+                }, enabled = clientToken.isNotBlank()) {
+                    Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy MCP client access key")
+                }
+            })
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilledTonalButton(onClick = {
+                sendAction(LogMonitorService.LOCAL_START)
+            }) {
+                Icon(Icons.Rounded.PlayArrow, null)
+                Spacer(Modifier.width(6.dp))
+                Text("Start server")
+            }
+            OutlinedButton(onClick = { sendAction(LogMonitorService.TUNNEL_RESTART) }) {
+                Icon(Icons.Rounded.Refresh, null)
+                Spacer(Modifier.width(6.dp))
+                Text("Reconnect tunnel")
+            }
+        }
+        TextButton(onClick = { rotating = true }) { Text("Rotate access key") }
+        if (hint.isNotEmpty()) Text(hint, style = MaterialTheme.typography.bodySmall)
+        HorizontalDivider()
+        Text("Connect your AI client", style = MaterialTheme.typography.titleSmall)
+        Text("Copy the public HTTPS MCP URL into Claude or ChatGPT's custom MCP connector settings. Use the separate client key as Bearer authentication when supported. You must approve the connector in that service. Some accounts or clients require OAuth rather than a static token.",
+            style = MaterialTheme.typography.bodySmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = {
+                runCatching {
+                    context.startActivity(Intent(Intent.ACTION_VIEW,
+                        android.net.Uri.parse("https://claude.ai")))
+                }
+            }) { Text("Open Claude") }
+            OutlinedButton(onClick = {
+                runCatching {
+                    context.startActivity(Intent(Intent.ACTION_VIEW,
+                        android.net.Uri.parse("https://chatgpt.com")))
+                }
+            }) { Text("Open ChatGPT") }
+        }
+        Text("No separate Docker gateway or continuous log upload is required. Logs stay on the phone and are returned only when an authenticated MCP tool is called.",
             style = MaterialTheme.typography.bodySmall)
     }
 }

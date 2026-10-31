@@ -9,21 +9,18 @@ class McpAndAdbWorkflowContractTest {
         listOf(File(path), File("../$path")).firstOrNull { it.isFile }
             ?.readText() ?: error("Missing $path")
 
-    @Test fun mcpSettingsAutoSaveAndNeverExposeAnUploadToggle() {
+    @Test fun localMcpIsDirectAndNoLongerUploadsToGateway() {
         val ui = source("app/src/main/java/dev/n2k02/mcplogger/LoggerUi.kt")
             .substringAfter("private fun BridgePage(").substringBefore("private fun LogsPage(")
-        assertTrue(ui.contains("fun save() = BridgeClient.autoSave(context, url, key, clientToken)"))
-        assertTrue(ui.contains("url = it\n            save()"))
-        assertTrue(ui.contains("key = it; save()"))
-        assertTrue(ui.contains("clientToken = it; save()"))
-        assertTrue(ui.contains("Generate / copy MCP URL"))
+        assertTrue(ui.contains("Phone-hosted MCP"))
+        assertTrue(ui.contains("Copy public MCP URL"))
         assertFalse(ui.contains("Enable log upload"))
         assertFalse(ui.contains("Save MCP connection"))
-        val bridge = source("app/src/main/java/dev/n2k02/mcplogger/core/BridgeClient.kt")
-        assertTrue(bridge.contains("base != null && key.isNotBlank()"))
-        assertTrue(bridge.contains(".putString(\"gateway_draft\", url)"))
-        val activity = source("app/src/main/java/dev/n2k02/mcplogger/MainActivity.kt")
-        assertTrue(activity.contains("BridgeClient.initialize(this)"))
+        val service = source("app/src/main/java/dev/n2k02/mcplogger/core/LogMonitorService.kt")
+        assertTrue(service.contains("LocalMcpServer.start(applicationContext)"))
+        assertTrue(service.contains("QuickMcpTunnel.start(applicationContext)"))
+        assertFalse(service.contains("BridgeClient.upload("))
+        assertTrue(service.contains("QuickMcpTunnel.stop()"))
     }
 
     @Test fun adbHasLiveDiscoveryAndVrecStylePairing() {

@@ -29,6 +29,7 @@ class LogMonitorService : Service() {
     companion object {
         const val START = "dev.n2k02.mcplogger.START"
         const val LOCAL_START = "dev.n2k02.mcplogger.LOCAL_MCP_START"
+        const val TUNNEL_RESTART = "dev.n2k02.mcplogger.TUNNEL_RESTART"
         const val STOP = "dev.n2k02.mcplogger.STOP"
         const val QUIT = "dev.n2k02.mcplogger.QUIT"
         private val buffer = LogBuffer()
@@ -65,6 +66,16 @@ class LogMonitorService : Service() {
                 stopCapture()
                 // MCP stays available; only Quit shuts down the server.
                 return START_STICKY
+            }
+            TUNNEL_RESTART -> {
+                ensureForeground()
+                LocalMcpServer.start(applicationContext)
+                QuickMcpTunnel.stop()
+                tunnelJob?.cancel()
+                tunnelJob = scope.launch {
+                    delay(1200)
+                    QuickMcpTunnel.start(applicationContext)
+                }
             }
             LOCAL_START, START -> {
                 ensureForeground()

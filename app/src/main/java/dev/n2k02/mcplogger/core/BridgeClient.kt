@@ -60,6 +60,10 @@ object BridgeClient {
     fun clientToken(context: Context): String =
         prefs(context).getString("mcp_client_token", "").orEmpty()
 
+    fun saveClientToken(context: Context, value: String) {
+        prefs(context).edit().putString("mcp_client_token", value).apply()
+    }
+
     /** Reachability/identity check only; upload auth is tested on actual upload. */
     suspend fun checkGateway(url: String): Boolean = withContext(Dispatchers.IO) {
         val base = McpConnectionSetup.gatewayBaseOrNull(url) ?: return@withContext false
