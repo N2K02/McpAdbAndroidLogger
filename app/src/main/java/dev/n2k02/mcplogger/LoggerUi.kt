@@ -27,6 +27,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import dev.n2k02.mcplogger.adb.AdbCoordinator
+import dev.n2k02.mcplogger.adb.AdbRecoverySettings
+import dev.n2k02.mcplogger.adb.AdbRecoveryLifecycle
 import dev.n2k02.mcplogger.core.BridgeClient
 import dev.n2k02.mcplogger.core.McpConnectionSetup
 import dev.n2k02.mcplogger.core.LogMonitorService
@@ -160,152 +162,224 @@ private fun AdbPage(modifier: Modifier) {
     val scope = rememberCoroutineScope()
     val status by MonitorState.adb.collectAsState()
     val discovery by AdbCoordinator.discoveryState.collectAsState()
-    val verified = status.startsWith("UID 2000 verified")
-    val pairingPort = discovery.pairingPort
-    val discoveredPort = discovery.connectPort
-    var code by remember { mutableStateOf("") }
+    val verified by AdbCoordinator.verified.collectAsState()
+    val authorizationRequired by AdbCoordinator.manualRetryRequired.collectAsState()
+    val autoCodeEnabled = dev.n2k02.mcplogger.adb.PairingAccessibilityService.enabled(context)
+    var autoPair by remember { mutableStateOf(AdbRecoverySettings.autoPair(context)) }
+    var watchdog by remember { mutableStateOf(AdbRecoverySettings.watchdog(context)) }
+    var boot by remember { mutableStateOf(AdbRecoverySettings.startOnBoot(context)) }
+    var restore by remember { mutableStateOf(AdbRecoverySettings.restoreAfterRestart(context)) }
+    var tcp by remember { mutableStateOf(AdbRecoverySettings.tcpMode(context)) }
+    var note by remember { mutableStateOf("") }
+    var working by remember { mutableStateOf(false) }
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    var manualPorts by rememberSaveable { mutableStateOf(false) }
     var pairPort by rememberSaveable { mutableStateOf("") }
     var connectPort by rememberSaveable { mutableStateOf("") }
-    var expanded by rememberSaveable { mutableStateOf(false) }
-    var working by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf("") }
-    var tcp by remember { mutableStateOf(AdbCoordinator.tcpEnabled(context)) }
-    var boot by remember { mutableStateOf(AdbCoordinator.autoStart(context)) }
-    val autoCode = dev.n2k02.mcplogger.adb.PairingAccessibilityService.enabled(context)
+    var code by remember { mutableStateOf("") }
+    val tcpOpen = status.contains("TCP/5555") || AdbCoordinator.isTcpListening()
 
-    Column(modifier.verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                CardHeader(if (verified) Icons.Rounded.CheckCircle else Icons.Rounded.SettingsInputAntenna,
-                    "ADB connection", adbTone(status), if (verified) "UID 2000" else "Not ready")
-                Text(if (verified) "Authorized Android shell is ready" else
-                    "First-time setup: enable Wireless debugging and pair once.",
-                    style = MaterialTheme.typography.bodyMedium)
-                Text(status, style = MaterialTheme.typography.bodySmall)
-                Text(discovery.status, style = MaterialTheme.typography.bodySmall)
-                Text("Active: " + (if (verified) status.substringAfter("• ").trim()
-                    else "Disconnected") +
-                    "   ·   Wireless TLS: " + (discoveredPort?.toString() ?: "not found"),
-                    style = MaterialTheme.typography.bodySmall)
-                if (pairingPort != null && !verified) {
-                    Text("Pairing listener: $pairingPort", style = MaterialTheme.typography.bodySmall)
+    @Composable
+    fun PreferenceRow(title: String, subtitle: String, checked: Boolean,
+                      onChange: (Boolean) -> Unit) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, style = MaterialTheme.typography.bodyLarge)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Spacer(Modifier.width(12.dp))
+            Switch(checked = checked, onCheckedChange = onChange)
+        }
+    }
+
+    Column(modifier.verticalScroll(rememberScrollState()).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)) {
+
+        ElevatedCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Pairing & recovery", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(6.dp))
+                PreferenceRow("Auto-detect pairing code",
+                    "Read the Android pairing dialog with Accessibility.",
+                    autoPair) {
+                    autoPair = it
+                    AdbRecoverySettings.setAutoPair(context, it)
                 }
-                if (!verified) {
+                if (autoPair && !autoCodeEnabled && !verified) {
+                    TextButton(onClick = {
+                        runCatching {
+                            context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                        }.onFailure { note = "Cannot open Accessibility settings" }
+                    }) { Text("Enable pairing Accessibility helper") }
+                }
+                HorizontalDivider()
+                PreferenceRow("Connection watchdog",
+                    "Check connection health and recover automatically when possible.",
+                    watchdog) {
+                    watchdog = it
+                    AdbRecoveryLifecycle.configureWatchdog(context, it)
+                }
+                PreferenceRow("Start on boot",
+                    "Try to restore the connection after restarting and unlocking.",
+                    boot) {
+                    boot = it
+                    AdbRecoverySettings.setStartOnBoot(context, it)
+                }
+            }
+        }
+
+        ElevatedCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Connection & security", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(6.dp))
+                PreferenceRow("Restore after restart",
+                    "Restore Wireless debugging after reboot, using saved pairing. " +
+                    "Requires Android permission; never overrides a manual off setting.",
+                    restore) {
+                    restore = it
+                    AdbRecoverySettings.setRestoreAfterRestart(context, it)
+                    scope.launch {
+                        note = when {
+                            it && verified ->
+                                if (AdbRecoverySettings.grantSecureSettings(context))
+                                    "Restore after restart is enabled."
+                                else "Android refused the permission; restore requires verified ADB."
+                            it -> "Restore will request its permission after ADB is verified."
+                            verified ->
+                                if (AdbRecoverySettings.revokeSecureSettings(context))
+                                    "Restore after restart is off."
+                                else "Restore off; permission could not be revoked."
+                            else -> "Restore after restart is off."
+                        }
+                    }
+                }
+                PreferenceRow("Keep ADB without Wi-Fi (TCP/5555)",
+                    "Keeps ADB available without Wi-Fi. TCP/5555 may be " +
+                    "reachable by devices on your network.",
+                    tcp) { enabled ->
+                    tcp = enabled
+                    AdbRecoverySettings.setTcpMode(context, enabled)
+                    if (!enabled && tcpOpen && verified) {
+                        working = true
+                        scope.launch {
+                            try {
+                                val result = AdbCoordinator.disableTcp(context)
+                                note = result.fold(
+                                    { "TCP/5555 closed; pair or reconnect via Wireless debugging." },
+                                    { "TCP/5555 may still be open: " + (it.message ?: "unknown") })
+                            } finally { working = false }
+                        }
+                    } else {
+                        note = if (enabled) "TCP/5555 enabled for next verified connection."
+                            else "Automatic TCP/5555 is disabled."
+                    }
+                }
+                if (tcpOpen && verified) {
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = {
+                        working = true
+                        scope.launch {
+                            try {
+                                val result = AdbCoordinator.disableTcp(context)
+                                note = result.fold(
+                                    { "TCP/5555 disabled." },
+                                    { "Could not close TCP/5555: " + (it.message ?: "unknown") })
+                            } finally { working = false }
+                        }
+                    }, enabled = !working, modifier = Modifier.fillMaxWidth()) {
+                        Text("Disable TCP/5555")
+                    }
+                }
+            }
+        }
+
+        // VRec keeps pairing on Home; logger keeps an accessible manual
+        // pairing panel here because its Home is a diagnostics-only dashboard.
+        if (!verified) {
+            ElevatedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Connect Android ADB", style = MaterialTheme.typography.titleMedium)
+                    Text(if (authorizationRequired)
+                        "Android needs manual authorization. Tap Retry below."
+                    else discovery.status, style = MaterialTheme.typography.bodySmall)
                     Button(onClick = {
                         runCatching {
-                            context.startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
-                        }.onFailure { message = "Developer options are unavailable on this device." }
+                            context.startActivity(
+                                Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
+                        }.onFailure { note = "Cannot open Developer options" }
                     }, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Rounded.Settings, null)
-                        Spacer(Modifier.width(8.dp))
                         Text("Open Android Developer options")
                     }
-                    Text("1. Enable USB debugging and Wireless debugging (Wi-Fi required).\n" +
-                        "2. Choose Pair device with pairing code in Android Settings.\n" +
-                        "3. Pair here or let the optional pairing-code helper read the visible Android dialog.\n" +
-                        "4. The app connects, verifies UID 2000 and switches to TCP/5555 if enabled.",
+                    Text("Enable Wireless debugging, then choose 'Pair device with pairing code'. " +
+                        "If Accessibility is enabled, the code can be read automatically.",
                         style = MaterialTheme.typography.bodySmall)
-                    if (autoCode) {
-                        Text("Automatic pairing-code detection is enabled.",
-                            style = MaterialTheme.typography.bodySmall)
-                    } else {
-                        OutlinedButton(onClick = {
-                            runCatching {
-                                context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                            }.onFailure { message = "Accessibility Settings unavailable." }
-                        }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Enable automatic pairing-code detection")
-                        }
-                        Text("Optional: the helper reads only the visible Android pairing dialog.",
-                            style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { expanded = !expanded }) {
+                        Text(if (expanded) "Hide pairing controls" else "Pair manually")
                     }
-                    // VRec-style guided entry: show the code field after Android publishes
-                    // a pairing listener, or when the user expands manual port controls.
-                    if (pairingPort != null || expanded) {
+                    if (expanded || discovery.pairingPort != null) {
                         OutlinedTextField(code, { code = it.filter(Char::isDigit).take(6) },
                             label = { Text("Six-digit pairing code") },
-                            modifier = Modifier.fillMaxWidth(), singleLine = true,
+                            singleLine = true, modifier = Modifier.fillMaxWidth(),
                             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                                 keyboardType = androidx.compose.ui.text.input.KeyboardType.NumberPassword))
                         Button(onClick = {
                             working = true
                             scope.launch {
                                 try {
-                                    val port = pairPort.toIntOrNull() ?: pairingPort
-                                    if (port == null) {
-                                        message = "Open Android's pairing code dialog first."
-                                    } else {
+                                    val port = pairPort.toIntOrNull() ?: discovery.pairingPort
+                                    if (port == null) note = "Open Android pairing dialog to discover its port."
+                                    else {
                                         val result = AdbCoordinator.pair(context, port, code)
                                         code = ""
-                                        message = if (result.isSuccess) {
-                                            val connected = AdbCoordinator.connect(context)
-                                            if (connected.isSuccess) "ADB connected, UID 2000 verified."
-                                            else "Paired; enable Wireless debugging to connect."
-                                        } else "Pairing failed: " + (result.exceptionOrNull()?.message ?: "Unknown error")
+                                        note = if (result.isSuccess) {
+                                            val connected = AdbCoordinator.connect(context,
+                                                userInitiated = true)
+                                            if (connected.isSuccess) "UID 2000 verified."
+                                            else "Paired; open Wireless debugging and retry."
+                                        } else "Pairing was rejected; enter the current Android code."
                                     }
                                 } finally { working = false }
                             }
-                        }, enabled = code.length == 6 && !working, modifier = Modifier.fillMaxWidth()) {
-                            Text(if (working) "Pairing..." else "Pair and connect ADB")
+                        }, enabled = code.length == 6 && !working,
+                            modifier = Modifier.fillMaxWidth()) { Text("Pair and connect ADB") }
+                    }
+                    OutlinedButton(onClick = {
+                        working = true
+                        scope.launch {
+                            try {
+                                val result = AdbCoordinator.connect(context,
+                                    connectPort.toIntOrNull(), userInitiated = true)
+                                note = if (result.isSuccess) "UID 2000 verified."
+                                    else "ADB unavailable: " +
+                                        (result.exceptionOrNull()?.message ?: "retry pairing")
+                            } finally { working = false }
                         }
+                    }, enabled = !working, modifier = Modifier.fillMaxWidth()) {
+                        Text("Reconnect / verify ADB")
+                    }
+                    TextButton(onClick = { manualPorts = !manualPorts }) {
+                        Text(if (manualPorts) "Hide advanced port controls"
+                            else "Advanced: manual ports")
+                    }
+                    if (manualPorts) {
+                        OutlinedTextField(pairPort,
+                            { pairPort = it.filter(Char::isDigit).take(5) },
+                            label = { Text("Pairing port (optional)") }, singleLine = true)
+                        OutlinedTextField(connectPort,
+                            { connectPort = it.filter(Char::isDigit).take(5) },
+                            label = { Text("Connection port (optional)") }, singleLine = true)
                     }
                 }
-                OutlinedButton(onClick = {
-                    working = true
-                    scope.launch {
-                        try {
-                            val result = AdbCoordinator.connect(context, connectPort.toIntOrNull())
-                            message = if (result.isSuccess) "UID 2000 verified."
-                                else "Could not connect: " + (result.exceptionOrNull()?.message ?: "not authorized")
-                        } finally { working = false }
-                    }
-                }, modifier = Modifier.fillMaxWidth(), enabled = !working) {
-                    Icon(Icons.Rounded.Refresh, null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(if (working) "Connecting..." else "Reconnect / verify ADB")
-                }
-                if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodySmall)
             }
+        } else {
+            Text("ADB: UID 2000 verified · " + status,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                CardHeader(Icons.Rounded.Autorenew, "Connection recovery",
-                    if (tcp || boot) Tone.GOOD else Tone.IDLE,
-                    if (tcp && boot) "Auto" else if (tcp || boot) "Partial" else "Off")
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Automatic TCP/5555 after pairing", Modifier.weight(1f))
-                    Switch(tcp, onCheckedChange = {
-                        tcp = it
-                        AdbCoordinator.setTcpEnabled(context, it)
-                    })
-                }
-                Text("Enabled by default, like VRec. TCP/5555 may be reachable over your LAN; turn it off if you don't need it.",
-                    style = MaterialTheme.typography.bodySmall)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Recover on boot", Modifier.weight(1f))
-                    Switch(boot, onCheckedChange = {
-                        boot = it
-                        AdbCoordinator.setAutoStart(context, it)
-                    })
-                }
-            }
-        }
-        TextButton(onClick = { expanded = !expanded }) {
-            Text(if (expanded) "Hide advanced port controls" else "Advanced: manual ports")
-            Spacer(Modifier.width(8.dp))
-            Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null)
-        }
-        if (expanded) {
-            OutlinedTextField(pairPort, { pairPort = it.filter(Char::isDigit).take(5) },
-                label = { Text("Manual pairing port (optional)") },
-                modifier = Modifier.fillMaxWidth(), singleLine = true)
-            OutlinedTextField(connectPort, { connectPort = it.filter(Char::isDigit).take(5) },
-                label = { Text("Manual connect port (optional)") },
-                modifier = Modifier.fillMaxWidth(), singleLine = true)
-            Text("Manual ports are fallback values. Auto-discovered ports are preferred.",
-                style = MaterialTheme.typography.bodySmall)
-        }
+        if (note.isNotBlank()) Text(note, style = MaterialTheme.typography.bodySmall)
     }
 }
 
