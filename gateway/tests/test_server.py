@@ -3,28 +3,33 @@ import pytest
 from starlette.testclient import TestClient
 from gateway import server
 
+@pytest.fixture(scope="module")
+def client():
+    # FastMCP session managers deliberately have a one-shot lifespan.
+    # Share one ASGI lifespan across all tests; never restart it.
+    with TestClient(server.application) as instance:
+        yield instance
 
-def test_ingest_requires_auth(monkeypatch):
+
+def test_ingest_requires_auth(monkeypatch, client):
     monkeypatch.setattr(server, "device_key", "unit-device")
     monkeypatch.setattr(server, "client_token", "unit-client")
-    with TestClient(server.application) as client:
-        assert client.post("/ingest", json={"logs": []}).status_code == 401
-        assert client.post("/ingest", headers={"X-Device-Key": "wrong"}, json={"logs": []}).status_code == 401
-        assert client.post("/ingest", headers={"X-Device-Key": "unit-device"},
+    assert client.post("/ingest", json={"logs": []}).status_code == 401
+    assert client.post("/ingest", headers={"X-Device-Key": "wrong"}, json={"logs": []}).status_code == 401
+    assert client.post("/ingest", headers={"X-Device-Key": "unit-device"},
                            json={"logs": []}).status_code == 200
 
 
-def test_ingest_redacts_and_supports_mcp_tools(monkeypatch):
+def test_ingest_redacts_and_supports_mcp_tools(monkeypatch, client):
     monkeypatch.setattr(server, "device_key", "unit-device")
     server.logbook.clear()
-    with TestClient(server.application) as client:
-        result = client.post("/ingest", headers={"X-Device-Key": "unit-device"}, json={
+    result = client.post("/ingest", headers={"X-Device-Key": "unit-device"}, json={
             "device": "android",
             "package": "dev.n2k02.test",
             "packages": ["dev.n2k02.test"],
             "logs": [{"id": 1, "time": 42, "level": "E", "tag": "AndroidRuntime",
                       "message": "FATAL EXCEPTION; token=abcd password:secret"}]})
-        assert result.status_code == 200
+    assert result.status_code == 200
     entries = asyncio.run(server.get_live_logs())
     assert len(entries) == 1
     assert "abcd" not in entries[0]["message"]
@@ -33,9 +38,8 @@ def test_ingest_redacts_and_supports_mcp_tools(monkeypatch):
     assert asyncio.run(server.list_installed_apps()) == ["dev.n2k02.test"]
 
 
-def test_invalid_payload_is_rejected(monkeypatch):
+def test_invalid_payload_is_rejected(monkeypatch, client):
     monkeypatch.setattr(server, "device_key", "unit-device")
-    with TestClient(server.application) as client:
-        header = {"X-Device-Key": "unit-device"}
-        assert client.post("/ingest", headers=header, content=b"[]").status_code == 400
-        assert client.post("/ingest", headers=header, content=b"x" * 512001).status_code == 413
+    header = {"X-Device-Key": "unit-device"}
+    assert client.post("/ingest", headers=header, content=b"[]").status_code == 400
+    assert client.post("/ingest", headers=header, content=b"x" * 512001).status_code == 413
