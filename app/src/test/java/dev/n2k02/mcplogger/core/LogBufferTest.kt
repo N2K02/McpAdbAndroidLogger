@@ -27,7 +27,7 @@ class LogBufferTest {
         assertTrue(buffer.snapshot().isEmpty())
     }
     @Test fun readsPackageUidListFromAuthorizedShellOutput() {
-        val packageMap = PackageListParser.parse("package:dev.n2k02.foo uid:10234\\npackage:com.example uid:12345")
+        val packageMap = PackageListParser.parse("package:dev.n2k02.foo uid:10234\npackage:com.example uid:12345")
         assertEquals("10234", packageMap["dev.n2k02.foo"])
         assertEquals("12345", packageMap["com.example"])
     }
