@@ -405,16 +405,27 @@ private fun BridgePage(modifier: Modifier) {
                 }
             })
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val serverRunning = local == "Local server running"
             FilledTonalButton(onClick = {
-                sendAction(LogMonitorService.LOCAL_START)
-                if (hint.isEmpty() || !hint.startsWith("Cannot")) hint =
-                    if (local.contains("running")) "Server is already running." else "Starting server…"
+                if (serverRunning) {
+                    // Stop must not use startForegroundService: the service may not
+                    // promote itself to foreground on this path.
+                    runCatching {
+                        context.startService(Intent(context, LogMonitorService::class.java)
+                            .setAction(LogMonitorService.LOCAL_STOP))
+                        hint = "Stopping server…"
+                    }.onFailure { hint = "Cannot stop MCP service: " + it.javaClass.simpleName }
+                } else {
+                    hint = "Starting server…"
+                    sendAction(LogMonitorService.LOCAL_START)
+                }
             }) {
-                Icon(Icons.Rounded.PlayArrow, null)
+                Icon(if (serverRunning) Icons.Rounded.Stop else Icons.Rounded.PlayArrow, null)
                 Spacer(Modifier.width(6.dp))
-                Text("Start server")
+                Text(if (serverRunning) "Stop server" else "Start server")
             }
-            OutlinedButton(onClick = { sendAction(LogMonitorService.TUNNEL_RESTART) }) {
+            OutlinedButton(onClick = { sendAction(LogMonitorService.TUNNEL_RESTART) },
+                enabled = serverRunning) {
                 Icon(Icons.Rounded.Refresh, null)
                 Spacer(Modifier.width(6.dp))
                 Text("Reconnect tunnel")

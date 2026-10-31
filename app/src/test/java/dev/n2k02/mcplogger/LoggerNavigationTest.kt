@@ -55,6 +55,18 @@ class LoggerNavigationTest {
         assertFalse(ui.contains("SettingsRow(\"Diagnostics\""))
     }
 
+    @Test fun serverButtonTogglesStartAndStop() {
+        val path = "app/src/main/java/dev/n2k02/mcplogger/LoggerUi.kt"
+        val ui = listOf(File(path), File("../$path")).first { it.isFile }.readText()
+        assertTrue(ui.contains("if (serverRunning) \"Stop server\" else \"Start server\""))
+        assertTrue(ui.contains("setAction(LogMonitorService.LOCAL_STOP)"))
+        val svcPath = "app/src/main/java/dev/n2k02/mcplogger/core/LogMonitorService.kt"
+        val svc = listOf(File(svcPath), File("../$svcPath")).first { it.isFile }.readText()
+        val stopBlock = svc.substringAfter("LOCAL_STOP -> {").substringBefore("TUNNEL_RESTART -> {")
+        assertTrue(stopBlock.contains("QuickMcpTunnel.stop()"))
+        assertTrue(stopBlock.contains("LocalMcpServer.stop()"))
+    }
+
     @Test fun toolbarAndGestureShareHandler() {
         val path = "app/src/main/java/dev/n2k02/mcplogger/LoggerUi.kt"
         val ui = listOf(File(path), File("../$path")).first { it.isFile }.readText()

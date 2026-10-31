@@ -31,6 +31,7 @@ class LogMonitorService : Service() {
         const val LOCAL_START = "dev.n2k02.mcplogger.LOCAL_MCP_START"
         const val TUNNEL_RESTART = "dev.n2k02.mcplogger.TUNNEL_RESTART"
         const val STOP = "dev.n2k02.mcplogger.STOP"
+        const val LOCAL_STOP = "dev.n2k02.mcplogger.LOCAL_MCP_STOP"
         const val QUIT = "dev.n2k02.mcplogger.QUIT"
         private val buffer = LogBuffer()
         fun snapshot(after: Long = 0, limit: Int = 300) = buffer.snapshot(after, limit)
@@ -66,6 +67,23 @@ class LogMonitorService : Service() {
             STOP -> {
                 stopCapture()
                 // MCP stays available; only Quit shuts down the server.
+                return START_STICKY
+            }
+            LOCAL_STOP -> {
+                // User-requested server stop: tunnel and local MCP go down and stay
+                // down (no auto-start on reopen or boot) until Start server is pressed.
+                QuickMcpTunnel.stop()
+                tunnelJob?.cancel()
+                tunnelJob = null
+                LocalMcpServer.stop()
+                getSharedPreferences("mcp_logger", MODE_PRIVATE).edit()
+                    .putBoolean("manual_quit", true).apply()
+                if (!MonitorState.active.value) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    foreground = false
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
                 return START_STICKY
             }
             TUNNEL_RESTART -> {
