@@ -27,6 +27,12 @@ for attempt in 1 2 3; do
   fi
   echo "Cold-launch $attempt: app process $PID still running"
 done
+# The foreground connection must survive the user leaving the app to use
+# Claude/ChatGPT. Do this before probing the actual signed APK's MCP server.
+adb shell input keyevent KEYCODE_HOME
+sleep 3
+adb shell pidof "$PACKAGE" | grep -q '[0-9]'
+adb shell dumpsys activity services "$PACKAGE" | grep -q "LogMonitorService"
 # End-to-end loopback verification against the SIGNED R8-minified APK.
 # It must be started by the app's actual foreground service, not a unit-test stub.
 adb forward tcp:18765 tcp:8765
@@ -49,7 +55,7 @@ try:
     raise AssertionError("Unauthenticated MCP tool list was exposed")
 except urllib.error.HTTPError as exc:
     assert exc.code == 401, "Unexpected unauthenticated status: " + str(exc.code)
-print("Signed APK local MCP server responds on loopback and rejects unauthorized requests")
+print("Signed APK still hosts authenticated local MCP after Android Home background transition")
 PY
 adb forward --remove tcp:18765
-echo 'Signed minified APK: 3 successful cold launches plus local MCP HTTP smoke test'
+echo 'Signed minified APK: 3 successful cold launches plus background foreground-service MCP smoke test'
