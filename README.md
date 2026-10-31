@@ -102,3 +102,23 @@ Logcat can be paused independently; Quit stops the service, local MCP,
 and Cloudflare tunnel. Foreground-service and battery restrictions may stop
 background connectivity. The previous external gateway implementation is
 retained for legacy use but no longer uploads logs in phone-hosted mode.
+
+## Home and Android Logcat redesign
+
+The bottom navigation is **Home · Logs · Settings · Quit**. Home shows ADB shell
+readiness, a monitoring Start/Pause control, this-session metrics (lines scanned,
+unique events, buffered entries, scan cycles, last successful scan, errors),
+and local/public MCP status. It no longer displays recent Logcat entries or an
+app selector.
+
+**Logs** is a separate top-level Android Logcat screen. The app picker uses real
+installed-app names and icons when Android allows launcher visibility, with
+package-name/icon fallbacks for hidden packages. Filter by app UID, severity
+minimum, text, time window, crash/ANR, tag and PID. Filtering never changes
+what the authorized ADB shell collects: all events are retained in the bounded
+in-memory buffer for local review and MCP. **Reset filters** changes only the
+view. **Clear logs** drops captured rows but preserves recent deduplication so
+a repeated logcat snapshot does not immediately repopulate old messages.
+**Copy** copies up to the 200 newest visible redacted entries; **Export** saves
+all currently visible redacted entries using Android's system document picker.
+No all-files storage permission or persistent private issue-log journal is used.

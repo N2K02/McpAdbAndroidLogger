@@ -15,6 +15,9 @@ class LogBufferTest {
         assertEquals(listOf(3L), b.snapshot(2).map { it.id })
         b.clear()
         assertTrue(b.snapshot().isEmpty())
+        // Clearing the visible list must not re-add old logcat -d snapshots.
+        assertTrue(b.add(listOf(event(2), event(3)), null, null).isEmpty())
+        assertEquals(1, b.add(listOf(event(4)), null, null).size)
     }
     @Test fun appUidFilterKeepsOnlyTargetEvents() {
         val b = LogBuffer()

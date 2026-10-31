@@ -76,7 +76,7 @@ fun LoggerApp(onStart: () -> Unit, onStop: () -> Unit, onQuit: () -> Unit) {
                         Text(page.title, style = MaterialTheme.typography.titleMedium)
                     }
                 },
-                navigationIcon = if (page !in listOf(Page.HOME, Page.SETTINGS)) {
+                navigationIcon = if (page !in listOf(Page.HOME, Page.LOGS, Page.SETTINGS)) {
                     { IconButton(onClick = { navigateBack() }) {
                         Icon(Icons.Rounded.ArrowBack, "Back")
                     } }
@@ -96,6 +96,10 @@ fun LoggerApp(onStart: () -> Unit, onStop: () -> Unit, onQuit: () -> Unit) {
                 NavigationBarItem(selected = LoggerNavigation(page, subpageParent).homeSelected,
                     onClick = { navigateTo(Page.HOME) },
                     icon = { Icon(Icons.Rounded.Home, null) }, label = { Text("Home") })
+                NavigationBarItem(selected = LoggerNavigation(page, subpageParent).logsSelected,
+                    onClick = { navigateTo(Page.LOGS) },
+                    icon = { Icon(Icons.Rounded.Terminal, null) },
+                    label = { Text("Logs") })
                 NavigationBarItem(selected = LoggerNavigation(page, subpageParent).settingsSelected,
                     onClick = { navigateTo(Page.SETTINGS) },
                     icon = { N2K02UpdateBadgedIcon(status) {
@@ -107,7 +111,7 @@ fun LoggerApp(onStart: () -> Unit, onStop: () -> Unit, onQuit: () -> Unit) {
     ) { padding ->
         when (page) {
             Page.HOME -> HomePage(Modifier.padding(padding), onStart, onStop,
-                onAdb = { navigateTo(Page.ADB) }, onLogs = { navigateTo(Page.LOGS) })
+                onAdb = { navigateTo(Page.ADB) }, onMcp = { navigateTo(Page.BRIDGE) })
             Page.SETTINGS -> Column(Modifier.padding(padding).verticalScroll(rememberScrollState())) {
                 SettingsRow("ADB connection", "Pair, authorize and recover shell UID 2000",
                     Icons.Rounded.SettingsInputAntenna) { navigateTo(Page.ADB) }
@@ -116,8 +120,6 @@ fun LoggerApp(onStart: () -> Unit, onStop: () -> Unit, onQuit: () -> Unit) {
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 SettingsRow("Diagnostics", "Connection status and failures",
                     Icons.Rounded.BugReport) { navigateTo(Page.DIAGNOSTICS) }
-                SettingsRow("Logs", "Search, filter and review Logcat",
-                    Icons.Rounded.List) { navigateTo(Page.LOGS) }
                 ListItem(headlineContent = { Text("About & updates") },
                     supportingContent = { Text("Stable and experimental APK updates") },
                     leadingContent = { Icon(Icons.Rounded.SystemUpdate, null) },
@@ -152,61 +154,8 @@ private fun SettingsRow(title: String, subtitle: String,
 
 @Composable
 private fun HomePage(modifier: Modifier, onStart: () -> Unit, onStop: () -> Unit,
-    onAdb: () -> Unit, onLogs: () -> Unit) {
-    val active by MonitorState.active.collectAsState()
-    val adb by MonitorState.adb.collectAsState()
-    val bridge by MonitorState.tunnel.collectAsState()
-    val events by MonitorState.logs.collectAsState()
-    val selected by MonitorState.selectedPackage.collectAsState()
-    val packages by MonitorState.packages.collectAsState()
-    var expanded by remember { mutableStateOf(false) }
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        ElevatedCard(onClick = onAdb, modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp)) {
-                Text("ADB shell", style = MaterialTheme.typography.titleMedium)
-                Text(adb)
-                Text(if (adb.contains("2000")) "✓ Shell UID 2000" else "✕ Shell not verified")
-            }
-        }
-        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp)) {
-                Text("Monitoring", style = MaterialTheme.typography.titleMedium)
-                Text(if (active) "Running" else "Stopped")
-                Text("MCP tunnel: " + bridge)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onStart, enabled = !active) { Text("Start monitoring") }
-                    OutlinedButton(onClick = onStop, enabled = active) { Text("Stop") }
-                }
-            }
-        }
-        ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
-            OutlinedTextField(value = if (selected.isBlank()) "All apps" else selected,
-                onValueChange = {}, readOnly = true,
-                label = { Text("Filter application") },
-                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-                modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable))
-            ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                DropdownMenuItem(text = { Text("All apps") }, onClick = {
-                    MonitorState.selectedPackage.value = ""; expanded = false
-                })
-                packages.forEach { pkg ->
-                    DropdownMenuItem(text = { Text(pkg) }, onClick = {
-                        MonitorState.selectedPackage.value = pkg; expanded = false
-                    })
-                }
-            }
-        }
-        ElevatedCard(onClick = onLogs) {
-            Column(Modifier.padding(16.dp)) {
-                Text("Recent logs", style = MaterialTheme.typography.titleMedium)
-                Text(events.size.toString() + " buffered events")
-                events.takeLast(6).forEach { Text(it.level + " / " + it.tag + ": " +
-                    it.message.take(130), style = MaterialTheme.typography.bodySmall) }
-                Text("Open Logs", color = MaterialTheme.colorScheme.primary)
-            }
-        }
-    }
+    onAdb: () -> Unit, onMcp: () -> Unit) {
+    HomeDashboard(modifier, onStart, onStop, onAdb, onMcp)
 }
 
 @Composable
@@ -500,26 +449,7 @@ private fun BridgePage(modifier: Modifier) {
 
 @Composable
 private fun LogsPage(modifier: Modifier) {
-    val logs by MonitorState.logs.collectAsState()
-    var filter by remember { mutableStateOf("") }
-    Column(modifier.fillMaxSize()) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(filter, { filter = it }, label = { Text("Search logs") },
-                modifier = Modifier.weight(1f), singleLine = true)
-            TextButton(onClick = { LogMonitorService.clear() }) { Text("Clear") }
-        }
-        LazyColumn {
-            items(logs.filter {
-                filter.isBlank() || it.raw.contains(filter, ignoreCase = true)
-            }.takeLast(700).reversed(), key = { it.id }) { line ->
-                ListItem(headlineContent = { Text(line.level + " • " + line.tag) },
-                    supportingContent = { Text(line.message) },
-                    overlineContent = { Text(line.epochMillis.toString() + " • UID " + line.uid) })
-                HorizontalDivider()
-            }
-        }
-    }
+    LogcatScreen(modifier)
 }
 
 @Composable
