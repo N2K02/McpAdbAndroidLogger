@@ -70,3 +70,35 @@ Initial pairing and permission approvals, Android 13+ Logcat availability, TCP/5
 
 
 The ADB setup page uses VRec-style guided wireless pairing, a live port/status display, automatic attempts on discovered TLS endpoints, an optional pairing-code Accessibility helper, and advanced manual port fallback. The system still requires the user to authorize the initial pairing; shell UID 2000 is always verified.
+
+
+## Phone-hosted MCP (no separate server)
+
+Opening the app starts a read-only **local MCP server** at
+`http://127.0.0.1:8765/mcp` in the foreground service. On supported Android ARM64
+phones the app also registers a free Cloudflare Quick Tunnel, opens an
+outbound-only connection, and displays its real public HTTPS URL only after
+cloudflared reports edge registration. No Docker or separate PC is needed.
+
+In Settings → MCP connection, copy the public HTTPS MCP URL and the
+separate MCP client access key. Configure Claude or ChatGPT to send
+`Authorization: Bearer <key>` when the client supports static bearer tokens.
+Some clients require OAuth and account-side connector approvals; the app
+cannot bypass those authentication requirements.
+
+The loopback URL works only with other Android apps supporting local MCP,
+not with cloud-hosted Claude or ChatGPT. Quick Tunnel URLs change every time
+the tunnel restarts, have no uptime guarantee, and don't support SSE;
+the embedded server uses JSON-only Streamable HTTP responses.
+
+The signed APK contains the official Cloudflare 2026.10.7 ARM64 binary
+verified with SHA-256. Other CPU architectures expose only local MCP.
+No executable is downloaded at runtime. The server binds to 127.0.0.1,
+validates Origin, uses constant-time bearer-token authentication and strict
+request size limits. Tools read the bounded redacted Logcat buffer and cannot
+execute shell commands.
+
+Logcat can be paused independently; Quit stops the service, local MCP,
+and Cloudflare tunnel. Foreground-service and battery restrictions may stop
+background connectivity. The previous external gateway implementation is
+retained for legacy use but no longer uploads logs in phone-hosted mode.

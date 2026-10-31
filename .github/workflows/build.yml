@@ -87,6 +87,9 @@ jobs:
             echo "Install the signed APK from this release. Android will verify its signer."
           } > release-notes.md
 
+      - name: Verify and bundle Cloudflare Quick Tunnel for Android ARM64
+        run: bash .github/scripts/prepare-cloudflared.sh
+
       - name: Install SDK 37.2 and build Android debug
         env:
           N2K02_PACKAGES_TOKEN: ${{ secrets.N2K02_PACKAGES_TOKEN || github.token }}
