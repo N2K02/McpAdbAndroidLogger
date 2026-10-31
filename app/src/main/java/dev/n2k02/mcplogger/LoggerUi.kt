@@ -391,6 +391,11 @@ private fun BridgePage(modifier: Modifier) {
     val tunnel by MonitorState.tunnel.collectAsState()
     val publicUrl by MonitorState.publicMcpUrl.collectAsState()
     val clientToken = BridgeClient.clientTokenState(context).collectAsState().value.orEmpty()
+    val agents by dev.n2k02.mcplogger.core.LocalMcpOAuth.connected.collectAsState()
+    var revokeAgent by remember { mutableStateOf<dev.n2k02.mcplogger.core.LocalMcpOAuth.ConnectedClient?>(null) }
+    LaunchedEffect(clientToken, publicUrl) {
+        dev.n2k02.mcplogger.core.LocalMcpOAuth.refreshState(context)
+    }
     var hint by remember { mutableStateOf("") }
     val localUrl = dev.n2k02.mcplogger.core.LocalMcpServer.URL
     var rotating by remember { mutableStateOf(false) }
@@ -414,6 +419,22 @@ private fun BridgePage(modifier: Modifier) {
                 Intent(context, LogMonitorService::class.java).setAction(action))
         }.onFailure { hint = "Cannot start MCP service: " + it.javaClass.simpleName }
     }
+
+    val requestedRevoke = revokeAgent
+    if (requestedRevoke != null) AlertDialog(
+        onDismissRequest = { revokeAgent = null },
+        title = { Text("Revoke this agent?") },
+        text = { Text(requestedRevoke.name + " (" + requestedRevoke.domain +
+            ") will lose access immediately. It can only reconnect by getting your approval again.") },
+        confirmButton = {
+            TextButton(onClick = {
+                dev.n2k02.mcplogger.core.LocalMcpOAuth.revokeClient(context, requestedRevoke.id)
+                revokeAgent = null
+                hint = "Access revoked for " + requestedRevoke.name
+            }) { Text("Revoke") }
+        },
+        dismissButton = { TextButton(onClick = { revokeAgent = null }) { Text("Cancel") } },
+    )
 
     if (rotating) AlertDialog(
         onDismissRequest = { rotating = false },
@@ -518,7 +539,9 @@ private fun BridgePage(modifier: Modifier) {
         ElevatedCard(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         CardHeader(Icons.Rounded.Link, "Connect your AI client", Tone.BUSY, null)
-        Text("Copy the public HTTPS MCP URL into Claude or ChatGPT's custom MCP connector settings. Use the separate client key as Bearer authentication when supported. You must approve the connector in that service. Some accounts or clients require OAuth rather than a static token.",
+        Text("For Claude, ChatGPT or any OAuth-compatible agent: add this public HTTPS MCP URL. Choose OAuth / automatic registration. When its authorization page opens, enter your existing MCP client access key here on your phone, then approve. Each agent gets its own revocable OAuth tokens; no custom headers are needed.",
+            style = MaterialTheme.typography.bodySmall)
+        Text("Only approve agents whose callback domains you recognize. Your original key is never shared with an agent.",
             style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = {
@@ -533,6 +556,24 @@ private fun BridgePage(modifier: Modifier) {
                         android.net.Uri.parse("https://chatgpt.com/plugins")))
                 }
             }) { Text("Open ChatGPT") }
+        }
+        HorizontalDivider()
+        Text("Authorized MCP agents", style = MaterialTheme.typography.titleSmall)
+        if (agents.isEmpty()) {
+            Text("No agents connected by OAuth yet.",
+                style = MaterialTheme.typography.bodySmall)
+        } else {
+            agents.forEach { agent ->
+                Row(modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(agent.name, style = MaterialTheme.typography.bodyMedium)
+                        Text(agent.domain, style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    TextButton(onClick = { revokeAgent = agent }) { Text("Revoke") }
+                }
+            }
         }
         Text("No separate Docker gateway or continuous log upload is required. Logs stay on the phone and are returned only when an authenticated MCP tool is called.",
             style = MaterialTheme.typography.bodySmall)

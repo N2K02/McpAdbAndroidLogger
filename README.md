@@ -150,3 +150,33 @@ until explicitly restarted. Quit cancels ADB workers, discovery, foreground
 capture, local MCP listener and public tunnel. Start on boot controls
 best-effort recovery, which is still subject to Android's boot/foreground
 service launch rules.
+
+
+## OAuth for any remote MCP agent (Claude, ChatGPT, other providers)
+
+The same public HTTPS MCP URL supports OAuth 2.1 Authorization Code + S256 PKCE,
+Dynamic Client Registration (DCR), Protected Resource Metadata (RFC 9728),
+Authorization Server Metadata (RFC 8414), refresh token rotation and revocation.
+
+1. Add the public MCP URL to any compatible client's remote MCP connector.
+2. Choose OAuth and automatic client registration (DCR). Claude may also offer
+   "Use published identity"; select **Register automatically** for this server.
+3. Check the registered client name AND actual callback domain on the approval
+   page. Enter your existing MCP client key only on the phone-hosted approval
+   page, not in the third-party service's custom HTTP headers.
+4. Approve. The remote client receives separate opaque OAuth access/refresh
+   tokens scoped only to `logcat:read`, never the existing key.
+5. Settings → MCP connection → Authorized MCP agents can revoke individual
+   clients without affecting the others. Rotating the master key revokes all
+   outstanding OAuth tokens as well as any legacy direct-key access.
+
+Only read-only Logcat and device-status tools are available. OAuth client
+registration works with arbitrary compatible vendors (no provider allowlist);
+clients must provide secure registered redirect URIs, and the approval page
+displays the real callback host for explicit verification. This app currently
+uses **DCR**, not Client ID Metadata Documents (CIMD): choose DCR where a client
+offers both. A few clients may require CIMD, confidential client credentials
+or external OAuth hosting and therefore cannot connect to this version.
+
+Phone-hosted OAuth remains available only while the connectedDevice foreground
+service and its public tunnel are running.

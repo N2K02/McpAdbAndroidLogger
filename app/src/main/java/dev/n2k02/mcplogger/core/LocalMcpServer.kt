@@ -227,8 +227,8 @@ object LocalMcpServer {
         }
         val bytes = text.toByteArray(StandardCharsets.UTF_8)
         val safeHeaders = extra.entries.filter { (key, value) ->
-            key.matches(Regex("[A-Za-z-]+")) && !value.contains('\\r') && !value.contains('\\n')
-        }.joinToString("") { it.key + ": " + it.value + "\\r\\n" }
+            key.matches(Regex("[A-Za-z-]+")) && !value.contains('\r') && !value.contains('\n')
+        }.joinToString("") { it.key + ": " + it.value + "\r\n" }
         val header = "HTTP/1.1 " + code + " " + reason + "\r\n" +
             "Content-Type: " + type + "; charset=utf-8\r\n" +
             "Content-Length: " + bytes.size + "\r\n" +
