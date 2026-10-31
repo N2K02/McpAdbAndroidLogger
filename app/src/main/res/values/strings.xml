@@ -1,0 +1,3 @@
+<resources>
+    <string name="pairing_accessibility_description">Optionally read the six-digit wireless ADB pairing code from Android Settings only. No other app screens are scanned.</string>
+</resources>

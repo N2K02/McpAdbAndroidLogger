@@ -26,7 +26,7 @@ This repository's Actions secrets must be configured; secrets from other reposit
 ## Device setup
 
 1. Install debug APK. Enable USB debugging and Wireless debugging.
-2. Open **ADB connection**, choose Android's **Pair device with pairing code**, and enter the code and port (or use discovered port). Android must authorize the initial connection.
+2. Open **ADB connection**, choose Android's **Pair device with pairing code**, and enter the code and port (or enable the optional Accessibility pairing helper to read a visible Settings pairing dialog automatically). Android must authorize the initial connection.
 3. The app validates `id -u == 2000` before starting capture. TCP/5555 is enabled by default but can expose an ADB listener to the LAN; disable in Settings if not wanted.
 4. Start monitoring and select a package. Logcat access varies by Android build, and monitoring requires a visible foreground notification.
 5. For AI access, deploy the gateway and enter its HTTPS URL and `DEVICE_API_KEY` in **MCP connection**, then opt in to upload.

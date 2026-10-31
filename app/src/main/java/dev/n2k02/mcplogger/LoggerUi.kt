@@ -230,6 +230,12 @@ private fun AdbPage(modifier: Modifier) {
                 boot = it; AdbCoordinator.setAutoStart(context, it)
             })
         }
+        Text("Automatic pairing-code detection: " +
+            if (dev.n2k02.mcplogger.adb.PairingAccessibilityService.enabled(context))
+                "enabled" else "requires Accessibility approval")
+        OutlinedButton(onClick = {
+            context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }) { Text("Authorize pairing-code helper") }
         OutlinedButton(onClick = {
             context.startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
         }) { Text("Open Developer options") }
@@ -272,7 +278,7 @@ private fun LogsPage(modifier: Modifier) {
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(filter, { filter = it }, label = { Text("Search logs") },
                 modifier = Modifier.weight(1f), singleLine = true)
-            TextButton(onClick = { MonitorState.logs.value = emptyList() }) { Text("Clear") }
+            TextButton(onClick = { LogMonitorService.clear() }) { Text("Clear") }
         }
         LazyColumn {
             items(logs.filter {

@@ -49,7 +49,10 @@ object AdbCoordinator {
                         override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
                             // We connect only to loopback; service host is never used.
                             val port = serviceInfo.port.takeIf { it in 1..65535 } ?: return
-                            if (service.contains("pairing")) pairingPort = port else connectPort = port
+                            if (service.contains("pairing")) {
+                                pairingPort = port
+                                PairingAccessibilityService.onPairingPortDiscovered()
+                            } else connectPort = port
                         }
                     })
                 }

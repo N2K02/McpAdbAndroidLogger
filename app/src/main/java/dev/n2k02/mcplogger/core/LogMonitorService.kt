@@ -31,6 +31,10 @@ class LogMonitorService : Service() {
         const val QUIT = "dev.n2k02.mcplogger.QUIT"
         private val buffer = LogBuffer()
         fun snapshot(after: Long = 0, limit: Int = 300) = buffer.snapshot(after, limit)
+        fun clear() {
+            buffer.clear()
+            MonitorState.logs.value = emptyList()
+        }
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
@@ -90,8 +94,9 @@ class LogMonitorService : Service() {
                         uid, packageName.ifBlank { null })
                     if (newEntries.isNotEmpty()) {
                         MonitorState.logs.value = buffer.snapshot(0, 1000)
-                        if (BridgeClient.configured(applicationContext)) BridgeClient.upload(applicationContext, newEntries)
                     }
+                    if (BridgeClient.configured(applicationContext))
+                        BridgeClient.upload(applicationContext, newEntries)
                     val packagesOutput = AdbTransport.exec("pm list packages -3", timeoutMs = 12000)
                         .getOrNull().orEmpty()
                     if (packagesOutput.isNotBlank()) {
