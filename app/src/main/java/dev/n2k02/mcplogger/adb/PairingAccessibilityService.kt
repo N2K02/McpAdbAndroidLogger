@@ -59,12 +59,14 @@ class PairingAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event == null || !PairingCodeUiPolicy.isSettingsPackage(event.packageName?.toString())) return
+        if (event == null || !AdbRecoverySettings.autoPair(this) ||
+            !PairingCodeUiPolicy.isSettingsPackage(event.packageName?.toString())) return
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
             event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) scheduleRead()
     }
 
     private fun scan(): Boolean {
+        if (!AdbRecoverySettings.autoPair(this)) return false
         val root = rootInActiveWindow ?: return false
         if (!PairingCodeUiPolicy.isSettingsPackage(root.packageName?.toString())) return false
         val nodes = ArrayDeque<AccessibilityNodeInfo>()

@@ -10,6 +10,8 @@ import android.os.IBinder
 import android.os.Build
 import dev.n2k02.mcplogger.MainActivity
 import dev.n2k02.mcplogger.R
+import dev.n2k02.mcplogger.adb.AdbRecoveryLifecycle
+import dev.n2k02.mcplogger.adb.AdbRecoverySettings
 import dev.n2k02.mcplogger.adb.AdbCoordinator
 import dev.n2k02.mcplogger.adb.AdbTransport
 import kotlinx.coroutines.CoroutineScope
@@ -59,6 +61,8 @@ class LogMonitorService : Service() {
                 LocalMcpServer.stop()
                 getSharedPreferences("mcp_logger", MODE_PRIVATE).edit()
                     .putBoolean("manual_quit", true).apply()
+                AdbRecoverySettings.setManuallyQuit(applicationContext, true)
+                AdbRecoveryLifecycle.shutdown(applicationContext)
                 scope.launch { AdbCoordinator.quit() }
                 MonitorState.quit()
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -79,7 +83,7 @@ class LogMonitorService : Service() {
                 tunnelJob = null
                 LocalMcpServer.stop()
                 getSharedPreferences("mcp_logger", MODE_PRIVATE).edit()
-                    .putBoolean("manual_quit", true).apply()
+                    .putBoolean("mcp_server_enabled", false).apply()
                 if (!MonitorState.active.value) {
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     foreground = false
@@ -89,6 +93,8 @@ class LogMonitorService : Service() {
                 return START_STICKY
             }
             TUNNEL_RESTART, TUNNEL_ROTATE -> {
+                getSharedPreferences("mcp_logger", MODE_PRIVATE).edit()
+                    .putBoolean("mcp_server_enabled", true).apply()
                 ensureForeground()
                 if (intent?.action == TUNNEL_ROTATE) {
                     BridgeClient.saveClientToken(applicationContext, McpConnectionSetup.newSecret())
@@ -103,14 +109,28 @@ class LogMonitorService : Service() {
                 }
             }
             LOCAL_START, START -> {
-                if (intent?.action == LOCAL_START) getSharedPreferences("mcp_logger", MODE_PRIVATE)
-                    .edit().putBoolean("manual_quit", false).apply()
-                ensureForeground()
-                val started = LocalMcpServer.start(applicationContext)
-                if (started && tunnelJob?.isActive != true) {
-                    tunnelJob = scope.launch { QuickMcpTunnel.start(applicationContext) }
+                // Persistent MCP connection must survive leaving the Activity.
+                // A manual server stop is distinct from the app-wide Quit.
+                val prefs = getSharedPreferences("mcp_logger", MODE_PRIVATE)
+                if (intent?.action == LOCAL_START)
+                    prefs.edit().putBoolean("mcp_server_enabled", true).apply()
+                val shouldHost = prefs.getBoolean("mcp_server_enabled", true) &&
+                    !prefs.getBoolean("manual_quit", false)
+                if (shouldHost) {
+                    ensureForeground()
+                    val started = LocalMcpServer.start(applicationContext)
+                    if (started && tunnelJob?.isActive != true) {
+                        tunnelJob = scope.launch { QuickMcpTunnel.start(applicationContext) }
+                    }
                 }
-                if (intent?.action == START) startCapture()
+                if (intent?.action == START) {
+                    ensureForeground()
+                    startCapture()
+                }
+                if (!shouldHost && intent?.action != START && !MonitorState.active.value) {
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
             }
         }
         return START_STICKY
@@ -126,7 +146,7 @@ class LogMonitorService : Service() {
         val notification = Notification.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_app_notification)
             .setContentTitle("MCP ADB Logger")
-            .setContentText("Read-only MCP server active on this phone")
+            .setContentText("MCP tunnel active · tap to manage connection")
             .setContentIntent(open)
             .setOngoing(true).build()
         startForeground(2026, notification)

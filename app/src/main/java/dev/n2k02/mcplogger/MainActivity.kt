@@ -8,6 +8,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.lifecycleScope
 import androidx.core.content.ContextCompat
 import dev.n2k02.mcplogger.adb.AdbCoordinator
+import dev.n2k02.mcplogger.adb.AdbRecoveryLifecycle
+import dev.n2k02.mcplogger.adb.AdbRecoverySettings
 import dev.n2k02.mcplogger.core.BridgeClient
 import dev.n2k02.mcplogger.core.LogMonitorService
 import dev.n2k02.mcplogger.core.MonitorState
@@ -20,7 +22,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         LiveUpdater.init(this)
         BridgeClient.initialize(this)
-        AdbCoordinator.discover(this)
+        AdbRecoverySettings.markForegroundOpened(this)
+        AdbRecoveryLifecycle.start(this)
         // User-launched foreground activity may start the foreground service.
         // Local MCP stays available until Quit.
         if (!getSharedPreferences("mcp_logger", MODE_PRIVATE).getBoolean("manual_quit", false)) {
@@ -47,6 +50,8 @@ class MainActivity : ComponentActivity() {
                 onQuit = {
                     startService(Intent(this, LogMonitorService::class.java)
                         .setAction(LogMonitorService.QUIT))
+                    AdbRecoverySettings.setManuallyQuit(this, true)
+                    AdbRecoveryLifecycle.shutdown(this)
                     lifecycleScope.launch { AdbCoordinator.quit() }
                     MonitorState.quit()
                 }
@@ -58,7 +63,8 @@ class MainActivity : ComponentActivity() {
         LiveUpdater.onResume(this)
     }
     override fun onDestroy() {
-        AdbCoordinator.stopDiscovery()
+        // Never stop ADB recovery/discovery or MCP tunnel when the UI is destroyed;
+        // their lifecycle belongs to the foreground service and explicit Quit.
         super.onDestroy()
     }
 }
