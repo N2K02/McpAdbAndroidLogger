@@ -86,7 +86,7 @@ class LogMonitorService : Service() {
                 if (started && tunnelJob?.isActive != true) {
                     tunnelJob = scope.launch { QuickMcpTunnel.start(applicationContext) }
                 }
-                if (intent.action == START) startCapture()
+                if (intent?.action == START) startCapture()
             }
         }
         return START_STICKY
