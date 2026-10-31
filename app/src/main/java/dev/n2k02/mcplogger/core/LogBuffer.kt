@@ -16,9 +16,7 @@ class LogBuffer(private val capacity: Int = 2000) {
             val event = line.copy(id = nextId++)
             saved.addLast(event)
             result.add(event)
-            while (saved.size > capacity) {
-                fingerprints.remove(saved.removeFirst().raw)
-            }
+            while (saved.size > capacity) fingerprints.remove(saved.removeFirst().raw)
         }
         return result
     }
@@ -32,9 +30,9 @@ class LogBuffer(private val capacity: Int = 2000) {
 
 object SensitiveLogRedactor {
     private val patterns = listOf(
-        Regex("(?i)(authorization|bearer|token|api[_-]?key|password|secret|pairing.code)([=: ]+)([^\\s,;]+)"),
-        Regex("(?i)\\b[\w.%+-]+@[\w.-]+\.[A-Za-z]{2,}\b"),
-        Regex("(?i)\\b(?:\\d[ -]?){13,19}\b")
+        Regex("""(?i)(authorization|bearer|token|api[_-]?key|password|secret|pairing.code)([=: ]+)([^\s,;]+)"""),
+        Regex("""(?i)\b[\w.%+-]+@[\w.-]+\.[A-Za-z]{2,}\b"""),
+        Regex("""(?i)\b(?:\d[ -]?){13,19}\b""")
     )
     fun redact(source: String): String {
         var result = source
