@@ -1,6 +1,7 @@
 package dev.n2k02.mcplogger.core
 
 import java.net.URI
+import java.net.URISyntaxException
 import java.security.SecureRandom
 
 /** MCP connector setup. A random key is NOT a hosted endpoint. */
@@ -38,6 +39,9 @@ object McpConnectionSetup {
             if (path.contains("..") || path.contains("%") || path.endsWith("/ingest")) null
             else "https://" + uri.rawAuthority + path
         }
+    } catch (_: URISyntaxException) {
+        // Partial text like "https:" must not crash Compose on recomposition.
+        null
     } catch (_: IllegalArgumentException) {
         null
     }

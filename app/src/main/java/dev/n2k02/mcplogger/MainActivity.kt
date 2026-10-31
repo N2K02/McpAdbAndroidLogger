@@ -8,6 +8,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.lifecycleScope
 import androidx.core.content.ContextCompat
 import dev.n2k02.mcplogger.adb.AdbCoordinator
+import dev.n2k02.mcplogger.core.BridgeClient
 import dev.n2k02.mcplogger.core.LogMonitorService
 import dev.n2k02.mcplogger.core.MonitorState
 import dev.n2k02.theme.N2K02Theme
@@ -18,6 +19,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         LiveUpdater.init(this)
+        BridgeClient.initialize(this)
         AdbCoordinator.discover(this)
         lifecycleScope.launch {
             if (!getSharedPreferences("mcp_logger", MODE_PRIVATE).getBoolean("manual_quit", false))

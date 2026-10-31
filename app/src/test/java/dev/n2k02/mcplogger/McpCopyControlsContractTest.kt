@@ -20,8 +20,7 @@ class McpCopyControlsContractTest {
             "key" to "Copy device API key",
             "clientToken" to "Copy MCP client token",
         )) {
-            val section = bridge.substringAfter("OutlinedTextField($field,")
-                .substringBefore("OutlinedTextField(", missingDelimiterValue = "")
+            val section = bridge.substringAfter("OutlinedTextField($field,").take(1100)
             assertTrue("Missing inline trailing icon for $field", section.contains("trailingIcon = {"))
             assertTrue("Missing labelled copy icon for $field", section.contains("contentDescription = \"$label\""))
             assertTrue("Copy must be disabled on empty $field", section.contains("enabled = $field.isNotBlank()"))

@@ -13,29 +13,52 @@ import java.net.URL
  * The device API key remains only in app-private preferences and HTTPS headers.
  */
 object BridgeClient {
-    private fun prefs(context: Context) = context.getSharedPreferences("mcp_logger", Context.MODE_PRIVATE)
-    fun configured(context: Context): Boolean =
-        prefs(context).getBoolean("bridge_enabled", false) &&
-        McpConnectionSetup.gatewayBaseOrNull(
-            prefs(context).getString("gateway", "").orEmpty()) != null &&
-        !prefs(context).getString("device_key", "").isNullOrBlank()
+    private fun prefs(context: Context) =
+        context.getSharedPreferences("mcp_logger", Context.MODE_PRIVATE)
 
-    fun configure(context: Context, url: String, key: String, enabled: Boolean) {
-        val normalized = McpConnectionSetup.gatewayBaseOrNull(url)
-        require(url.isBlank() || normalized != null) { "Expected an HTTPS gateway URL" }
-        require(!enabled || (normalized != null && key.isNotBlank())) {
-            "A deployed HTTPS gateway and device key are required"
-        }
-        prefs(context).edit().putString("gateway", normalized.orEmpty())
-            .putString("device_key", key).putBoolean("bridge_enabled", enabled).apply()
+    /** Read-only diagnostics upload is automatic once a valid HTTPS gateway is configured. */
+    fun configured(context: Context): Boolean {
+        val p = prefs(context)
+        return p.getBoolean("bridge_enabled", false) &&
+            McpConnectionSetup.gatewayBaseOrNull(p.getString("gateway", "").orEmpty()) != null &&
+            !p.getString("device_key", "").isNullOrBlank()
+    }
+
+    /** Generate local secrets once. Never overwrite an existing user/server token. */
+    fun initialize(context: Context) {
+        val p = prefs(context)
+        val key = p.getString("device_key", "").orEmpty()
+            .ifBlank { McpConnectionSetup.newSecret() }
+        val client = p.getString("mcp_client_token", "").orEmpty()
+            .ifBlank { McpConnectionSetup.newSecret() }
+        val url = p.getString("gateway_draft", null) ?: p.getString("gateway", "").orEmpty()
+        autoSave(context, url, key, client)
+    }
+
+    /** Persist even incomplete edits, but never upload without validated HTTPS and key. */
+    fun autoSave(context: Context, url: String, key: String, clientToken: String) {
+        val base = McpConnectionSetup.gatewayBaseOrNull(url)
+        prefs(context).edit()
+            .putString("gateway_draft", url)
+            .putString("gateway", base.orEmpty())
+            .putString("device_key", key)
+            .putString("mcp_client_token", clientToken)
+            .putBoolean("bridge_enabled", base != null && key.isNotBlank())
+            .apply()
+        if (base == null) MonitorState.gateway.value = "Gateway not configured"
+    }
+
+    fun settings(context: Context): Triple<String, String, Boolean> {
+        val p = prefs(context)
+        return Triple(
+            p.getString("gateway_draft", null) ?: p.getString("gateway", "").orEmpty(),
+            p.getString("device_key", "").orEmpty(),
+            configured(context),
+        )
     }
 
     fun clientToken(context: Context): String =
         prefs(context).getString("mcp_client_token", "").orEmpty()
-
-    fun saveClientToken(context: Context, token: String) {
-        prefs(context).edit().putString("mcp_client_token", token).apply()
-    }
 
     /** Reachability/identity check only; upload auth is tested on actual upload. */
     suspend fun checkGateway(url: String): Boolean = withContext(Dispatchers.IO) {
