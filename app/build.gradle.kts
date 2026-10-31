@@ -8,7 +8,7 @@ val versionNumber = (findProperty("appVersionCode") as String?)?.toIntOrNull()
     ?: appVersion.split(".").let { it[0].toInt() * 10 + it[1].toInt() }
 android {
     namespace = "dev.n2k02.mcplogger"
-    compileSdk = 37
+    compileSdk = 36
     defaultConfig {
         applicationId = "dev.n2k02.mcplogger"
         minSdk = 26

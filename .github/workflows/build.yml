@@ -81,13 +81,13 @@ jobs:
             echo "Install the signed APK from this release. Android will verify its signer."
           } > release-notes.md
 
-      - name: Install SDK 37 and build Android debug
+      - name: Install SDK 36 and build Android debug
         env:
           N2K02_PACKAGES_TOKEN: ${{ secrets.N2K02_PACKAGES_TOKEN || github.token }}
         run: |
           set -euo pipefail
           yes | "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
-          "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37"
+          "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36"
           chmod +x gradlew
           ./gradlew --no-daemon :app:verifySharedLibraries :app:testDebugUnitTest :app:lintDebug :app:assembleDebug             -PappVersion="$VERSION" -PappVersionCode="$VERSION_CODE" -PappVersionSuffix="$VERSION_SUFFIX"
 
