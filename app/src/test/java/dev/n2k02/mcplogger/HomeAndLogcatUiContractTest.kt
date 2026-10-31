@@ -1,0 +1,53 @@
+package dev.n2k02.mcplogger
+
+import java.io.File
+import org.junit.Assert.*
+import org.junit.Test
+
+/** Tests for core UI redesign requirements, avoiding accidental regressions. */
+class HomeAndLogcatUiContractTest {
+    private fun code(filename: String): String {
+        val path = "app/src/main/java/dev/n2k02/mcplogger/" + filename
+        return listOf(File(path), File("../" + path)).first { it.isFile }.readText()
+    }
+
+    @Test fun logsIsTopLevelAndNotInSettingsOrHome() {
+        val app = code("LoggerUi.kt")
+        assertTrue(app.contains("LoggerNavigation(page, subpageParent).logsSelected"))
+        assertTrue(app.contains("onClick = { navigateTo(Page.LOGS) }"))
+        val settings = app.substringAfter("Page.SETTINGS -> Column(")
+            .substringBefore("Page.ADB -> AdbPage")
+        assertFalse(settings.contains("SettingsRow(\"Logs\""))
+        val home = code("HomeDashboard.kt")
+        assertFalse(home.contains("Recent logs"))
+        assertFalse(home.contains("Open Logs"))
+        assertFalse(home.contains("Filter application"))
+        assertTrue(home.contains("MonitorState.captureStats.collectAsState()"))
+    }
+
+    @Test fun filtersAndSafeExportAreAvailableInLogcat() {
+        val src = code("LogcatScreen.kt")
+        assertTrue(src.contains("AppPickerDialog(apps, filter.packageName"))
+        assertTrue(src.contains("getApplicationIcon(packageName)"))
+        assertTrue(src.contains("getApplicationLabel(info)"))
+        assertTrue(src.contains("LogViewPolicy.select(logs, filter, uids"))
+        assertTrue(src.contains("Crashes / ANRs"))
+        assertTrue(src.contains("Reset filters"))
+        assertTrue(src.contains("LogMonitorService.clear()"))
+        assertTrue(src.contains("CreateDocument(\"text/plain\")"))
+        assertTrue(src.contains("LogExportFormatter.export(snapshot)"))
+        assertTrue(src.contains("copy(\"Filtered Android Logcat\", filtered)"))
+        assertTrue(src.contains("Copy log entry"))
+    }
+
+    @Test fun captureIsIndependentOfSelectedAppAndTracksMetrics() {
+        val service = code("core/LogMonitorService.kt")
+        assertTrue(service.contains("buffer.add(parsed, null, null)"))
+        assertTrue(service.contains("linesScanned = previous.linesScanned + parsed.size"))
+        assertTrue(service.contains("uniqueCaptured = previous.uniqueCaptured + newEntries.size"))
+        val manifest = listOf(File("app/src/main/AndroidManifest.xml"),
+            File("../app/src/main/AndroidManifest.xml")).first { it.isFile }.readText()
+        assertFalse(manifest.contains("android.permission.QUERY_ALL_PACKAGES"))
+        assertTrue(manifest.contains("android.intent.category.LAUNCHER"))
+    }
+}
