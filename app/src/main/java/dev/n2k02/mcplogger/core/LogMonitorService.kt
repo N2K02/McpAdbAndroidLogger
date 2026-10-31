@@ -132,21 +132,29 @@ class LogMonitorService : Service() {
                         MonitorState.packageUids.value = known
                         MonitorState.packages.value = known.keys.sorted().take(500)
                     }
-                    val packageName = MonitorState.selectedPackage.value
-                    val uid = MonitorState.packageUids.value[packageName]
+                    // Filtering is UI-only so switching apps cannot discard captured logs.
                     val output = AdbTransport.exec("logcat -b main -b system -b crash -v uid -v epoch -d -t 300",
                         timeoutMs = 12000).getOrThrow()
-                    val newEntries = buffer.add(output.lineSequence().mapNotNull(LogFoxParser::parse).toList(),
-                        uid, packageName.ifBlank { null })
-                    if (newEntries.isNotEmpty()) {
-                        MonitorState.logs.value = buffer.snapshot(0, 1000)
-                    }
+                    val parsed = output.lineSequence().mapNotNull(LogFoxParser::parse).toList()
+                    val newEntries = buffer.add(parsed, null, null)
+                    MonitorState.logs.value = buffer.snapshot(0, 2000)
+                    val previous = MonitorState.captureStats.value
+                    MonitorState.captureStats.value = previous.copy(
+                        linesScanned = previous.linesScanned + parsed.size,
+                        uniqueCaptured = previous.uniqueCaptured + newEntries.size,
+                        scanCycles = previous.scanCycles + 1,
+                        lastSuccessAtMillis = System.currentTimeMillis(),
+                        lastBatchCaptured = newEntries.size,
+                    )
                     attempt = 0
                     delay(2500L)
                 } catch (cancelled: kotlinx.coroutines.CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
                     MonitorState.error("Logcat: " + (error.message ?: "capture error"))
+                    val previous = MonitorState.captureStats.value
+                    MonitorState.captureStats.value = previous.copy(
+                        readFailures = previous.readFailures + 1)
                     attempt = (attempt + 1).coerceAtMost(6)
                     delay((1000L shl attempt).coerceAtMost(60000L))
                 }

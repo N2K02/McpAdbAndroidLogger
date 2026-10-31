@@ -18,17 +18,21 @@ class LogBuffer(private val capacity: Int = 2000) {
                     !line.raw.contains(packageName, ignoreCase = true)) continue
             }
             if (!fingerprints.add(line.raw)) continue
+            // Retain a bounded dedup window independently of visible rows.
+            while (fingerprints.size > maxOf(capacity, 300)) {
+                fingerprints.remove(fingerprints.first())
+            }
             val event = line.copy(id = nextId++)
             saved.addLast(event)
             result.add(event)
-            while (saved.size > capacity) fingerprints.remove(saved.removeFirst().raw)
+            while (saved.size > capacity) saved.removeFirst()
         }
         return result
     }
     @Synchronized fun snapshot(after: Long = 0, limit: Int = 300): List<LogEvent> =
-        saved.asSequence().filter { it.id > after }.take(limit.coerceIn(1, 1000)).toList()
+        saved.asSequence().filter { it.id > after }.take(limit.coerceIn(1, 2000)).toList()
     @Synchronized fun clear() {
-        fingerprints.clear()
+        // Preserve fingerprints so the next -d poll does not re-add old lines.
         saved.clear()
     }
 }

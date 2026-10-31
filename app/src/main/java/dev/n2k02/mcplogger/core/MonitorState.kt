@@ -12,6 +12,15 @@ data class LogEvent(
     val message: String,
     val raw: String
 )
+data class LogCaptureStats(
+    val linesScanned: Long = 0,
+    val uniqueCaptured: Long = 0,
+    val scanCycles: Long = 0,
+    val lastSuccessAtMillis: Long = 0,
+    val lastBatchCaptured: Int = 0,
+    val readFailures: Long = 0,
+)
+
 object MonitorState {
     val active = MutableStateFlow(false)
     val adb = MutableStateFlow("Not connected")
@@ -20,6 +29,8 @@ object MonitorState {
     val publicMcpUrl = MutableStateFlow("")
     val tunnel = MutableStateFlow("Off")
     val selectedPackage = MutableStateFlow("")
+    val logFilter = MutableStateFlow(LogViewFilter())
+    val captureStats = MutableStateFlow(LogCaptureStats())
     val logs = MutableStateFlow<List<LogEvent>>(emptyList())
     val errors = MutableStateFlow<List<String>>(emptyList())
     val packages = MutableStateFlow<List<String>>(emptyList())
