@@ -69,7 +69,6 @@ fun LoggerApp(onStart: () -> Unit, onStop: () -> Unit, onQuit: () -> Unit) {
                                 Page.ADB -> Icons.Rounded.SettingsInputAntenna
                                 Page.BRIDGE -> Icons.Rounded.Cloud
                                 Page.LOGS -> Icons.Rounded.List
-                                Page.DIAGNOSTICS -> Icons.Rounded.BugReport
                                 Page.UPDATES -> Icons.Rounded.SystemUpdate
                             }, null, modifier = Modifier.size(22.dp))
                         Spacer(Modifier.width(8.dp))
@@ -118,8 +117,6 @@ fun LoggerApp(onStart: () -> Unit, onStop: () -> Unit, onQuit: () -> Unit) {
                 SettingsRow("MCP connection", "Local MCP server and secure public tunnel",
                     Icons.Rounded.Cloud) { navigateTo(Page.BRIDGE) }
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                SettingsRow("Diagnostics", "Connection status and failures",
-                    Icons.Rounded.BugReport) { navigateTo(Page.DIAGNOSTICS) }
                 ListItem(headlineContent = { Text("About & updates") },
                     supportingContent = { Text("Stable and experimental APK updates") },
                     leadingContent = { Icon(Icons.Rounded.SystemUpdate, null) },
@@ -129,7 +126,6 @@ fun LoggerApp(onStart: () -> Unit, onStop: () -> Unit, onQuit: () -> Unit) {
             Page.ADB -> AdbPage(Modifier.padding(padding))
             Page.BRIDGE -> BridgePage(Modifier.padding(padding))
             Page.LOGS -> LogsPage(Modifier.padding(padding))
-            Page.DIAGNOSTICS -> DiagnosticsPage(Modifier.padding(padding))
             Page.UPDATES -> {
                 val experiment by LiveUpdater.experimentalEnabled.collectAsState()
                 N2K02UpdatePage(
@@ -411,6 +407,8 @@ private fun BridgePage(modifier: Modifier) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilledTonalButton(onClick = {
                 sendAction(LogMonitorService.LOCAL_START)
+                if (hint.isEmpty() || !hint.startsWith("Cannot")) hint =
+                    if (local.contains("running")) "Server is already running." else "Starting server…"
             }) {
                 Icon(Icons.Rounded.PlayArrow, null)
                 Spacer(Modifier.width(6.dp))
@@ -450,20 +448,4 @@ private fun BridgePage(modifier: Modifier) {
 @Composable
 private fun LogsPage(modifier: Modifier) {
     LogcatScreen(modifier)
-}
-
-@Composable
-private fun DiagnosticsPage(modifier: Modifier) {
-    val failures by MonitorState.errors.collectAsState()
-    val adb by MonitorState.adb.collectAsState()
-    val bridge by MonitorState.gateway.collectAsState()
-    val active by MonitorState.active.collectAsState()
-    Column(modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
-        Text("ADB: " + adb)
-        Text("MCP: " + bridge)
-        Text("Log collection: " + if (active) "running" else "stopped")
-        HorizontalDivider(Modifier.padding(vertical = 12.dp))
-        failures.asReversed().forEach { Text(it, style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.padding(vertical = 6.dp)) }
-    }
 }

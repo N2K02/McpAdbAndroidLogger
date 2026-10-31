@@ -5,7 +5,7 @@ import org.junit.Test
 import java.io.File
 
 class LoggerNavigationTest {
-    private val settingsPages = listOf(Page.ADB, Page.BRIDGE, Page.DIAGNOSTICS, Page.UPDATES)
+    private val settingsPages = listOf(Page.ADB, Page.BRIDGE, Page.UPDATES)
 
     @Test fun settingsDetailsBackToSettingsThenHome() {
         for (destination in settingsPages) {
@@ -45,6 +45,14 @@ class LoggerNavigationTest {
         assertTrue(logs.logsSelected)
         val settings = logs.open(Page.SETTINGS)
         assertEquals(settings, settings.open(Page.BRIDGE).back())
+    }
+
+    @Test fun diagnosticsSubmenuRemoved() {
+        assertTrue(Page.values().none { it.name == "DIAGNOSTICS" })
+        val path = "app/src/main/java/dev/n2k02/mcplogger/LoggerUi.kt"
+        val ui = listOf(File(path), File("../$path")).first { it.isFile }.readText()
+        assertFalse(ui.contains("DiagnosticsPage"))
+        assertFalse(ui.contains("SettingsRow(\"Diagnostics\""))
     }
 
     @Test fun toolbarAndGestureShareHandler() {

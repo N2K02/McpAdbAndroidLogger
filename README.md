@@ -6,7 +6,7 @@ Android Logcat monitoring and a read-only AI MCP bridge, using the **same shared
 
 ## Components
 
-- **Android app:** Material 3 Expressive via `dev.n2k02:theme:0.1.4`, single mRadio-style header, Home, Settings, Logs, Diagnostics, Quit.
+- **Android app:** Material 3 Expressive via `dev.n2k02:theme:0.1.4`, single mRadio-style header, Home, Settings, Logs, Quit.
 - **In-app updater:** `dev.n2k02:updater:0.1.19`, stable/experimental channels, shared update screen, pending-update badges and install guard while capture is active. Configured for `https://n2k02.github.io/mcpadbandroidlogger/updates`.
 - **Embedded ADB:** VRec-derived private ADB client; first-pairing via Android Wireless debugging, mDNS port discovery, UID 2000 verification, optional TCP/5555 promotion and reconnect.
 - **Logcat:** LogFox-inspired `logcat -v epoch -v uid` parser, package/UID filtering, bounded history, exception/ANR detection; read-only.
