@@ -15,6 +15,7 @@ internal object McpAuditStore {
     val entries = MutableStateFlow<List<McpAuditEntry>>(emptyList())
     private val lock = Any()
     private const val FILE = "mcp-audits.json"
+    private var lastDeniedAtMs = 0L
 
     private fun file(c: Context) = AtomicFile(File(c.noBackupFilesDir, FILE))
     private fun read(c: Context): List<McpAuditEntry> = runCatching {
@@ -41,9 +42,12 @@ internal object McpAuditStore {
                 val input = McpAuditPolicy.snapshot(request, McpAuditPolicy.MAX_REQUEST_CHARS)
                 val output = McpAuditPolicy.snapshot(response, McpAuditPolicy.MAX_RESPONSE_CHARS)
                 val entry = McpAuditEntry(UUID.randomUUID().toString(),
-                    System.currentTimeMillis(), identity.id.take(120),
-                    identity.name.take(100), identity.domain.take(150),
-                    method.take(100), tool.take(100), status.take(32),
+                    System.currentTimeMillis(),
+                    McpAuditPolicy.snapshot(identity.id, 120).text,
+                    McpAuditPolicy.snapshot(identity.name, 100).text,
+                    McpAuditPolicy.snapshot(identity.domain, 150).text,
+                    McpAuditPolicy.snapshot(method, 100).text,
+                    McpAuditPolicy.snapshot(tool, 100).text, status.take(32),
                     durationMs.coerceAtLeast(0), input.text, output.text,
                     input.truncated, output.truncated)
                 val all = (read(c) + entry).takeLast(McpAuditPolicy.KEEP)
@@ -62,6 +66,19 @@ internal object McpAuditStore {
             }
             Unit
         }
+
+    /** Cap unauthenticated disk writes to one security event per 15 seconds.
+     * Public internet scanners must not fill the journal or delay MCP work.
+     */
+    fun recordDenied(c: Context) = synchronized(lock) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastDeniedAtMs >= 15_000 || lastDeniedAtMs == 0L) {
+            lastDeniedAtMs = now
+            record(c, Agent("unauthenticated", "Unauthenticated", "Unknown"),
+                "[unauthenticated request; payload withheld]",
+                "HTTP 401 Unauthorized", "MCP", "", "Denied", 0)
+        }
+    }
 
     data class Agent(val id: String, val name: String, val domain: String)
     val DIRECT = Agent("direct-key", "Direct key", "Shared bearer key")

@@ -152,10 +152,7 @@ object LocalMcpServer {
                 if (!legacy && !LocalMcpOAuth.validate(context, actual)) {
                     // Denials are counted without storing any untrusted payload,
                     // supplied credentials, access token, cookies or headers.
-                    if (path == "/mcp") McpAuditStore.record(context,
-                        McpAuditStore.Agent("unauthenticated", "Unauthenticated", "Unknown"),
-                        "[unauthenticated request; payload withheld]",
-                        "HTTP 401 Unauthorized", "MCP", "", "Denied", 0)
+                    if (path == "/mcp") McpAuditStore.recordDenied(context)
                     val challenge = LocalMcpOAuth.challenge()
                     respond(output, 401, "Unauthorized", extra = if (challenge != null)
                         mapOf("WWW-Authenticate" to challenge) else emptyMap())
@@ -164,7 +161,7 @@ object LocalMcpServer {
                 val agent = if (legacy) McpAuditStore.DIRECT
                     else LocalMcpOAuth.clientForToken(context, actual)?.let {
                         McpAuditStore.Agent(it.id, it.name, it.domain)
-                    } ?: McpAuditStore.DIRECT
+                    } ?: McpAuditStore.Agent("unknown-oauth", "Unknown OAuth agent", "Expired or revoked")
                 if (method != "POST" || path != "/mcp") {
                     respond(output, 405, "Use Streamable HTTP POST")
                     return

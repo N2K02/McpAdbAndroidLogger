@@ -105,7 +105,8 @@ internal fun McpAuditsScreen(modifier: Modifier = Modifier) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("MCP activity by AI agent", style = MaterialTheme.typography.titleMedium)
-            Text("Read-only MCP requests, redacted request parameters, and the response sent. " +
+            Text("Agent names are self-registered, not verified identities. " +
+                "Read-only MCP requests, redacted request parameters, and the response sent. " +
                 "Stored only on this phone. Up to 160 records are retained; large payload previews are truncated.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall)
