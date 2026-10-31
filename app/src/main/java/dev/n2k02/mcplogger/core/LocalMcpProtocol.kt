@@ -68,7 +68,10 @@ internal object LocalMcpProtocol {
                     .put("additionalProperties", false)
                 if (name == "search_logs") schema.put("required", JSONArray().put("query"))
                 put(JSONObject().put("name", name).put("description", descriptions[index])
-                    .put("inputSchema", schema))
+                    .put("inputSchema", schema)
+                    .put("securitySchemes", JSONArray().put(
+                        JSONObject().put("type", "oauth2")
+                            .put("scopes", JSONArray().put("logcat:read")))))
             }
         }
     }

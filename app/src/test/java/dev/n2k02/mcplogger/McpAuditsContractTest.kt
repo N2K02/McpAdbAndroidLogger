@@ -23,6 +23,8 @@ class McpAuditsContractTest {
         val server = source(root + "core/LocalMcpServer.kt")
         val oauth = source(root + "core/LocalMcpOAuth.kt")
         assertTrue(server.contains("McpAuditStore.record(context, agent"))
+        assertTrue(server.contains("auditOAuth(context, method, path"))
+        assertTrue(server.contains("[OAuth request parameters withheld]"))
         assertTrue(server.contains("LocalMcpOAuth.clientForToken(context, actual)"))
         assertTrue(server.contains("McpAuditStore.DIRECT"))
         assertTrue(server.contains("McpAuditStore.recordDenied(context, method, path"))

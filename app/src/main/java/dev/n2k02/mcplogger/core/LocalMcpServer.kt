@@ -63,6 +63,28 @@ object LocalMcpServer {
         MonitorState.localMcp.value = "Stopped"
     }
 
+    /** Never log OAuth parameters, headers, browser forms, access tokens or codes. */
+    private fun auditOAuth(context: Context, method: String, path: String,
+                           origin: String?, userAgent: String?,
+                           reply: LocalMcpOAuth.Reply) {
+        val json = runCatching { JSONObject(reply.body) }.getOrNull()
+        val code = json?.optString("error").orEmpty().take(64)
+        val detail = json?.optString("error_description").orEmpty().take(160)
+        val success = reply.status in 200..399
+        McpAuditStore.record(context,
+            McpAuditStore.Agent("oauth-flow",
+                McpAuditPolicy.clientHint(origin, userAgent), "OAuth identity not verified"),
+            "[OAuth request parameters withheld]",
+            if (success) "OAuth step completed" else "OAuth step rejected" +
+                (if (code.isNotBlank()) ": " + code else ""),
+            "OAuth", path.substringAfterLast('/'),
+            if (success) "OK" else "Denied", 0,
+            httpMethod = method, endpoint = path, httpStatus = reply.status,
+            reason = detail.ifBlank {
+                if (success) "" else code.ifBlank { "OAuth request rejected" }
+            })
+    }
+
     private fun handle(client: Socket, context: Context) {
         client.use { socket ->
             try {
@@ -112,12 +134,14 @@ object LocalMcpServer {
                 }
                 if (oauthMetadata && method == "GET") {
                     val result = LocalMcpOAuth.metadata(path)
+                    auditOAuth(context, method, path, origin, headers["user-agent"], result)
                     respond(output, result.status, result.body, result.type, result.headers)
                     return
                 }
                 if (path == "/oauth/authorize" && method == "GET") {
                     val result = LocalMcpOAuth.authorize(context,
                         parseParams(parts[1].substringAfter('?', "")))
+                    auditOAuth(context, method, path, origin, headers["user-agent"], result)
                     respond(output, result.status, result.body, result.type, result.headers)
                     return
                 }
@@ -125,7 +149,10 @@ object LocalMcpServer {
                     val length = headers["content-length"]?.toIntOrNull()
                     if (method != "POST" || length == null || length !in 1..16384 ||
                         headers["transfer-encoding"] != null) {
-                        respond(output, 400, "Invalid OAuth request")
+                        val result = LocalMcpOAuth.Reply(400,
+                            """{"error":"invalid_request","error_description":"Invalid OAuth method or body framing"}""")
+                        auditOAuth(context, method, path, origin, headers["user-agent"], result)
+                        respond(output, result.status, result.body, result.type, result.headers)
                         return
                     }
                     val bytes = readBody(input, length) ?: return
@@ -142,6 +169,7 @@ object LocalMcpServer {
                         "/oauth/revoke" -> LocalMcpOAuth.revokeToken(context, parseParams(body))
                         else -> LocalMcpOAuth.Reply(404, """{"error":"not_found"}""")
                     }
+                    auditOAuth(context, method, path, origin, headers["user-agent"], result)
                     respond(output, result.status, result.body, result.type, result.headers)
                     return
                 }

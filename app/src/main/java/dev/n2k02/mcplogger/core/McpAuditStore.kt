@@ -90,8 +90,8 @@ internal object McpAuditStore {
                 }
                 val reason = when (httpStatus) {
                     403 -> "Origin not allowed"
-                    else -> if (hasAuthorization) "Invalid or expired authorization"
-                        else "Bearer authorization missing"
+                    else -> if (hasAuthorization) "Credential rejected or expired"
+                        else "Access credential missing"
                 }
                 val safeMethod = httpMethod.takeIf {
                     it in setOf("GET", "POST", "HEAD", "OPTIONS", "DELETE", "PUT", "PATCH")

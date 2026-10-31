@@ -39,6 +39,24 @@ class LocalMcpOAuthPolicyTest {
         assertFalse(LocalMcpOAuth.pkceMatches(verifier, challenge + "="))
     }
 
+    @Test fun authorizationFailuresHaveSafeReasonsAndShortStateIsAllowed() {
+        val resource = "https://example.com/mcp"
+        val args = mapOf("response_type" to "code",
+            "code_challenge_method" to "S256", "code_challenge" to "a".repeat(43),
+            "state" to "x", "resource" to resource, "scope" to "logcat:read")
+        assertNull(LocalMcpOAuth.authorizationRequestIssue(args, resource))
+        assertNull(LocalMcpOAuth.authorizationRequestIssue(args - "state", resource))
+        assertEquals("OAuth resource does not match the advertised /mcp endpoint",
+            LocalMcpOAuth.authorizationRequestIssue(
+                args + ("resource" to "https://other.example/mcp"), resource))
+        assertEquals("PKCE S256 is required",
+            LocalMcpOAuth.authorizationRequestIssue(
+                args + ("code_challenge_method" to "plain"), resource))
+        assertEquals("Unsupported scope; logcat:read required",
+            LocalMcpOAuth.authorizationRequestIssue(
+                args + ("scope" to "admin"), resource))
+    }
+
     @Test fun metadataSupportsDynamicRegistrationAndProtectedResource() {
         val previous = MonitorState.publicMcpUrl.value
         try {

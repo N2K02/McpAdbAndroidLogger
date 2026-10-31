@@ -36,8 +36,11 @@ internal object LocalMcpOAuth {
         val headers: Map<String, String> = emptyMap()
     )
     private fun reply(code: Int, data: JSONObject) = Reply(code, data.toString())
-    private fun failure(code: String, status: Int = 400) =
-        reply(status, JSONObject().put("error", code))
+    private fun failure(code: String, status: Int = 400, description: String = ""): Reply {
+        val payload = JSONObject().put("error", code)
+        if (description.isNotBlank()) payload.put("error_description", description)
+        return reply(status, payload)
+    }
     private fun nonce(): String {
         val bytes = ByteArray(32)
         random.nextBytes(bytes)
@@ -203,6 +206,20 @@ internal object LocalMcpOAuth {
             .put("grant_types",JSONArray().put("authorization_code").put("refresh_token"))
             .put("response_types",JSONArray().put("code")))
     }
+    /** Check only public OAuth parameters without persisting them. */
+    internal fun authorizationRequestIssue(args: Map<String, String>, resource: String): String? =
+        when {
+            args["response_type"] != "code" -> "Only authorization code flow is supported"
+            args["code_challenge_method"] != "S256" -> "PKCE S256 is required"
+            !Regex("[A-Za-z0-9_-]{43,128}").matches(args["code_challenge"].orEmpty()) ->
+                "Missing or invalid PKCE code_challenge"
+            (args["state"]?.length ?: 0) > 2048 -> "OAuth state parameter too long"
+            args["resource"] != null && args["resource"] != resource ->
+                "OAuth resource does not match the advertised /mcp endpoint"
+            !validScopes(args["scope"].orEmpty()) -> "Unsupported scope; logcat:read required"
+            else -> null
+        }
+
     fun authorize(c: Context, args: Map<String,String>): Reply = synchronized(lock) {
         val origin = issuer() ?: return@synchronized failure("temporarily_unavailable",503)
         val s = current(c)
@@ -212,12 +229,8 @@ internal object LocalMcpOAuth {
         if (!(0 until client.getJSONArray("redirects").length()).any {
                 client.getJSONArray("redirects").optString(it) == callback
             }) return@synchronized failure("invalid_redirect_uri")
-        if (args["response_type"] != "code" || args["code_challenge_method"] != "S256" ||
-            !Regex("[A-Za-z0-9_-]{43,128}").matches(args["code_challenge"].orEmpty()) ||
-            args["state"].orEmpty().length !in 8..2048 ||
-            (args["resource"] != null && args["resource"] != origin + "/mcp") ||
-            !validScopes(args["scope"].orEmpty()))
-            return@synchronized failure("invalid_request")
+        val issue = authorizationRequestIssue(args, origin + "/mcp")
+        if (issue != null) return@synchronized failure("invalid_request", description = issue)
         prune(s,System.currentTimeMillis())
         val pending = table(s,"pending")
         if (pending.length() >= 32) return@synchronized failure("too_many_requests",429)
@@ -236,7 +249,8 @@ internal object LocalMcpOAuth {
     fun approve(c: Context, form: Map<String,String>): Reply = synchronized(lock) {
         val s = current(c); val ticket = digest(form["ticket"].orEmpty())
         val pending = table(s,"pending")
-        val record = pending.optJSONObject(ticket) ?: return@synchronized failure("invalid_request")
+        val record = pending.optJSONObject(ticket) ?: return@synchronized failure(
+            "invalid_request", description = "Approval missing, expired or already used")
         if (record.optLong("expiry") <= System.currentTimeMillis())
             return@synchronized failure("expired_request")
         val master = BridgeClient.clientToken(c)
