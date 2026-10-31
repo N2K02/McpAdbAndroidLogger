@@ -142,10 +142,17 @@ internal object LocalMcpOAuth {
                     .put("token_endpoint_auth_methods_supported",JSONArray().put("none"))
                     .put("code_challenge_methods_supported",JSONArray().put("S256"))
                     .put("authorization_response_iss_parameter_supported",true)
-                    .put("scopes_supported",JSONArray().put(SCOPE)))
+                    .put("scopes_supported",JSONArray().put(SCOPE).put(OFFLINE)))
             else -> failure("not_found",404)
         }
     }
+    internal fun validScopes(requested: String): Boolean {
+        val scopes = requested.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        return scopes.isEmpty() ||
+            (scopes.contains(SCOPE) && scopes.distinct().size == scopes.size &&
+                scopes.all { it == SCOPE || it == OFFLINE })
+    }
+
     /** Supports any OAuth-compatible vendor, without a hardcoded provider allowlist.
      * Never fetches arbitrary URLs: avoids SSRF while registering unknown agents.
      */
@@ -264,7 +271,7 @@ internal object LocalMcpOAuth {
             .put("client",client).put("aud",audience).put("scope",scopes)
             .put("expiry",now+ACCESS_MS))
         tokens.put(digest(refresh), JSONObject().put("kind","refresh")
-            .put("client",client).put("aud",audience).put("scope",SCOPE)
+            .put("client",client).put("aud",audience).put("scope",scopes)
             .put("expiry",now+REFRESH_MS))
         return reply(200,JSONObject().put("access_token",access)
             .put("refresh_token",refresh).put("token_type","Bearer")
@@ -308,7 +315,7 @@ internal object LocalMcpOAuth {
                     record.optString("aud") != audience ||
                     record.optLong("expiry") <= System.currentTimeMillis())
                     return@synchronized failure("invalid_grant")
-                val response = issue(s,id,audience)
+                val response = issue(s,id,audience,record.optString("scope",SCOPE))
                 save(c,s); updateConnected(s)
                 response
             }
