@@ -22,6 +22,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     buildTypes {
+        getByName("debug") { versionNameSuffix = "-debug" }
         getByName("release") {
             isMinifyEnabled = true
             isShrinkResources = true

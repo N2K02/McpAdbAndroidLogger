@@ -48,13 +48,19 @@ jobs:
           python -m pip install -r gateway/requirements.txt
           python -m pytest -q gateway/tests
 
+      - name: Verify public stable version lookup
+        run: bash .github/scripts/test-public-version.sh
+
       - name: Configure version and release notes
         env:
+          GH_TOKEN: ${{ github.token }}
           REQUESTED: ${{ github.event.inputs.version }}
         shell: bash
         run: |
           set -euo pipefail
-          latest=$(git tag -l 'v[0-9]*' | sed -nE 's/^v([0-9]+[.][0-9])$/\1/p' | sort -V | tail -1 || true)
+          local_last=$(git tag -l 'v[0-9]*' | sed -nE 's/^v([0-9]+[.][0-9])$/\1/p' | sort -V | tail -1 || true)
+          public_last=$(bash .github/scripts/latest-public-version.sh mcpadbandroidlogger)
+          latest=$(printf '%s\n%s\n' "$local_last" "${public_last#v}" | sed '/^$/d' | sort -V | tail -1)
           if [ -n "$REQUESTED" ]; then
             echo "$REQUESTED" | grep -Eq '^[0-9]+[.][0-9]$' || exit 1
             version="$REQUESTED"
@@ -91,48 +97,82 @@ jobs:
           chmod +x gradlew
           ./gradlew --no-daemon :app:verifySharedLibraries :app:testDebugUnitTest :app:lintDebug :app:assembleDebug             -PappVersion="$VERSION" -PappVersionCode="$VERSION_CODE" -PappVersionSuffix="$VERSION_SUFFIX"
 
-      - name: Upload debug APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.APP }}-debug-${{ github.run_number }}
-          path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-
-      - name: Build and sign release-compatible APK
-        id: signing
+      - name: Build and sign release APK (both stable and experimental)
         env:
-          N2K02_PACKAGES_TOKEN: ${{ secrets.N2K02_PACKAGES_TOKEN || github.token }}
-          SIGNING_KEY: ${{ secrets.ANDROID_SIGNING_KEYSTORE_B64 }}
-          STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_ALIAS }}
+          N2K02_PACKAGES_TOKEN: ${{ secrets.N2K02_PACKAGES_TOKEN }}
+          SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
+          SIGNING_KEYSTORE_ENC_BASE64: ${{ secrets.SIGNING_KEYSTORE_ENC_BASE64 }}
+          ANDROID_SIGNING_KEYSTORE_B64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_B64 }}
+          ANDROID_SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+          ANDROID_SIGNING_ALIAS: ${{ secrets.ANDROID_SIGNING_ALIAS }}
+        shell: bash
         run: |
           set -euo pipefail
-          if [ -z "$SIGNING_KEY" ] || [ -z "$STORE_PASSWORD" ] ||
-             [ -z "$KEY_PASSWORD" ] || [ -z "$KEY_ALIAS" ]; then
-            echo "::warning::Signing secrets missing. Uploading debug artifact only, no updateable release."
-            echo "signed=false" >> "$GITHUB_OUTPUT"
-            exit 0
+          # Same minified release variant and same signing identity for both channels.
+          ./gradlew --no-daemon :app:assembleRelease \
+            -PappVersion="$VERSION" -PappVersionCode="$VERSION_CODE" -PappVersionSuffix="$VERSION_SUFFIX"
+          K="$RUNNER_TEMP/apk-signing"
+          umask 077
+          mkdir -p "$K"
+          trap 'rm -rf "$K"' EXIT
+          KEYSTORE=""
+          STOREPASS=""
+          ALIAS=""
+          if [ -s signing/keys.tar.enc ]; then
+            : "${SIGNING_PASSPHRASE:?SIGNING_PASSPHRASE required for signing/keys.tar.enc}"
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 \
+              -in signing/keys.tar.enc -pass env:SIGNING_PASSPHRASE | tar -xf - -C "$K"
+            if [ -s "$K/release.p12" ] && [ -s "$K/release.pass" ]; then
+              KEYSTORE="$K/release.p12"
+              STOREPASS=$(cat "$K/release.pass")
+              ALIAS=release
+            elif [ -s "$K/old.keystore" ]; then
+              KEYSTORE="$K/old.keystore"
+              STOREPASS=android
+              ALIAS=androiddebugkey
+            else
+              echo "::error::Signing bundle contains no usable keystore"
+              exit 1
+            fi
+          elif [ -n "$SIGNING_KEYSTORE_ENC_BASE64" ]; then
+            : "${SIGNING_PASSPHRASE:?SIGNING_PASSPHRASE required for encrypted keystore}"
+            printf '%s' "$SIGNING_KEYSTORE_ENC_BASE64" | base64 --decode | \
+              openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 \
+                -pass env:SIGNING_PASSPHRASE -out "$K/release.keystore"
+            KEYSTORE="$K/release.keystore"
+            STOREPASS="${ANDROID_SIGNING_STORE_PASSWORD:-android}"
+            ALIAS="${ANDROID_SIGNING_ALIAS:-androiddebugkey}"
+          elif [ -n "$ANDROID_SIGNING_KEYSTORE_B64" ]; then
+            printf '%s' "$ANDROID_SIGNING_KEYSTORE_B64" | base64 --decode > "$K/release.keystore"
+            KEYSTORE="$K/release.keystore"
+            : "${ANDROID_SIGNING_STORE_PASSWORD:?ANDROID_SIGNING_STORE_PASSWORD required}"
+            : "${ANDROID_SIGNING_ALIAS:?ANDROID_SIGNING_ALIAS required}"
+            STOREPASS="$ANDROID_SIGNING_STORE_PASSWORD"
+            ALIAS="$ANDROID_SIGNING_ALIAS"
+          else
+            echo "::error::No signing keystore found; configure the standard N2K02 signing secrets"
+            exit 1
           fi
-          ./gradlew --no-daemon :app:assembleRelease             -PappVersion="$VERSION" -PappVersionCode="$VERSION_CODE" -PappVersionSuffix="$VERSION_SUFFIX"
-          echo "$SIGNING_KEY" | base64 -d > "$RUNNER_TEMP/release.keystore"
-          chmod 600 "$RUNNER_TEMP/release.keystore"
+          test -s "$KEYSTORE"
+          export SIGNING_STORE_PASS="$STOREPASS"
+          export SIGNING_KEY_PASS="${ANDROID_SIGNING_KEY_PASSWORD:-$STOREPASS}"
+          unset STOREPASS
           BT=$(ls -d "${ANDROID_HOME:-$ANDROID_SDK_ROOT}"/build-tools/* | sort -V | tail -1)
-          "$BT/apksigner" sign --ks "$RUNNER_TEMP/release.keystore"             --ks-pass env:STORE_PASSWORD --ks-key-alias "$KEY_ALIAS"             --key-pass env:KEY_PASSWORD             --out "$APP-$VERSION.apk" app/build/outputs/apk/release/app-release-unsigned.apk
-          "$BT/apksigner" verify --print-certs "$APP-$VERSION.apk"
-          rm -f "$RUNNER_TEMP/release.keystore"
-          echo "signed=true" >> "$GITHUB_OUTPUT"
-
+          "$BT/apksigner" sign \
+            --ks "$KEYSTORE" --ks-pass env:SIGNING_STORE_PASS \
+            --ks-key-alias "$ALIAS" --key-pass env:SIGNING_KEY_PASS \
+            --out "$APP-$VERSION.apk" app/build/outputs/apk/release/app-release-unsigned.apk
+          "$BT/apksigner" verify --print-certs "$APP-$VERSION.apk" | grep -E "Signer.*(DN|SHA-256 digest)"
+          test -s "$APP-$VERSION.apk"
       - name: Upload signed APK
-        if: steps.signing.outputs.signed == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.APP }}-signed-${{ github.run_number }}
+          name: ${{ env.APP }}-${{ env.VERSION }}
           path: ${{ env.APP }}-${{ env.VERSION }}.apk
           if-no-files-found: error
 
       - name: Publish stable or PR experimental release
-        if: steps.signing.outputs.signed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -162,18 +202,19 @@ jobs:
           fi
 
       - name: Check distribution configuration
-        if: steps.signing.outputs.signed == 'true'
+        id: distribution
         env:
           DIST_TOKEN: ${{ secrets.ANDROID_DISTRIBUTION_TOKEN }}
         run: |
           if [ -n "$DIST_TOKEN" ]; then
-            echo "HAS_DISTRIBUTION=true" >> "$GITHUB_ENV"
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::warning::ANDROID_DISTRIBUTION_TOKEN not set: no public update channel"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::ANDROID_DISTRIBUTION_TOKEN not set: signed APK remains available from the source release"
           fi
 
       - name: Publish public update channel
-        if: steps.signing.outputs.signed == 'true' && env.HAS_DISTRIBUTION == 'true'
+        if: steps.distribution.outputs.enabled == 'true'
         env:
           ANDROID_DISTRIBUTION_TOKEN: ${{ secrets.ANDROID_DISTRIBUTION_TOKEN }}
           GH_TOKEN: ${{ secrets.ANDROID_DISTRIBUTION_TOKEN }}

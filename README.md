@@ -50,9 +50,17 @@ python -m pip install -r gateway/requirements.txt
 pytest gateway/tests
 ```
 
-## CI/release conventions
+## APK configuration: stable and experimental
 
-`.github/workflows/build.yml`: PR unit tests, lint, Gradle APK, Python gateway tests, artifacts; stable/manual versioning and optional signed releases and website manifest publication. To enable updateable releases, add `ANDROID_SIGNING_KEYSTORE_B64`, `ANDROID_SIGNING_STORE_PASSWORD`, `ANDROID_SIGNING_KEY_PASSWORD`, `ANDROID_SIGNING_ALIAS`, `N2K02_PACKAGES_TOKEN`, and (for public feed) `ANDROID_DISTRIBUTION_TOKEN`. Otherwise CI publishes a debug artifact only, which **is not suitable for stable in-place upgrades**.
+Release setup matches AAYouTube/VRec. **Both PR and stable produce an R8-minified release APK signed with the same signing key**, never a debug-key APK as a published update.
+
+- Experimental PR: `McpAdbAndroidLogger-1.0.apk` (name based on latest stable baseline), Android versionName `1.0-experimental.RUN`, versionCode `100000 + GITHUB_RUN_NUMBER`. Published as `experimental-pr-N-run-RUN` prerelease in source Releases and `mcpadbandroidlogger/updates/experimental.json` in the public distribution.
+- Stable main build: increments the last stable `major.minor` version, publishes `McpAdbAndroidLogger-X.Y.apk` under `vX.Y` as the latest stable release, and updates `mcpadbandroidlogger/updates/stable.json`.
+- Signing sources supported: `signing/keys.tar.enc` + `SIGNING_PASSPHRASE` (AAYouTube/MRadio), `SIGNING_KEYSTORE_ENC_BASE64` + `SIGNING_PASSPHRASE` (VRec), or `ANDROID_SIGNING_KEYSTORE_B64` + `ANDROID_SIGNING_STORE_PASSWORD`/`ANDROID_SIGNING_ALIAS`. Missing signing material **fails CI**, not a silent debug fallback.
+- Signed APKs are retained as Actions artifacts and source Releases; `ANDROID_DISTRIBUTION_TOKEN` additionally publishes the public APK and per-channel SHA-256 manifest.
+- `n2k02updater` uses the same stable/experimental toggle, installation-time signer validation, and user-triggered update flow as the other apps. Updates are blocked while live log capture is active.
+
+CI validates MCP gateway tests, Android unit tests/lint, R8 release builds, and public version-resolution regression tests.
 
 ## Hardware validation needed
 
