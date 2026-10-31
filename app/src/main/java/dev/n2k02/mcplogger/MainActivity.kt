@@ -26,7 +26,8 @@ class MainActivity : ComponentActivity() {
         AdbRecoveryLifecycle.start(this)
         // User-launched foreground activity may start the foreground service.
         // Local MCP stays available until Quit.
-        if (!getSharedPreferences("mcp_logger", MODE_PRIVATE).getBoolean("manual_quit", false)) {
+        if (!getSharedPreferences("mcp_logger", MODE_PRIVATE).getBoolean("manual_quit", false) &&
+            getSharedPreferences("mcp_logger", MODE_PRIVATE).getBoolean("mcp_server_enabled", true)) {
             runCatching {
                 ContextCompat.startForegroundService(this,
                     Intent(this, LogMonitorService::class.java)

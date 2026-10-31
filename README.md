@@ -122,3 +122,31 @@ a repeated logcat snapshot does not immediately repopulate old messages.
 **Copy** copies up to the 200 newest visible redacted entries; **Export** saves
 all currently visible redacted entries using Android's system document picker.
 No all-files storage permission or persistent private issue-log journal is used.
+
+
+## VRec ADB parity and persistent background MCP
+
+ADB connection matches the latest VRec `main` design (Pairing & recovery,
+Connection & security) and copies VRec's behavioral policy where it applies:
+automatic pairing-code detection through explicit Accessibility consent;
+2-minute in-process ADB watchdog with a 15-minute WorkManager backstop;
+boot-aware TLS-port verification, conservative authorization retry, opt-in
+Wireless debugging restoration after reboot (never overriding same-boot manual
+off), and verified TCP/5555 disable. The logger does not copy VRec's recording
+daemon or call capture routines.
+
+The phone-hosted MCP listener/tunnel belongs to a persistent
+`connectedDevice` foreground service, not the UI. It continues when the
+user opens Claude/ChatGPT, switches apps, or turns off the screen, subject to
+Android battery restrictions, task-manager stop and device power policies.
+Android 15 limits `dataSync` foreground services to six hours, so the
+ADB/network service uses the documented `connectedDevice` type with its
+required permission. Cloudflared retries transient outages with backoff and
+keeps a confirmed Quick Tunnel registration. No battery or wakelock bypass
+is attempted.
+
+Closing the Activity leaves the connection available; Stop server persists
+until explicitly restarted. Quit cancels ADB workers, discovery, foreground
+capture, local MCP listener and public tunnel. Start on boot controls
+best-effort recovery, which is still subject to Android's boot/foreground
+service launch rules.
