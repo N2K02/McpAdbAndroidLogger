@@ -1,6 +1,9 @@
 package dev.n2k02.mcplogger
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
@@ -26,6 +29,7 @@ import dev.n2k02.mcplogger.core.LogDayPolicy
 import dev.n2k02.mcplogger.core.LogCaptureStats
 import dev.n2k02.mcplogger.core.PerformanceDiagnostics
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.distinctUntilChanged
 import java.text.DateFormat
 import java.util.Date
 
@@ -57,20 +61,44 @@ internal fun HomeDashboard(
     val context = LocalContext.current
     val clientToken = BridgeClient.clientTokenState(context).collectAsState().value.orEmpty()
     var copyHint by remember { mutableStateOf("") }
-    var homeTab by rememberSaveable { mutableStateOf(HomeTab.OVERVIEW) }
+    // Keep navigation history of *settled* pages. Swipes and tab taps both record
+    // visits; Back pops the last visit instead of exiting the Home destination.
+    var tabHistory by rememberSaveable {
+        mutableStateOf(listOf(HomeTab.OVERVIEW.ordinal))
+    }
+    val pagerState = rememberPagerState(
+        initialPage = tabHistory.last(), pageCount = { HomeTab.entries.size })
+    val pagerScope = rememberCoroutineScope()
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }
+            .distinctUntilChanged()
+            .collect { page ->
+                tabHistory = HomeTabHistory.visit(tabHistory, page, HomeTab.entries.size)
+            }
+    }
+    BackHandler(enabled = HomeTabHistory.canGoBack(tabHistory)) {
+        val prior = HomeTabHistory.back(tabHistory)
+        tabHistory = prior
+        pagerScope.launch { pagerState.scrollToPage(prior.last()) }
+    }
+    fun selectHomeTab(destination: HomeTab) {
+        pagerScope.launch { pagerState.animateScrollToPage(destination.ordinal) }
+    }
     val perfScope = rememberCoroutineScope()
     var perfPackage by remember { mutableStateOf("") }
     var perfBusy by remember { mutableStateOf(false) }
     var perfResult by remember { mutableStateOf("No performance snapshot yet.") }
     Column(modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = homeTab.ordinal) {
+        TabRow(selectedTabIndex = pagerState.currentPage) {
             HomeTab.entries.forEach { destination ->
-                Tab(selected = homeTab == destination, onClick = { homeTab = destination },
+                Tab(selected = pagerState.currentPage == destination.ordinal,
+                    onClick = { selectHomeTab(destination) },
                     text = { Text(destination.title, maxLines = 1,
                         style = MaterialTheme.typography.labelLarge) })
             }
         }
-        when (homeTab) {
+        HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { page ->
+            when (HomeTab.entries[page]) {
             HomeTab.OVERVIEW -> {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
                     .padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -121,7 +149,7 @@ internal fun HomeDashboard(
                         }
                     }
                 }
-                OutlinedCard(onClick = { homeTab = HomeTab.CONNECTION },
+                OutlinedCard(onClick = { selectHomeTab(HomeTab.CONNECTION) },
                     modifier = Modifier.fillMaxWidth()) {
                     Row(Modifier.fillMaxWidth().padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically) {
@@ -135,7 +163,7 @@ internal fun HomeDashboard(
                         Icon(Icons.Rounded.ChevronRight, contentDescription = "Open ADB status")
                     }
                 }
-                OutlinedCard(onClick = { homeTab = HomeTab.CONNECTION },
+                OutlinedCard(onClick = { selectHomeTab(HomeTab.CONNECTION) },
                     modifier = Modifier.fillMaxWidth()) {
                     Row(Modifier.fillMaxWidth().padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically) {
@@ -149,7 +177,7 @@ internal fun HomeDashboard(
                         Icon(Icons.Rounded.ChevronRight, contentDescription = "Open MCP connection")
                     }
                 }
-                OutlinedCard(onClick = { homeTab = HomeTab.PERFORMANCE },
+                OutlinedCard(onClick = { selectHomeTab(HomeTab.PERFORMANCE) },
                     modifier = Modifier.fillMaxWidth()) {
                     Row(Modifier.fillMaxWidth().padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically) {
@@ -277,6 +305,7 @@ internal fun HomeDashboard(
         }
 
                 }
+            }
             }
         }
     }
