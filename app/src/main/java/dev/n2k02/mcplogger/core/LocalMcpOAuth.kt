@@ -1,6 +1,7 @@
 package dev.n2k02.mcplogger.core
 
 import android.content.Context
+import android.util.AtomicFile
 import java.util.Base64
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.json.JSONArray
@@ -25,6 +26,9 @@ internal object LocalMcpOAuth {
     private const val ACCESS_MS = 60L * 60 * 1000
     private const val REFRESH_MS = 30L * 24 * 60 * 60 * 1000
     private const val CODE_MS = 5L * 60 * 1000
+    // Allow time to switch from browser to the Android app to retrieve the key.
+    private const val APPROVAL_MS = 20L * 60 * 1000
+    private const val HISTORY_MS = 60L * 60 * 1000
     private const val FILE = "local-mcp-oauth.json"
     private val random = SecureRandom()
     private val lock = Any()
@@ -33,7 +37,9 @@ internal object LocalMcpOAuth {
     data class Reply(
         val status: Int, val body: String,
         val type: String = "application/json",
-        val headers: Map<String, String> = emptyMap()
+        val headers: Map<String, String> = emptyMap(),
+        val auditCode: String = "",
+        val auditReason: String = ""
     )
     private fun reply(code: Int, data: JSONObject) = Reply(code, data.toString())
     private fun failure(code: String, status: Int = 400, description: String = ""): Reply {
@@ -59,43 +65,127 @@ internal object LocalMcpOAuth {
             parameters.entries.joinToString("&") { url(it.key) + "=" + url(it.value) }
 
     private fun stateFile(c: Context) = File(c.noBackupFilesDir, FILE)
-    private fun load(c: Context): JSONObject = runCatching {
-        JSONObject(stateFile(c).readText())
-    }.getOrElse { JSONObject() }
+
+    // Migrate the existing state JSON in place; never silently replace corrupt
+    // or partially written authorization state with an empty database.
+    private fun load(c: Context): JSONObject {
+        val path = stateFile(c)
+        if (!path.exists() && !File(path.path + ".bak").exists()) return JSONObject()
+        return JSONObject(AtomicFile(path).openRead().bufferedReader(Charsets.UTF_8).use {
+            it.readText()
+        })
+    }
     private fun save(c: Context, data: JSONObject) {
-        val dest = stateFile(c)
-        val temp = File(dest.parentFile, dest.name + ".tmp")
-        temp.writeText(data.toString())
-        temp.setReadable(false, false)
-        temp.setReadable(true, true)
-        temp.setWritable(false, false)
-        temp.setWritable(true, true)
-        check(temp.renameTo(dest)) { "OAuth state persistence failed" }
+        val file = AtomicFile(stateFile(c))
+        val stream = file.startWrite()
+        try {
+            stream.write(data.toString().toByteArray(Charsets.UTF_8))
+            file.finishWrite(stream)
+        } catch (error: Exception) {
+            file.failWrite(stream)
+            throw error
+        }
     }
     private fun table(s: JSONObject, name: String): JSONObject =
         s.optJSONObject(name) ?: JSONObject().also { s.put(name, it) }
-    private fun prune(s: JSONObject, now: Long) {
-        for (name in listOf("pending", "codes", "tokens")) {
-            val items = table(s, name)
-            for (key in items.keys().asSequence().toList()) {
-                if ((items.optJSONObject(key)?.optLong("expiry", 0L) ?: 0L) <= now)
-                    items.remove(key)
+
+    /** Store only a one-way ticket fingerprint, its outcome and a short retention TTL. */
+    private fun retire(s: JSONObject, fingerprint: String, result: String, now: Long) {
+        val history = table(s, "approval_history")
+        history.put(fingerprint, JSONObject()
+            .put("result", result).put("expiry", now + HISTORY_MS))
+        if (history.length() > 128) {
+            val oldest = history.keys().asSequence().toList().minByOrNull {
+                history.optJSONObject(it)?.optLong("expiry") ?: 0L
+            }
+            if (oldest != null) history.remove(oldest)
+        }
+    }
+
+    /** Pure state machine functions are exercised by JVM tests. */
+    internal fun approvalStatus(s: JSONObject, fingerprint: String, now: Long): String {
+        val pending = table(s, "pending").optJSONObject(fingerprint)
+        if (pending != null) return if (pending.optLong("expiry") <= now) "expired" else "valid"
+        val history = table(s, "approval_history").optJSONObject(fingerprint)
+        return if (history != null && history.optLong("expiry") > now)
+            history.optString("result") else "unknown"
+    }
+
+    internal fun expireState(s: JSONObject, now: Long): Boolean {
+        var changed = false
+        val pending = table(s, "pending")
+        for (fingerprint in pending.keys().asSequence().toList()) {
+            if ((pending.optJSONObject(fingerprint)?.optLong("expiry") ?: 0L) <= now) {
+                retire(s, fingerprint, "expired", now)
+                pending.remove(fingerprint)
+                changed = true
             }
         }
-    }
-    private fun syncKey(s: JSONObject, c: Context) {
-        // Rotating the MCP key invalidates all OAuth sessions automatically.
-        val fingerprint = digest(BridgeClient.clientToken(c))
-        if (s.optString("master") != fingerprint) {
-            s.put("master", fingerprint)
-            s.put("pending", JSONObject())
-            s.put("codes", JSONObject())
-            s.put("tokens", JSONObject())
+        for (name in listOf("codes", "tokens", "approval_history")) {
+            val entries = table(s, name)
+            for (fingerprint in entries.keys().asSequence().toList()) {
+                if ((entries.optJSONObject(fingerprint)?.optLong("expiry") ?: 0L) <= now) {
+                    entries.remove(fingerprint)
+                    changed = true
+                }
+            }
         }
+        return changed
     }
-    private fun current(c: Context): JSONObject = load(c).also {
-        syncKey(it, c)
-        prune(it, System.currentTimeMillis())
+
+    private fun invalidatePending(s: JSONObject, reason: String, now: Long) {
+        val pending = table(s, "pending")
+        for (fingerprint in pending.keys().asSequence().toList())
+            retire(s, fingerprint, reason, now)
+        s.put("pending", JSONObject())
+        s.put("codes", JSONObject())
+        s.put("tokens", JSONObject())
+    }
+
+    /** Never invalidate a valid consent during temporary tunnel reconnection. */
+    internal fun reconcileState(s: JSONObject, keyFingerprint: String,
+                                publicIssuer: String?, now: Long): Boolean {
+        val oldMaster = s.optString("master")
+        val oldIssuer = s.optString("issuer")
+        val keyChanged = oldMaster.isNotBlank() && oldMaster != keyFingerprint
+        val urlChanged = publicIssuer != null && oldIssuer.isNotBlank() &&
+            oldIssuer != publicIssuer
+        var changed = false
+        if (keyChanged || urlChanged) {
+            invalidatePending(s, if (keyChanged) "key_rotated" else "url_changed", now)
+            changed = true
+        }
+        if (oldMaster != keyFingerprint) {
+            s.put("master", keyFingerprint)
+            changed = true
+        }
+        if (publicIssuer != null && oldIssuer != publicIssuer) {
+            s.put("issuer", publicIssuer)
+            changed = true
+        }
+        return changed
+    }
+
+    private fun current(c: Context): JSONObject {
+        val s = load(c)
+        val now = System.currentTimeMillis()
+        val changed = reconcileState(s, digest(BridgeClient.clientToken(c)), issuer(), now)
+        val expired = expireState(s, now)
+        if (changed || expired) {
+            save(c, s)
+            if (changed) updateConnected(s)
+        }
+        return s
+    }
+
+    internal fun approvalFailureReason(status: String): String = when (status) {
+        "expired" -> "Approval expired. Start a new connection from ChatGPT."
+        "used" -> "Approval already completed. Return to ChatGPT or reconnect."
+        "key_rotated" -> "MCP access key changed. Start authorization again."
+        "url_changed" -> "Public MCP URL changed. Reconnect using the current URL."
+        "locked" -> "Too many incorrect access keys. Start authorization again."
+        "revoked" -> "Agent authorization was revoked. Start authorization again."
+        else -> "Approval form missing or invalid. Start authorization again."
     }
     private fun updateConnected(s: JSONObject) {
         val clientMap = table(s, "clients")
@@ -239,48 +329,80 @@ internal object LocalMcpOAuth {
             .put("redirect",callback).put("challenge",args["code_challenge"])
             .put("state",args["state"].orEmpty()).put("aud",origin + "/mcp")
             .put("scope",args["scope"].orEmpty().ifBlank { SCOPE })
-            .put("expiry",System.currentTimeMillis()+CODE_MS).put("attempts",0))
+            .put("expiry",System.currentTimeMillis()+APPROVAL_MS).put("attempts",0))
         save(c,s)
         val display = html(client.optString("name"))
         val domain = html(URI(callback).host.orEmpty())
         val page = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MCP authorization</title><style>body{font-family:system-ui;background:#111827;color:#f9fafb;max-width:440px;margin:5vh auto;padding:24px}input,button{font-size:1rem;padding:12px;border-radius:8px;width:100%;box-sizing:border-box;margin-top:12px}button{background:#4f46e5;color:white;border:0}p{line-height:1.5}</style></head><body><h2>Authorize $display</h2><p>Requesting callback domain: <b>$domain</b></p><p>Grant this agent read-only access to Android diagnostic logs. Check the callback domain before approving. The agent does not receive your existing key.</p><form method="post" action="/oauth/approve"><input type="hidden" name="ticket" value="$ticket"><input type="password" name="key" autocomplete="off" required aria-label="MCP access key"><button type="submit">Approve access</button></form><p>Approval grants diagnostic reading, never shell commands.</p></body></html>"""
         Reply(200,page,"text/html")
     }
+    private fun retryForm(ticket: String, remaining: Int): String =
+        """<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Retry MCP approval</title></head><body><h2>Incorrect access key</h2><p>$remaining attempts remaining. Enter the current key shown in the Android app.</p><form method="post" action="/oauth/approve"><input type="hidden" name="ticket" value="$ticket"><input type="password" name="key" autocomplete="off" required><button type="submit">Try again</button></form></body></html>"""
+
     fun approve(c: Context, form: Map<String,String>): Reply = synchronized(lock) {
-        val s = current(c); val ticket = digest(form["ticket"].orEmpty())
-        val pending = table(s,"pending")
-        val record = pending.optJSONObject(ticket) ?: return@synchronized failure(
-            "invalid_request", description = "Approval missing, expired or already used")
-        if (record.optLong("expiry") <= System.currentTimeMillis())
-            return@synchronized failure("expired_request")
+        val rawTicket = form["ticket"].orEmpty()
+        if (!Regex("[A-Za-z0-9_-]{43,128}").matches(rawTicket))
+            return@synchronized failure("invalid_request",
+                description = approvalFailureReason("unknown"))
+        val s = current(c)
+        val now = System.currentTimeMillis()
+        val fingerprint = digest(rawTicket)
+        val status = approvalStatus(s, fingerprint, now)
+        if (status != "valid") return@synchronized failure(
+            if (status == "expired") "expired_request" else "invalid_request",
+            description = approvalFailureReason(status))
+        val currentIssuer = issuer()
+            ?: return@synchronized failure("temporarily_unavailable", 503,
+                "Public MCP tunnel unavailable; retry this approval when online")
+        val pending = table(s, "pending")
+        val record = pending.getJSONObject(fingerprint)
+        if (record.optString("aud") != currentIssuer + "/mcp")
+            return@synchronized failure("invalid_request",
+                description = approvalFailureReason("url_changed"))
         val master = BridgeClient.clientToken(c)
         val key = form["key"].orEmpty()
-        if (master.isBlank() || key.length > 256 || !same(master,key)) {
+        if (master.isBlank() || key.length > 256 || !same(master, key)) {
             val attempts = record.optInt("attempts") + 1
-            if (attempts >= 5) pending.remove(ticket) else record.put("attempts",attempts)
-            save(c,s)
-            return@synchronized Reply(403,"<html><body>Key rejected. Restart the authorization to try again.</body></html>","text/html")
+            if (attempts >= 5) {
+                pending.remove(fingerprint)
+                retire(s, fingerprint, "locked", now)
+                save(c, s)
+                return@synchronized failure("access_denied", 403,
+                    approvalFailureReason("locked"))
+            }
+            record.put("attempts", attempts)
+            save(c, s)
+            return@synchronized Reply(403, retryForm(rawTicket, 5 - attempts),
+                "text/html", auditCode = "access_denied",
+                auditReason = "Incorrect MCP access key; " + (5 - attempts) +
+                    " attempts remaining")
         }
-        pending.remove(ticket)
+        val codes = table(s, "codes")
+        if (codes.length() >= 128)
+            return@synchronized failure("temporarily_unavailable", 503,
+                "Too many pending authorization codes; retry later")
         val code = nonce()
-        table(s,"codes").put(digest(code),JSONObject()
-            .put("client",record.getString("client"))
-            .put("redirect",record.getString("redirect"))
-            .put("challenge",record.getString("challenge"))
-            .put("aud",record.getString("aud"))
-            .put("scope",record.getString("scope"))
-            .put("expiry",System.currentTimeMillis()+CODE_MS))
-        save(c,s)
-        val issuer = issuer() ?: return@synchronized failure("temporarily_unavailable",503)
-        redirect(withParams(record.getString("redirect"),mapOf(
-            "code" to code,"state" to record.getString("state"),"iss" to issuer)))
+        codes.put(digest(code), JSONObject()
+            .put("client", record.getString("client"))
+            .put("redirect", record.getString("redirect"))
+            .put("challenge", record.getString("challenge"))
+            .put("aud", record.getString("aud"))
+            .put("scope", record.getString("scope"))
+            .put("expiry", now + CODE_MS))
+        pending.remove(fingerprint)
+        retire(s, fingerprint, "used", now)
+        save(c, s)
+        val parameters = mutableMapOf("code" to code, "iss" to currentIssuer)
+        if (record.optString("state").isNotEmpty())
+            parameters["state"] = record.getString("state")
+        redirect(withParams(record.getString("redirect"), parameters))
     }
     private fun issue(s: JSONObject, client: String, audience: String, scopes: String): Reply {
         val now = System.currentTimeMillis()
         val access = nonce()
         val refresh = nonce()
         val tokens = table(s,"tokens")
-        if (tokens.length() >= 256) return failure("token_capacity_reached",429)
+        if (tokens.length() > 254) return failure("token_capacity_reached",429)
         tokens.put(digest(access), JSONObject().put("kind","access")
             .put("client",client).put("aud",audience).put("scope",scopes)
             .put("expiry",now+ACCESS_MS))
@@ -305,7 +427,9 @@ internal object LocalMcpOAuth {
                 val codes = table(s,"codes")
                 val record = codes.optJSONObject(key)
                     ?: return@synchronized failure("invalid_grant")
-                // Consume the one-time code, even on a bad verifier.
+                if (table(s, "tokens").length() > 254)
+                    return@synchronized failure("token_capacity_reached", 429)
+                // One-time code remains consumed even if PKCE verification fails.
                 codes.remove(key); save(c,s)
                 if (record.optString("client") != id ||
                     record.optString("redirect") != form["redirect_uri"] ||
@@ -322,6 +446,8 @@ internal object LocalMcpOAuth {
                 val tokens = table(s,"tokens")
                 val record = tokens.optJSONObject(key)
                     ?: return@synchronized failure("invalid_grant")
+                if (tokens.length() > 254)
+                    return@synchronized failure("token_capacity_reached", 429)
                 tokens.remove(key)
                 save(c,s)
                 if (record.optString("kind") != "refresh" ||
@@ -386,7 +512,10 @@ internal object LocalMcpOAuth {
         for (name in listOf("pending", "codes")) {
             val entries = table(s,name)
             for (key in entries.keys().asSequence().toList()) {
-                if (entries.optJSONObject(key)?.optString("client") == id) entries.remove(key)
+                if (entries.optJSONObject(key)?.optString("client") == id) {
+                    if (name == "pending") retire(s, key, "revoked", System.currentTimeMillis())
+                    entries.remove(key)
+                }
             }
         }
         // Clients can reauthorize later only by entering the existing master key.

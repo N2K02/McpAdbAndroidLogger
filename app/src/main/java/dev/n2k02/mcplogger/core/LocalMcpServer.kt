@@ -68,8 +68,10 @@ object LocalMcpServer {
                            origin: String?, userAgent: String?,
                            reply: LocalMcpOAuth.Reply) {
         val json = runCatching { JSONObject(reply.body) }.getOrNull()
-        val code = json?.optString("error").orEmpty().take(64)
-        val detail = json?.optString("error_description").orEmpty().take(160)
+        val code = (if (reply.auditCode.isNotBlank()) reply.auditCode
+            else json?.optString("error").orEmpty()).take(64)
+        val detail = (if (reply.auditReason.isNotBlank()) reply.auditReason
+            else json?.optString("error_description").orEmpty()).take(160)
         val success = reply.status in 200..399
         McpAuditStore.record(context,
             McpAuditStore.Agent("oauth-flow",
@@ -84,6 +86,15 @@ object LocalMcpServer {
                 if (success) "" else code.ifBlank { "OAuth request rejected" }
             })
     }
+
+    /** Storage failures must not result in a silent dropped HTTP connection. */
+    private fun safeOAuth(block: () -> LocalMcpOAuth.Reply): LocalMcpOAuth.Reply =
+        try {
+            block()
+        } catch (_: Exception) {
+            LocalMcpOAuth.Reply(503,
+                """{"error":"temporarily_unavailable","error_description":"OAuth storage unavailable; retry later"}""")
+        }
 
     private fun handle(client: Socket, context: Context) {
         client.use { socket ->
@@ -139,8 +150,8 @@ object LocalMcpServer {
                     return
                 }
                 if (path == "/oauth/authorize" && method == "GET") {
-                    val result = LocalMcpOAuth.authorize(context,
-                        parseParams(parts[1].substringAfter('?', "")))
+                    val result = safeOAuth { LocalMcpOAuth.authorize(context,
+                        parseParams(parts[1].substringAfter('?', ""))) }
                     auditOAuth(context, method, path, origin, headers["user-agent"], result)
                     respond(output, result.status, result.body, result.type, result.headers)
                     return
@@ -157,7 +168,7 @@ object LocalMcpServer {
                     }
                     val bytes = readBody(input, length) ?: return
                     val body = String(bytes, StandardCharsets.UTF_8)
-                    val result = when (path) {
+                    val result = safeOAuth { when (path) {
                         "/oauth/register" -> {
                             val json = runCatching { JSONObject(body) }.getOrNull()
                             if (json == null) LocalMcpOAuth.Reply(400,
@@ -168,7 +179,7 @@ object LocalMcpServer {
                         "/oauth/approve" -> LocalMcpOAuth.approve(context, parseParams(body))
                         "/oauth/revoke" -> LocalMcpOAuth.revokeToken(context, parseParams(body))
                         else -> LocalMcpOAuth.Reply(404, """{"error":"not_found"}""")
-                    }
+                    } }
                     auditOAuth(context, method, path, origin, headers["user-agent"], result)
                     respond(output, result.status, result.body, result.type, result.headers)
                     return

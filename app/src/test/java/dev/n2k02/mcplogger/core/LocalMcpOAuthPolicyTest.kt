@@ -57,6 +57,59 @@ class LocalMcpOAuthPolicyTest {
                 args + ("scope" to "admin"), resource))
     }
 
+    private fun state(expires: Long = 50_000L): JSONObject = JSONObject().apply {
+        put("master", "key-one")
+        put("issuer", "https://old.example")
+        put("pending", JSONObject().put("hashed-ticket", JSONObject()
+            .put("expiry", expires).put("attempts", 0)))
+        put("codes", JSONObject().put("code", JSONObject().put("expiry", expires)))
+        put("tokens", JSONObject().put("access", JSONObject().put("expiry", expires)))
+    }
+
+    @Test fun ticketSurvivesUnchangedCredentialsAndTransientTunnelOutage() {
+        val db = state()
+        assertFalse(LocalMcpOAuth.reconcileState(db, "key-one", "https://old.example", 100L))
+        assertFalse(LocalMcpOAuth.reconcileState(db, "key-one", null, 100L))
+        assertEquals("valid", LocalMcpOAuth.approvalStatus(db, "hashed-ticket", 100L))
+    }
+
+    @Test fun expiryDistinguishesExpiredFromUnknownAndPreservesReplayHistory() {
+        val db = state(500L)
+        assertTrue(LocalMcpOAuth.expireState(db, 501L))
+        assertEquals("expired", LocalMcpOAuth.approvalStatus(db, "hashed-ticket", 502L))
+        assertEquals("unknown", LocalMcpOAuth.approvalStatus(db, "other", 502L))
+        assertEquals(0, db.getJSONObject("codes").length())
+        assertEquals(0, db.getJSONObject("tokens").length())
+        assertTrue(LocalMcpOAuth.approvalFailureReason("expired").contains("expired"))
+        assertTrue(LocalMcpOAuth.approvalFailureReason("used").contains("completed"))
+        assertTrue(LocalMcpOAuth.approvalFailureReason("locked").contains("incorrect"))
+    }
+
+    @Test fun masterKeyChangeInvalidatesPendingTicketsAndTokensWithReason() {
+        val db = state()
+        assertTrue(LocalMcpOAuth.reconcileState(db, "key-two", "https://old.example", 100L))
+        assertEquals("key_rotated", LocalMcpOAuth.approvalStatus(db, "hashed-ticket", 101L))
+        assertEquals(0, db.getJSONObject("tokens").length())
+        assertEquals(0, db.getJSONObject("codes").length())
+        assertEquals(0, db.getJSONObject("pending").length())
+    }
+
+    @Test fun changedPublicUrlInvalidatesSessionButReconnectDoesNot() {
+        val db = state()
+        assertTrue(LocalMcpOAuth.reconcileState(db, "key-one", "https://new.example", 100L))
+        assertEquals("url_changed", LocalMcpOAuth.approvalStatus(db, "hashed-ticket", 101L))
+        assertEquals("https://new.example", db.getString("issuer"))
+        assertTrue(LocalMcpOAuth.approvalFailureReason("url_changed").contains("URL"))
+    }
+
+    @Test fun replayHistoryIsBoundedAndPruned() {
+        val db = state(50L)
+        assertTrue(LocalMcpOAuth.expireState(db, 100L))
+        assertEquals("expired", LocalMcpOAuth.approvalStatus(db, "hashed-ticket", 101L))
+        assertTrue(LocalMcpOAuth.expireState(db, 4_000_000L))
+        assertEquals("unknown", LocalMcpOAuth.approvalStatus(db, "hashed-ticket", 4_000_001L))
+    }
+
     @Test fun metadataSupportsDynamicRegistrationAndProtectedResource() {
         val previous = MonitorState.publicMcpUrl.value
         try {
