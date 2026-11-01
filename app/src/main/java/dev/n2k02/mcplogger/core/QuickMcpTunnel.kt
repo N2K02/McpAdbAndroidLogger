@@ -28,6 +28,7 @@ object QuickMcpTunnel {
     private const val SAVED = "mcp-quick-tunnel.json"
     private val lock = Any()
     @Volatile private var process: Process? = null
+    @Volatile private var edgeConnected = false
     @Volatile private var starting = false
     @Volatile private var stopped = false
     @Volatile private var config: File? = null
@@ -123,6 +124,7 @@ object QuickMcpTunnel {
             starting = true
             stopped = false
         }
+        edgeConnected = false
         MonitorState.tunnel.value = "Starting secure tunnel..."
         MonitorState.publicMcpUrl.value = StableMcpRelay.publicMcpUrl(context).orEmpty()
         var backoff = 2_000L
@@ -136,6 +138,7 @@ object QuickMcpTunnel {
                 return@withContext
             }
             while (!stopped) {
+                edgeConnected = false
                 val tracker = ConnectionTracker()
                 try {
                     var reg = loadSaved(context)
@@ -244,6 +247,7 @@ object QuickMcpTunnel {
                 // No tokens or logs are forwarded into status text.
                 if (!tracker.onLine(line)) continue
                 if (tracker.connected) {
+                    edgeConnected = true
                     if (!confirmed) {
                         confirmed = true
                         save(context, reg.copy(confirmed = true))
@@ -254,13 +258,16 @@ object QuickMcpTunnel {
                     MonitorState.tunnel.value = if (published) "Public MCP connected"
                         else "Stable relay unavailable"
                 } else if (tracker.rejected) {
+                    edgeConnected = false
                     running.destroyForcibly()
                     break
                 } else {
+                    edgeConnected = false
                     MonitorState.tunnel.value = "Tunnel is reconnecting"
                 }
             }
         }
+        edgeConnected = false
         synchronized(lock) {
             running.destroyForcibly()
             if (process === running) process = null
@@ -287,7 +294,19 @@ object QuickMcpTunnel {
         }
     }
 
+    /** Refresh a short-lived Worker route only while the current cloudflared edge is live. */
+    fun refreshStableRelay(context: Context): Boolean {
+        if (!edgeConnected || StableMcpRelay.publicMcpUrl(context) == null) {
+            // Explicit state checks avoid renewing stale registrations after shutdown.
+            // A missing stable configuration means no heartbeat is needed.
+            return false
+        }
+        val registration = loadSaved(context)?.takeIf { it.confirmed } ?: return false
+        return StableMcpRelay.publish(context, registration.mcpUrl)
+    }
+
     fun stop() {
+        edgeConnected = false
         synchronized(lock) {
             stopped = true
             process?.destroyForcibly()
