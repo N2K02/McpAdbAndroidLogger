@@ -4,6 +4,22 @@ Android Logcat monitoring and a read-only AI MCP bridge, using the **same shared
 
 **Development:** one experimental PR, no changes to the production branch until CI/device verification. GPL-3.0-or-later (LogFox-derived parsing).
 
+## Start here: public MCP connection through Cloudflare Worker
+
+**Cloudflare Worker setup is required only once.** Cloudflare **Deployments → Ready** means the code deployed, not that the Android app can be reached.
+
+**Verified deployment gotcha:** The Worker needs a **runtime secret** called `DEVICE_TOKEN` (32+ characters) under **Worker Settings → Variables and Secrets**. A build-time variable is not sufficient. Without the runtime secret, the Worker returns `503 Stable relay is not provisioned` and Android remains **Offline** even if the Worker shows **Ready**. The `MCP_ROUTE` Durable Object binding must also be present.
+
+1. Deploy **Worker** (not Cloudflare Pages/static site) from GitHub `main`: root directory `stable-relay`, build command **None**, deploy command `npx wrangler deploy`, Worker name `mcpadbandroidlogger` as defined in `stable-relay/wrangler.toml`.
+2. Add **runtime Secret** `DEVICE_TOKEN` with your own private 32–256 character secret and deploy it. The phone **Worker registration secret** must be exactly the same value.
+3. In Cloudflare **Domains**, copy the actual `https://<worker>.<your-subdomain>.workers.dev` hostname. Append `/mcp`. Do not use GitHub Pages or the hidden Quick Tunnel URL.
+4. Android **Settings → MCP connection → Public MCP**: enter the complete Worker `/mcp` URL and **Worker registration secret**, tap **Save and connect → Start server → Reconnect tunnel**.
+5. When Android reports **Online**, add the single `/mcp` URL to a compatible remote MCP client using **OAuth + Dynamic Client Registration (DCR)**. Your separate existing **MCP client access key** remains unchanged and is entered only on the OAuth approval page.
+
+**Offline diagnosis:** In Chrome open your real Worker address ending in **`/health`** (not `/mcp`). `Stable relay is not provisioned` means the runtime `DEVICE_TOKEN` is missing; `Android phone is offline or route expired` means the device has not registered a fresh tunnel; `Android tunnel unavailable` means the route exists but the tunnel is unreachable; `{"service":"mcp-adb-logger","status":"ok"}` means the Worker reached the phone. Keep your keys private.
+
+**Full step-by-step setup and troubleshooting:** [Cloudflare Worker permanent URL guide](stable-relay/README.md). This includes where to set runtime secrets (not build variables), Durable Object checks, HTTP errors, connection recovery, OAuth and security guidance.
+
 ## Components
 
 - **Android app:** Material 3 Expressive via `dev.n2k02:theme:0.1.4`, single mRadio-style header, Home, Settings, Logs, Quit.
@@ -29,9 +45,11 @@ This repository's Actions secrets must be configured; secrets from other reposit
 2. Open **ADB connection**, choose Android's **Pair device with pairing code**, and enter the code and port (or enable the optional Accessibility pairing helper to read a visible Settings pairing dialog automatically). Android must authorize the initial connection.
 3. The app validates `id -u == 2000` before starting capture. TCP/5555 is enabled by default but can expose an ADB listener to the LAN; disable in Settings if not wanted.
 4. Start monitoring and select a package. Logcat access varies by Android build, and monitoring requires a visible foreground notification.
-5. For AI access, deploy the gateway and enter its HTTPS URL in **MCP connection**. Tap **Generate secure keys** to create separate device and MCP-client credentials. Copy the server configuration into the gateway deployment, then start monitoring; upload is automatically on with a valid gateway URL. **Copy MCP URL** gives the `https://.../mcp` endpoint to add to Claude or ChatGPT, together with the MCP client token in the client's authentication settings.
+5. For remote AI access, follow the **Start here** Cloudflare Worker steps above. Your phone hosts the MCP service; once the permanent Worker endpoint is **Online**, connect via OAuth/DCR. **Do not generate or rotate the MCP client access key merely to troubleshoot a Worker deployment.**
 
-## MCP gateway
+## Legacy external MCP gateway (optional, not the recommended phone-hosted flow)
+
+The following Docker/Python gateway setup is legacy functionality and **is not required for the permanent Cloudflare Worker URL**. Its `DEVICE_API_KEY` and `MCP_CLIENT_TOKEN` settings are **not** the Worker `DEVICE_TOKEN` and should not be entered in the Android Public MCP card.
 
 The app's **Generate secure keys** button only creates secrets; it does not register or deploy a public hostname. **Test gateway** calls the non-sensitive public `GET /health` endpoint to verify that the deployed HTTPS gateway is reachable, but does not authenticate the MCP client. Key rotation requires updating gateway environment variables and restarting the gateway. Don't give Claude or ChatGPT the **device upload key**; use the separate **MCP client token**.
 
@@ -86,7 +104,7 @@ on the Android phone, and the Worker stores no logs.
 **GitHub Pages cannot provide `/McpAdbAndroidLogger/mcp` as a functional
 endpoint** because it cannot run an HTTP/OAuth reverse proxy. The stable endpoint
 must be a real server-side Worker, for example
-`https://n2k02-mcp-adb-logger.<cloudflare-account>.workers.dev/mcp`.
+`https://mcpadbandroidlogger.<your-account-subdomain>.workers.dev/mcp`.
 See [stable-relay/README.md](stable-relay/README.md) for the one-time Worker
 deployment and secret configuration. Cloudflare account access is unavoidable;
 there is no way to deploy a permanent URL from a GitHub Pages static repo alone.
