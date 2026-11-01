@@ -55,6 +55,7 @@ class LogMonitorService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
     private var tunnelJob: Job? = null
+    private var relayHeartbeatJob: Job? = null
     private var foreground = false
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -109,6 +110,8 @@ class LogMonitorService : Service() {
                 QuickMcpTunnel.stop()
                 tunnelJob?.cancel()
                 tunnelJob = null
+                relayHeartbeatJob?.cancel()
+                relayHeartbeatJob = null
                 LocalMcpServer.stop()
                 getSharedPreferences("mcp_logger", MODE_PRIVATE).edit()
                     .putBoolean("manual_quit", true).apply()
@@ -132,6 +135,8 @@ class LogMonitorService : Service() {
                 QuickMcpTunnel.stop()
                 tunnelJob?.cancel()
                 tunnelJob = null
+                relayHeartbeatJob?.cancel()
+                relayHeartbeatJob = null
                 LocalMcpServer.stop()
                 getSharedPreferences("mcp_logger", MODE_PRIVATE).edit()
                     .putBoolean("mcp_server_enabled", false).apply()
@@ -158,6 +163,7 @@ class LogMonitorService : Service() {
                     delay(1200)
                     QuickMcpTunnel.start(applicationContext)
                 }
+                ensureRelayHeartbeat()
             }
             LOCAL_START, START -> {
                 // Persistent MCP connection must survive leaving the Activity.
@@ -172,6 +178,7 @@ class LogMonitorService : Service() {
                     val started = LocalMcpServer.start(applicationContext)
                     if (started && tunnelJob?.isActive != true) {
                         tunnelJob = scope.launch { QuickMcpTunnel.start(applicationContext) }
+                        ensureRelayHeartbeat()
                     }
                 }
                 if (intent?.action == START) {
@@ -185,6 +192,27 @@ class LogMonitorService : Service() {
             }
         }
         return START_STICKY
+    }
+
+    /**
+     * Workers expire the phone route after four minutes for safety. Renew it
+     * every minute only while cloudflared confirms a live edge connection.
+     * If Android stops this foreground service, the route eventually expires.
+     */
+    private fun ensureRelayHeartbeat() {
+        if (relayHeartbeatJob?.isActive == true) return
+        relayHeartbeatJob = scope.launch {
+            while (isActive) {
+                delay(60_000L)
+                if (StableMcpRelay.publicMcpUrl(applicationContext) != null) {
+                    val renewed = QuickMcpTunnel.refreshStableRelay(applicationContext)
+                    if (!renewed && MonitorState.tunnel.value == "Public MCP connected")
+                        MonitorState.tunnel.value = "Stable relay unavailable"
+                    if (renewed && MonitorState.tunnel.value == "Stable relay unavailable")
+                        MonitorState.tunnel.value = "Public MCP connected"
+                }
+            }
+        }
     }
 
     private fun ensureForeground() {
