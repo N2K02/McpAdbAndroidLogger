@@ -21,6 +21,8 @@ import androidx.compose.ui.unit.dp
 import dev.n2k02.mcplogger.core.BridgeClient
 import dev.n2k02.mcplogger.core.MonitorState
 import dev.n2k02.mcplogger.core.LogMonitorService
+import dev.n2k02.mcplogger.core.PerformanceDiagnostics
+import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
 
@@ -43,6 +45,10 @@ internal fun HomeDashboard(
     val context = LocalContext.current
     val clientToken = BridgeClient.clientTokenState(context).collectAsState().value.orEmpty()
     var copyHint by remember { mutableStateOf("") }
+    val perfScope = rememberCoroutineScope()
+    var perfPackage by remember { mutableStateOf("") }
+    var perfBusy by remember { mutableStateOf(false) }
+    var perfResult by remember { mutableStateOf("No performance snapshot yet.") }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Device diagnostics", style = MaterialTheme.typography.headlineSmall,
@@ -84,6 +90,72 @@ internal fun HomeDashboard(
                         Text("Cancel")
                     }
                 }
+            }
+        }
+
+
+        // CPU and UI frame probes only run when explicitly tapped.
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                CardHeader(Icons.Rounded.Speed, "CPU & frame timing", Tone.IDLE,
+                    if (perfBusy) "Reading" else "On demand")
+                Text("One short CPU sample or recent View UI frames. No background sampling. " +
+                    "This does not measure hardware GPU utilization.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedTextField(
+                    value = perfPackage, onValueChange = { perfPackage = it.take(150) },
+                    label = { Text("Package (optional for CPU)") },
+                    placeholder = { Text("com.vrec.app") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth())
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(onClick = {
+                        perfBusy = true
+                        perfScope.launch {
+                            try {
+                                val result = PerformanceDiagnostics.cpu(perfPackage.trim(), 10)
+                                val processes = result.getJSONArray("processes")
+                                perfResult = if (processes.length() == 0)
+                                    "No matching running processes in this snapshot."
+                                else (0 until minOf(5, processes.length())).joinToString("\n") { i ->
+                                    val process = processes.getJSONObject(i)
+                                    process.getString("process") + " · " +
+                                        process.getDouble("cpu_percent") + "% CPU · " +
+                                        process.getString("resident_memory") + " RAM"
+                                }
+                            } catch (_: Exception) {
+                                perfResult = "CPU read unavailable. Check ADB and the package name."
+                            } finally {
+                                perfBusy = false
+                            }
+                        }
+                    }, enabled = verified && !perfBusy, modifier = Modifier.weight(1f)) {
+                        Text("CPU snapshot")
+                    }
+                    OutlinedButton(onClick = {
+                        perfBusy = true
+                        perfScope.launch {
+                            try {
+                                val result = PerformanceDiagnostics.frames(perfPackage.trim())
+                                perfResult = if (result.getString("status") != "ok")
+                                    "No View frame timing for this app; video/GPU paths may not be exposed."
+                                else result.getInt("sample_frames").toString() +
+                                    " UI frames · p95 " +
+                                    result.getDouble("frame_p95_ms") + " ms · slow " +
+                                    result.getInt("slow_frames") + " (60 Hz reference)"
+                            } catch (_: Exception) {
+                                perfResult = "Frame timing unavailable. Check ADB and package name."
+                            } finally {
+                                perfBusy = false
+                            }
+                        }
+                    }, enabled = verified && !perfBusy &&
+                        PerformanceDiagnostics.validPackage(perfPackage.trim()),
+                        modifier = Modifier.weight(1f)) {
+                        Text("Frame timing")
+                    }
+                }
+                Text(perfResult, style = MaterialTheme.typography.bodySmall)
             }
         }
 
