@@ -40,6 +40,26 @@ class HomeAndLogcatUiContractTest {
         assertTrue(src.contains("Copy log entry"))
     }
 
+    @Test fun deviceLogcatClearIsConfirmedAndHomeStatsCanResetSeparately() {
+        val logcat = code("LogcatScreen.kt")
+        assertTrue(logcat.contains("Clear all Android Logcat buffers?"))
+        assertTrue(logcat.contains("LogMonitorService.CLEAR_DEVICE_LOGCAT"))
+        assertTrue(logcat.contains("adbVerified && !deviceLogcatClearing"))
+        assertTrue(logcat.contains("MCP audit history is not deleted"))
+        assertTrue(logcat.contains("LogMonitorService.clear()"))
+        val home = code("HomeDashboard.kt")
+        assertTrue(home.contains("Reset Home statistics"))
+        assertTrue(home.contains("LogMonitorService.resetHomeStatistics()"))
+        val service = code("core/LogMonitorService.kt")
+        assertTrue(service.contains("DeviceLogcatReset.COMMAND"))
+        assertTrue(service.contains("AdbCoordinator.verified.value"))
+        assertTrue(service.contains("getOrThrow().trim() == \"2000\""))
+        assertTrue(service.contains("resetGate.applyIfCurrent(readGeneration)"))
+        assertTrue(service.contains("buffer.clear(resetDedup = true)"))
+        assertFalse(home.contains("MonitorState.adb.value ="))
+        assertFalse(home.contains("MonitorState.publicMcpUrl.value ="))
+    }
+
     @Test fun captureIsIndependentOfSelectedAppAndTracksMetrics() {
         val service = code("core/LogMonitorService.kt")
         assertTrue(service.contains("buffer.add(parsed, null, null)"))

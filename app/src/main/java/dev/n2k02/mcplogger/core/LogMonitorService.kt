@@ -35,13 +35,21 @@ class LogMonitorService : Service() {
         /** New public URL and new client key; everything else keeps running. */
         const val TUNNEL_ROTATE = "dev.n2k02.mcplogger.TUNNEL_ROTATE"
         const val STOP = "dev.n2k02.mcplogger.STOP"
+        const val CLEAR_DEVICE_LOGCAT = "dev.n2k02.mcplogger.CLEAR_DEVICE_LOGCAT"
         const val LOCAL_STOP = "dev.n2k02.mcplogger.LOCAL_MCP_STOP"
         const val QUIT = "dev.n2k02.mcplogger.QUIT"
         private val buffer = LogBuffer()
+        private val resetGate = LogcatResetGate()
         fun snapshot(after: Long = 0, limit: Int = 300) = buffer.snapshot(after, limit)
-        fun clear() {
+        /** Clear app-only cached Logcat records; retain Android system buffers. */
+        fun clear() = resetGate.reset {
             buffer.clear()
             MonitorState.logs.value = emptyList()
+        }
+        /** Home metrics only; ADB and tunnel status always remain truthful. */
+        fun resetHomeStatistics() = resetGate.reset {
+            MonitorState.captureStats.value = LogCaptureStats()
+            MonitorState.errors.value = emptyList()
         }
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -53,6 +61,49 @@ class LogMonitorService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Android may restart a sticky foreground service without the original Intent.
         when (intent?.action ?: LOCAL_START) {
+            CLEAR_DEVICE_LOGCAT -> {
+                // Local user action only, never callable from remote MCP tools.
+                if (!resetGate.beginDeviceClear {
+                        MonitorState.clearingDeviceLogcat.value = true
+                        MonitorState.logcatMaintenanceStatus.value = "Clearing Android Logcat..."
+                    }) return START_STICKY
+                scope.launch {
+                    var cleared = false
+                    var message = "Android Logcat clearing was interrupted"
+                    try {
+                        ensureForeground()
+                        check(AdbCoordinator.verified.value) {
+                            "Verify ADB shell UID 2000 first"
+                        }
+                        check(AdbTransport.exec("id -u", timeoutMs = 5000)
+                            .getOrThrow().trim() == "2000") { "ADB shell UID is not 2000" }
+                        val result = AdbTransport.exec(DeviceLogcatReset.COMMAND,
+                            timeoutMs = 12000).getOrThrow()
+                        check(DeviceLogcatReset.succeeded(result)) {
+                            "The device rejected logcat -c"
+                        }
+                        cleared = true
+                        message = "All Android Logcat buffers cleared"
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        message = "Device Logcat clear failed: " +
+                            (error.message ?: error.javaClass.simpleName)
+                    } finally {
+                        resetGate.finishDeviceClear {
+                            if (cleared) {
+                                buffer.clear(resetDedup = true)
+                                MonitorState.logs.value = emptyList()
+                                MonitorState.captureStats.value = LogCaptureStats()
+                                MonitorState.errors.value = emptyList()
+                            }
+                            MonitorState.clearingDeviceLogcat.value = false
+                            MonitorState.logcatMaintenanceStatus.value = message
+                        }
+                    }
+                }
+                return START_STICKY
+            }
             QUIT -> {
                 stopCapture()
                 QuickMcpTunnel.stop()
@@ -177,28 +228,33 @@ class LogMonitorService : Service() {
                         MonitorState.packages.value = known.keys.sorted().take(500)
                     }
                     // Filtering is UI-only so switching apps cannot discard captured logs.
+                    val readGeneration = resetGate.generation()
                     val output = AdbTransport.exec("logcat -b main -b system -b crash -v uid -v epoch -d -t 300",
                         timeoutMs = 12000).getOrThrow()
                     val parsed = output.lineSequence().mapNotNull(LogFoxParser::parse).toList()
-                    val newEntries = buffer.add(parsed, null, null)
-                    MonitorState.logs.value = buffer.snapshot(0, 2000)
-                    val previous = MonitorState.captureStats.value
-                    MonitorState.captureStats.value = previous.copy(
-                        linesScanned = previous.linesScanned + parsed.size,
-                        uniqueCaptured = previous.uniqueCaptured + newEntries.size,
-                        scanCycles = previous.scanCycles + 1,
-                        lastSuccessAtMillis = System.currentTimeMillis(),
-                        lastBatchCaptured = newEntries.size,
-                    )
+                    resetGate.applyIfCurrent(readGeneration) {
+                        val newEntries = buffer.add(parsed, null, null)
+                        MonitorState.logs.value = buffer.snapshot(0, 2000)
+                        val previous = MonitorState.captureStats.value
+                        MonitorState.captureStats.value = previous.copy(
+                            linesScanned = previous.linesScanned + parsed.size,
+                            uniqueCaptured = previous.uniqueCaptured + newEntries.size,
+                            scanCycles = previous.scanCycles + 1,
+                            lastSuccessAtMillis = System.currentTimeMillis(),
+                            lastBatchCaptured = newEntries.size,
+                        )
+                    }
                     attempt = 0
                     delay(2500L)
                 } catch (cancelled: kotlinx.coroutines.CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
                     MonitorState.error("Logcat: " + (error.message ?: "capture error"))
-                    val previous = MonitorState.captureStats.value
-                    MonitorState.captureStats.value = previous.copy(
-                        readFailures = previous.readFailures + 1)
+                    resetGate.applyIfCurrent(resetGate.generation()) {
+                        val previous = MonitorState.captureStats.value
+                        MonitorState.captureStats.value = previous.copy(
+                            readFailures = previous.readFailures + 1)
+                    }
                     attempt = (attempt + 1).coerceAtMost(6)
                     delay((1000L shl attempt).coerceAtMost(60000L))
                 }

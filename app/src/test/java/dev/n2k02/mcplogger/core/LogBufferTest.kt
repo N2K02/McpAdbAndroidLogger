@@ -19,6 +19,15 @@ class LogBufferTest {
         assertTrue(b.add(listOf(event(2), event(3)), null, null).isEmpty())
         assertEquals(1, b.add(listOf(event(4)), null, null).size)
     }
+    @Test fun clearingDeviceBuffersAlsoResetsDedupWithoutReusingIds() {
+        val b = LogBuffer()
+        assertEquals(listOf(1L, 2L), b.add(listOf(event(1), event(2)), null, null)
+            .map { it.id })
+        b.clear(resetDedup = true)
+        assertTrue(b.snapshot().isEmpty())
+        assertEquals(3L, b.add(listOf(event(2)), null, null).single().id)
+    }
+
     @Test fun appUidFilterKeepsOnlyTargetEvents() {
         val b = LogBuffer()
         b.add(listOf(event(1), event(2, "20002")), "10001", "some.app")

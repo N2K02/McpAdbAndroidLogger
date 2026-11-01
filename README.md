@@ -254,6 +254,26 @@ The tool never exposes raw OAuth credentials or HTTP headers. Its responses
 are not saved recursively in the audit journal. Refresh agent tools after
 changing the switch.
 
+## Clear Logcat and reset Home cards
+
+- **Logs → Clear** removes only captured in-memory Logcat events, preserving
+  Android's original system buffers. An in-flight polling result is discarded
+  so it cannot refill the list with pre-clear entries.
+- **Logs → Clear device Logcat (all buffers)** requires a separate confirmation,
+  a connected and newly verified ADB shell UID 2000, and executes
+  `logcat -b all -c`. This deletes Android's available system-wide Logcat
+  buffers (including logs from other apps). It resets the app's captured-log
+  cache, dedup window and current-session counters only on success. New
+  events appear as monitoring continues.
+- **Home → Logcat activity → Reset Home statistics** resets the scan totals,
+  error count and last-scan timestamp without deleting the buffered events.
+  ADB connection, public MCP URL, access key and live statuses remain
+  authoritative and unchanged.
+- None of these actions deletes **Settings → MCP audits** records; use that
+  screen's separate Clear history button for the private MCP audit journal.
+
+These are on-device UI actions only. No remote MCP clear/reset tool exists.
+
 ## Settings → MCP audits
 
 The **MCP audits** subpage captures MCP JSON-RPC requests processed by the

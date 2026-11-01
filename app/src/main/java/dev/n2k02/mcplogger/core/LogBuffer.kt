@@ -31,9 +31,12 @@ class LogBuffer(private val capacity: Int = 2000) {
     }
     @Synchronized fun snapshot(after: Long = 0, limit: Int = 300): List<LogEvent> =
         saved.asSequence().filter { it.id > after }.take(limit.coerceIn(1, 2000)).toList()
-    @Synchronized fun clear() {
-        // Preserve fingerprints so the next -d poll does not re-add old lines.
+    @Synchronized fun clear(resetDedup: Boolean = false) {
+        // Normal clear preserves fingerprints so the next -d poll cannot re-add
+        // old entries. Device logcat -c may safely clear the dedup window too.
         saved.clear()
+        if (resetDedup) fingerprints.clear()
+        // Keep IDs monotonic for existing MCP log cursors.
     }
 }
 

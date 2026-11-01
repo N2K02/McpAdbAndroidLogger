@@ -32,6 +32,8 @@ object MonitorState {
     val logFilter = MutableStateFlow(LogViewFilter())
     val captureStats = MutableStateFlow(LogCaptureStats())
     val logs = MutableStateFlow<List<LogEvent>>(emptyList())
+    val clearingDeviceLogcat = MutableStateFlow(false)
+    val logcatMaintenanceStatus = MutableStateFlow("")
     val errors = MutableStateFlow<List<String>>(emptyList())
     val packages = MutableStateFlow<List<String>>(emptyList())
     val packageUids = MutableStateFlow<Map<String, String>>(emptyMap())

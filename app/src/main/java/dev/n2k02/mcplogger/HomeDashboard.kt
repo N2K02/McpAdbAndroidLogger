@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.n2k02.mcplogger.core.BridgeClient
 import dev.n2k02.mcplogger.core.MonitorState
+import dev.n2k02.mcplogger.core.LogMonitorService
 import java.text.DateFormat
 import java.util.Date
 
@@ -137,6 +138,20 @@ internal fun HomeDashboard(
                         color = MaterialTheme.colorScheme.error)
                 }
                 Text("Scanned lines may repeat across polls; unique captured counts new events.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedButton(
+                    onClick = {
+                        LogMonitorService.resetHomeStatistics()
+                        copyHint = ""
+                    },
+                    modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Rounded.RestartAlt, null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Reset Home statistics")
+                }
+                Text("Resets collection counts and prior read errors. Live ADB and MCP " +
+                    "connection status, saved keys, and existing buffered logs stay unchanged.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }

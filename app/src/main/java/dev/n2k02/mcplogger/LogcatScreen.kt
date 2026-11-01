@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.os.Build
 import android.widget.ImageView
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -122,6 +123,9 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
     val uids by MonitorState.packageUids.collectAsState()
     val filter by MonitorState.logFilter.collectAsState()
     val active by MonitorState.active.collectAsState()
+    val adbVerified by dev.n2k02.mcplogger.adb.AdbCoordinator.verified.collectAsState()
+    val deviceLogcatClearing by MonitorState.clearingDeviceLogcat.collectAsState()
+    val deviceLogcatStatus by MonitorState.logcatMaintenanceStatus.collectAsState()
     val stats by MonitorState.captureStats.collectAsState()
     val apps by produceState(initialValue = emptyList<InstalledApp>(), key1 = packages) {
         value = withContext(Dispatchers.IO) { resolveApps(context, packages) }
@@ -133,6 +137,7 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
     var showPicker by remember { mutableStateOf(false) }
     var advanced by remember { mutableStateOf(false) }
     var clearConfirmation by remember { mutableStateOf(false) }
+    var deviceClearConfirmation by remember { mutableStateOf(false) }
     var timeExpanded by remember { mutableStateOf(false) }
     var exportSnapshot by remember { mutableStateOf<List<LogEvent>>(emptyList()) }
     var feedback by remember { mutableStateOf("") }
@@ -194,6 +199,27 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
             },
             dismissButton = {
                 TextButton(onClick = { clearConfirmation = false }) { Text("Cancel") }
+            })
+    }
+
+    if (deviceClearConfirmation) {
+        AlertDialog(
+            onDismissRequest = { deviceClearConfirmation = false },
+            title = { Text("Clear all Android Logcat buffers?") },
+            text = { Text("Runs logcat -b all -c through verified ADB shell UID 2000. " +
+                "This deletes logs from ALL apps in Android's system Logcat buffers, " +
+                "including crash, events and radio where permitted. It cannot be undone. " +
+                "MCP audit history is not deleted. New logs will appear as apps keep running.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    deviceClearConfirmation = false
+                    feedback = "Clearing Android Logcat..."
+                    context.startService(Intent(context, LogMonitorService::class.java)
+                        .setAction(LogMonitorService.CLEAR_DEVICE_LOGCAT))
+                }) { Text("Clear device Logcat") }
+            },
+            dismissButton = {
+                TextButton(onClick = { deviceClearConfirmation = false }) { Text("Cancel") }
             })
     }
 
@@ -326,6 +352,21 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                     Text("Export")
                 }
             }
+            OutlinedButton(
+                onClick = { deviceClearConfirmation = true },
+                enabled = adbVerified && !deviceLogcatClearing,
+                modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Rounded.DeleteSweep, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(if (deviceLogcatClearing) "Clearing device Logcat..."
+                    else "Clear device Logcat (all buffers)")
+            }
+            Text("Clear removes collected app logs only. Clear device Logcat also " +
+                "erases Android's system buffers; neither clears MCP audit history.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (deviceLogcatStatus.isNotBlank())
+                Text(deviceLogcatStatus, style = MaterialTheme.typography.bodySmall)
             if (feedback.isNotBlank()) Text(feedback,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
