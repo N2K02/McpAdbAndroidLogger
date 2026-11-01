@@ -1,4 +1,4 @@
-name = "n2k02-mcp-adb-logger"
+name = "mcpadbandroidlogger"
 main = "worker.mjs"
 compatibility_date = "2026-10-15"
 workers_dev = true
