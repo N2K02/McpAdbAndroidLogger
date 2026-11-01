@@ -21,7 +21,7 @@ internal object McpLogQuery {
         require(tool in setOf("get_live_logs", "search_logs", "get_crashes", "get_anrs"))
         val name = packageName.trim()
         require(name.length <= 255)
-        require(name.none { it.isWhitespace() || it.isISOControl() })
+        require(name.isEmpty() || name.matches(Regex("[A-Za-z0-9_][A-Za-z0-9_.]*")))
         val selectedUid = if (name.isEmpty()) null else {
             // Unknown/unchecked packages must not silently return all-device logs.
             packageUids[name] ?: return emptyList()
