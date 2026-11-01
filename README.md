@@ -370,3 +370,35 @@ and copy details. **Export** uses Android's system document picker to save the
 filtered audit snapshot. **Clear** deletes the local journal without revoking
 the agents or clearing Android Logcat. No OAuth browser authorization forms,
 API keys, bearer tokens or HTTP headers are written to the audit journal.
+
+
+## CPU and graphics performance snapshots (on demand)
+
+The **Home → CPU & frame timing** card requires verified local ADB shell
+UID 2000. Nothing polls CPU or GPU in the background. Remote MCP agents can
+request one of the following read-only tools after installing the experimental
+APK and refreshing their MCP tool catalog:
+
+- **get_cpu_usage**: one short Android top process sample, listing PIDs,
+  process names, resident memory and CPU percent. Optional exact
+  package_name filter and limit 1–50. Multicore CPU can exceed 100%.
+- **get_frame_timing**: requires exact package_name. Reads Android gfxinfo
+  framestats and returns recent UI frame-count, p50/p95/p99/worst frame times,
+  slow-frame count, and (where available) GPU completion latency.
+  frame_budget_ms defaults to 16.67 (60 Hz reference); use 8.33 for
+  120 Hz. Allowed range is 5–50 ms.
+- **get_performance_snapshot**: combined CPU sample and optional
+  package-specific UI frame timing.
+
+These are **not** raw GPU hardware-utilization counters. gfxinfo may not
+capture video/SurfaceView or Vulkan/OpenGL rendering. The optional
+GPU-completion latency includes scheduling and must not be treated as GPU
+execution time. When UI frame stats are unavailable, the response is
+no_ui_framestats, not an invented 0% GPU load.
+
+Only fixed built-in commands are executed by the authenticated local ADB
+client; package names are strictly validated to prevent shell argument
+injection. There is no public arbitrary-command endpoint, no daemon running
+CPU/GPU probes, no persisted traces, and no file writes. One performance
+request at a time is accepted. Each shell command has a finite timeout and
+responses are bounded.
