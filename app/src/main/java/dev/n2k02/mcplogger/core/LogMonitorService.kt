@@ -42,6 +42,27 @@ class LogMonitorService : Service() {
         private val buffer = LogBuffer()
         private val resetGate = LogcatResetGate()
         private val readLock = Mutex()
+        private var logDayStart = -1L
+
+        /** Rotate only the private in-memory capture and stats, never Android's logd. */
+        private fun rotateDay(now: Long): Boolean {
+            val today = LogDayPolicy.dayStart(now)
+            if (logDayStart == today) return false
+            if (logDayStart >= 0L) {
+                resetGate.reset {
+                    buffer.clear(resetDedup = true)
+                    MonitorState.logs.value = emptyList()
+                    MonitorState.captureStats.value = LogCaptureStats()
+                    MonitorState.logcatMaintenanceStatus.value = "Daily cache rotated; previous-day entries pruned"
+                }
+            } else {
+                // App process may recreate its foreground service without restarting.
+                buffer.clear(resetDedup = true)
+                MonitorState.logs.value = emptyList()
+            }
+            logDayStart = today
+            return true
+        }
         private val packageListLock = Mutex()
         private var lastPackagesRefreshedAtMs = -1L
         fun snapshot(after: Long = 0, limit: Int = 300) = buffer.snapshot(after, limit)
@@ -54,6 +75,7 @@ class LogMonitorService : Service() {
          * never replenished in the background.
          */
         suspend fun readOnDemand(): List<LogEvent> = readLock.withLock {
+            rotateDay(System.currentTimeMillis())
             val readGeneration = resetGate.generation()
             MonitorState.active.value = true
             try {
@@ -65,8 +87,12 @@ class LogMonitorService : Service() {
                     "logcat -b main -b system -b crash -v uid -v epoch -d -t 2000",
                     timeoutMs = 12000
                 ).getOrThrow()
-                val parsed = output.lineSequence().mapNotNull(LogFoxParser::parse).toList()
-                val accepted = resetGate.applyIfCurrent(readGeneration) {
+                val scannedAt = System.currentTimeMillis()
+                val rolledOver = rotateDay(scannedAt)
+                val parsed = LogDayPolicy.recentToday(
+                    output.lineSequence().mapNotNull(LogFoxParser::parse).toList(), scannedAt)
+                val accepted = resetGate.applyIfCurrent(
+                    if (rolledOver) resetGate.generation() else readGeneration) {
                     val newEntries = buffer.add(parsed, null, null)
                     MonitorState.logs.value = buffer.snapshot(0, 2000)
                     val previous = MonitorState.captureStats.value
@@ -130,6 +156,7 @@ class LogMonitorService : Service() {
     private var job: Job? = null
     private var tunnelJob: Job? = null
     private var relayHeartbeatJob: Job? = null
+    private var dailyPruneJob: Job? = null
     private var foreground = false
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -180,6 +207,8 @@ class LogMonitorService : Service() {
                 return START_STICKY
             }
             QUIT -> {
+                dailyPruneJob?.cancel()
+                dailyPruneJob = null
                 stopCapture()
                 clear()
                 QuickMcpTunnel.stop()
@@ -237,6 +266,7 @@ class LogMonitorService : Service() {
                 ensureRelayHeartbeat()
             }
             LOCAL_START, START -> {
+                ensureDailyPruning()
                 // Persistent MCP connection must survive leaving the Activity.
                 // A manual server stop is distinct from the app-wide Quit.
                 val prefs = getSharedPreferences("mcp_logger", MODE_PRIVATE)
@@ -263,6 +293,19 @@ class LogMonitorService : Service() {
             }
         }
         return START_STICKY
+    }
+
+    /** One timed rollover per local day while the foreground service is alive.
+     * This never runs a shell command or fetches new logs. */
+    private fun ensureDailyPruning() {
+        if (dailyPruneJob?.isActive == true) return
+        dailyPruneJob = scope.launch {
+            while (isActive) {
+                readLock.withLock { rotateDay(System.currentTimeMillis()) }
+                val now = System.currentTimeMillis()
+                delay((LogDayPolicy.nextMidnight(now) - now + 1000L).coerceAtLeast(1000L))
+            }
+        }
     }
 
     /**
@@ -324,6 +367,7 @@ class LogMonitorService : Service() {
         job = null
     }
     override fun onDestroy() {
+        dailyPruneJob?.cancel()
         stopCapture()
         QuickMcpTunnel.stop()
         tunnelJob?.cancel()
