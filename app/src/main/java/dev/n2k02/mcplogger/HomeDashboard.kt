@@ -43,8 +43,7 @@ private enum class HomeTab(val title: String) {
 @Composable
 internal fun HomeDashboard(
     modifier: Modifier = Modifier,
-    onStart: () -> Unit,
-    onStop: () -> Unit,
+    onLogs: () -> Unit,
     onAdb: () -> Unit,
     onMcp: () -> Unit,
 ) {
@@ -147,7 +146,7 @@ internal fun HomeDashboard(
                     " · +" + currentStats.lastBatchCaptured + " new"
                 HomeStatusCard(Icons.Rounded.Terminal, "On-demand logs", lastReadSubtitle,
                     HomeBadgePolicy.logs(active, todayBuffered > 0),
-                    onClick = onStart)
+                    onClick = onLogs)
                 HomeStatusCard(Icons.Rounded.SettingsInputAntenna, "ADB status",
                     if (verified) "Connected · UID 2000" else "Authorization needed",
                     HomeBadgePolicy.adb(verified, active),

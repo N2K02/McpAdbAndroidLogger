@@ -40,14 +40,6 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             N2K02Theme { LoggerApp(
-                onStart = {
-                    ContextCompat.startForegroundService(this,
-                        Intent(this, LogMonitorService::class.java).setAction(LogMonitorService.START))
-                },
-                onStop = {
-                    startService(Intent(this, LogMonitorService::class.java)
-                        .setAction(LogMonitorService.STOP))
-                },
                 onQuit = {
                     startService(Intent(this, LogMonitorService::class.java)
                         .setAction(LogMonitorService.QUIT))
