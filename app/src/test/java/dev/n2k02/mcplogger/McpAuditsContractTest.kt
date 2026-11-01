@@ -87,7 +87,7 @@ class McpAuditsContractTest {
         val screen = source(root + "McpAuditsScreen.kt")
         for (token in listOf(
                 "All agents", "All tools", "All results", "Any time",
-                "McpAuditPolicy.select", "CreateDocument(\\"text/plain\\")",
+                "McpAuditPolicy.select", "CreateDocument(\"text/plain\")",
                 "Copy details", "Clear history", "Export matching audits",
                 "RoundedCornerShape(50)", "HTTP: ", "Reason: ", "Unknown agent"
         )) assertTrue("Missing " + token, screen.contains(token))
@@ -100,7 +100,7 @@ class McpAuditsContractTest {
         for (token in listOf(
                 "Modifier.weight(1f)", "maxLines = 1",
                 "overflow = TextOverflow.Ellipsis", "RoundedCornerShape(18.dp)",
-                "Icons.Rounded.MoreVert", "contentDescription = \\"Audit actions\\"",
+                "Icons.Rounded.MoreVert", "contentDescription = \"Audit actions\"",
                 "Reset filters", "Export matching audits", "Clear audit history",
                 "About MCP audits", "showAuditInfo", "confirmClear = true",
                 "snapshot = visible.toList()", "McpAuditPolicy.export(copyOfRows)",
@@ -108,7 +108,7 @@ class McpAuditsContractTest {
         )) assertTrue("Missing " + token, screen.contains(token))
         assertFalse(screen.contains("MCP activity by AI agent · Today only"))
         assertFalse(screen.contains("Tap to inspect request and response"))
-        assertFalse(screen.contains("Text(\\"Reset\\")"))
-        assertFalse(screen.contains("Text(\\"Export\\")"))
+        assertFalse(screen.contains("Text(\"Reset\")"))
+        assertFalse(screen.contains("Text(\"Export\")"))
     }
 }
