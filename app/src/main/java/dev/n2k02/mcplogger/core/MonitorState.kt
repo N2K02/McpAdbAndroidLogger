@@ -25,9 +25,23 @@ data class LogCaptureStats(
 
 enum class LogReadOrigin { MANUAL, MCP }
 
+/** Metadata for the last successful request. Event IDs are references into the bounded cache. */
+data class RecentLogRequest(
+    val origin: LogReadOrigin,
+    val tool: String,
+    val atMillis: Long,
+    val filter: LogViewFilter,
+    val entryIds: Set<Long> = emptySet()
+) {
+    fun isMcpSelection(current: LogViewFilter) =
+        origin == LogReadOrigin.MCP && current == filter
+}
+
+
 object MonitorState {
     val active = MutableStateFlow(false)
     val logReadOrigin = MutableStateFlow<LogReadOrigin?>(null)
+    val recentLogRequest = MutableStateFlow<RecentLogRequest?>(null)
     val adb = MutableStateFlow("Not connected")
     val gateway = MutableStateFlow("Disconnected")
     val localMcp = MutableStateFlow("Stopped")
@@ -48,6 +62,7 @@ object MonitorState {
     fun quit() {
         active.value = false
         logReadOrigin.value = null
+        recentLogRequest.value = null
         adb.value = "Stopped"
         gateway.value = "Stopped"
     }

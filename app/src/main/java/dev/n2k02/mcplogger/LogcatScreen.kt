@@ -138,11 +138,15 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
     val deviceLogcatClearing by MonitorState.clearingDeviceLogcat.collectAsState()
     val deviceLogcatStatus by MonitorState.logcatMaintenanceStatus.collectAsState()
     val stats by MonitorState.captureStats.collectAsState()
+    val recentRequest by MonitorState.recentLogRequest.collectAsState()
     val apps by produceState(initialValue = emptyList<InstalledApp>(), key1 = packages) {
         value = withContext(Dispatchers.IO) { resolveApps(context, packages) }
     }
-    val filtered = remember(logs, filter, uids, stats.scanCycles) {
-        LogViewPolicy.select(logs, filter, uids, System.currentTimeMillis())
+    val filtered = remember(logs, filter, uids, stats.scanCycles, recentRequest) {
+        val matching = LogViewPolicy.select(logs, filter, uids, System.currentTimeMillis())
+        if (recentRequest?.isMcpSelection(filter) == true)
+            matching.filter { it.id in recentRequest!!.entryIds }
+        else matching
     }
     val currentApp = apps.firstOrNull { it.packageName == filter.packageName }
     var showPicker by remember { mutableStateOf(false) }
@@ -262,7 +266,7 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
             LogcatTab.LOGS -> {
                 Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 2.dp),
                     verticalAlignment = Alignment.CenterVertically) {
-                    Text(filtered.size.toString() + " shown · " + logs.size + " today",
+                    Text(filtered.size.toString() + " shown · " + logs.size + " buffered",
                         style = MaterialTheme.typography.labelSmall,
                         maxLines = 1, modifier = Modifier.weight(1f))
                     Text(if (active) "● Reading" else "● Idle",
@@ -313,6 +317,22 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                             })
                         }
                     }
+                }
+                if (recentRequest != null) {
+                    val previous = recentRequest!!
+                    val time = SimpleDateFormat("HH:mm:ss", Locale.ROOT)
+                        .format(Date(previous.atMillis))
+                    Text("Last request: " +
+                        (if (previous.origin == LogReadOrigin.MCP)
+                            "MCP · " + previous.tool else "Manual") +
+                        " · " + time + " · " + filtered.size + " shown" +
+                        (if (previous.isMcpSelection(filter)) " · exact MCP results"
+                        else if (previous.origin == LogReadOrigin.MCP) " · filters modified"
+                        else ""),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 2.dp))
                 }
                 Surface(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 3.dp),

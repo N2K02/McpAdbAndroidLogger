@@ -112,6 +112,37 @@ class LocalMcpProtocolTest {
         }
     }
 
+    @Test fun latestMcpLogRequestUpdatesUiFiltersAndExactReturnedSubset() {
+        MonitorState.packageUids.value = mapOf("com.example" to "10001")
+        val events = listOf(
+            LogEvent(1, 600_000L, "10001", "101", "E", "Crash", "fatal event", ""),
+            LogEvent(2, 600_000L, "10001", "101", "W", "App", "warning event", ""),
+            LogEvent(3, 600_000L, "10002", "102", "E", "Crash", "fatal elsewhere", ""),
+        )
+        try {
+            val req = JSONObject("""{"jsonrpc":"2.0","method":"tools/call","id":10,
+                "params":{"name":"get_live_logs","arguments":{
+                    "package_name":"com.example","level":"E","query":"fatal","limit":1}}}""")
+            val reply = LocalMcpProtocol.execute(req, logsReader = { events })!!
+            assertFalse(reply.has("error"))
+            val recent = MonitorState.recentLogRequest.value!!
+            assertEquals(LogReadOrigin.MCP, recent.origin)
+            assertEquals("get_live_logs", recent.tool)
+            assertEquals("com.example", MonitorState.logFilter.value.packageName)
+            assertEquals(setOf("E"), MonitorState.logFilter.value.selectedLevels)
+            assertEquals("fatal", MonitorState.logFilter.value.search)
+            assertEquals(setOf(1L), recent.entryIds)
+            assertTrue(recent.isMcpSelection(MonitorState.logFilter.value))
+            assertFalse(recent.isMcpSelection(MonitorState.logFilter.value.copy(search = "")))
+            assertEquals(1, LogViewPolicy.select(events,
+                MonitorState.logFilter.value, MonitorState.packageUids.value, 600_000L).size)
+        } finally {
+            MonitorState.recentLogRequest.value = null
+            MonitorState.logFilter.value = LogViewFilter()
+            MonitorState.packageUids.value = emptyMap()
+        }
+    }
+
     @Test fun rejectsExecutionAndUnknownMethods() {
         val unknown = LocalMcpProtocol.execute(JSONObject(
             """{"jsonrpc":"2.0","method":"run_command","id":3}"""))!!

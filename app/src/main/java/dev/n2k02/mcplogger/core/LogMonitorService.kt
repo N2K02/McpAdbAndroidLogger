@@ -49,6 +49,7 @@ class LogMonitorService : Service() {
                 resetGate.reset {
                     buffer.clear(resetDedup = true)
                     MonitorState.logs.value = emptyList()
+                    MonitorState.recentLogRequest.value = null
                 }
             }
         }
@@ -67,6 +68,7 @@ class LogMonitorService : Service() {
                 resetGate.reset {
                     buffer.clear(resetDedup = true)
                     MonitorState.logs.value = emptyList()
+                    MonitorState.recentLogRequest.value = null
                     MonitorState.captureStats.value = LogCaptureStats(dayStartMs = today)
                     MonitorState.logcatMaintenanceStatus.value = "Daily cache rotated; previous-day entries pruned"
                 }
@@ -74,6 +76,7 @@ class LogMonitorService : Service() {
                 // App process may recreate its foreground service without restarting.
                 buffer.clear(resetDedup = true)
                 MonitorState.logs.value = emptyList()
+                MonitorState.recentLogRequest.value = null
                 MonitorState.captureStats.value = LogCaptureStats(dayStartMs = today)
             }
             logDayStart = today
@@ -124,7 +127,17 @@ class LogMonitorService : Service() {
                     )
                 }
                 // Never return entries that a concurrent Clear discarded.
-                if (accepted) buffer.snapshot(0, 2000) else emptyList()
+                if (accepted) {
+                    if (origin == LogReadOrigin.MANUAL) {
+                        MonitorState.recentLogRequest.value = RecentLogRequest(
+                            origin = LogReadOrigin.MANUAL,
+                            tool = "Manual refresh",
+                            atMillis = System.currentTimeMillis(),
+                            filter = MonitorState.logFilter.value
+                        )
+                    }
+                    buffer.snapshot(0, 2000)
+                } else emptyList()
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -166,6 +179,7 @@ class LogMonitorService : Service() {
         fun clear() = resetGate.reset {
             buffer.clear()
             MonitorState.logs.value = emptyList()
+            MonitorState.recentLogRequest.value = null
         }
         /** Home metrics only; ADB and tunnel status always remain truthful. */
         fun resetHomeStatistics() = resetGate.reset {
