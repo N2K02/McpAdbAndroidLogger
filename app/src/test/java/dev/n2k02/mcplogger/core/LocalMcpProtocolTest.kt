@@ -25,6 +25,30 @@ class LocalMcpProtocolTest {
         assertTrue("get_crashes" in names)
         assertFalse(names.any { "shell" in it || "exec" in it || "grant" in it })
     }
+    @Test fun logToolsAdvertisePackageFilterAndPreserveOtherToolSchemas() {
+        val response = LocalMcpProtocol.execute(JSONObject(
+            """{"jsonrpc":"2.0","method":"tools/list","id":1}"""))!!
+        val tools = response.getJSONObject("result").getJSONArray("tools")
+        val schemas = (0 until tools.length()).associate { index ->
+            val entry = tools.getJSONObject(index)
+            entry.getString("name") to entry.getJSONObject("inputSchema")
+        }
+        for (tool in listOf("get_live_logs", "search_logs", "get_crashes", "get_anrs")) {
+            val schema = schemas.getValue(tool)
+            assertTrue("$tool missing package_name",
+                schema.getJSONObject("properties").has("package_name"))
+            assertEquals("string", schema.getJSONObject("properties")
+                .getJSONObject("package_name").getString("type"))
+            assertFalse(schema.getJSONObject("properties").getJSONObject("package_name")
+                .getString("description").contains("message text"))
+        }
+        assertFalse(schemas.getValue("get_device_status").getJSONObject("properties")
+            .has("package_name"))
+        assertFalse(schemas.getValue("list_installed_apps").getJSONObject("properties")
+            .has("package_name"))
+        assertFalse(schemas.getValue("search_logs").optJSONArray("required") == null)
+    }
+
     private fun sample(id: String, time: Long, req: String = """{"token":"secret-value"}""") =
         McpAuditEntry(id, time, "client-id", "ChatGPT", "chatgpt.com",
             "MCP", "tools/call", "OK", 2, req, """{"api_key":"sensitive"}""",
