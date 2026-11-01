@@ -403,6 +403,7 @@ private fun BridgePage(modifier: Modifier) {
     val clientToken = BridgeClient.clientTokenState(context).collectAsState().value.orEmpty()
     val agents by dev.n2k02.mcplogger.core.LocalMcpOAuth.connected.collectAsState()
     var permanentUrl by remember { mutableStateOf(StableMcpRelay.savedUrl(context)) }
+    var editingPermanentUrl by remember { mutableStateOf(StableMcpRelay.publicMcpUrl(context) == null) }
     // Do not put the device secret in Compose saved state bundles.
     var permanentKey by remember { mutableStateOf(StableMcpRelay.savedKey(context)) }
     var revokeAgent by remember { mutableStateOf<dev.n2k02.mcplogger.core.LocalMcpOAuth.ConnectedClient?>(null) }
@@ -411,7 +412,6 @@ private fun BridgePage(modifier: Modifier) {
     }
     var hint by remember { mutableStateOf("") }
     val localUrl = dev.n2k02.mcplogger.core.LocalMcpServer.URL
-    var rotating by remember { mutableStateOf(false) }
     var resetOauth by remember { mutableStateOf(false) }
 
     fun copy(label: String, value: String, sensitive: Boolean = false) {
@@ -466,25 +466,6 @@ private fun BridgePage(modifier: Modifier) {
         dismissButton = { TextButton(onClick = { resetOauth = false }) { Text("Cancel") } },
     )
 
-    if (rotating) AlertDialog(
-        onDismissRequest = { rotating = false },
-        title = { Text(if (StableMcpRelay.publicMcpUrl(context) != null)
-            "Rotate underlying tunnel and access key?" else "Rotate URL and access key?") },
-        text = { Text(if (StableMcpRelay.publicMcpUrl(context) != null)
-            "The permanent relay URL stays the same, but existing OAuth clients and their access tokens will be revoked. The underlying Quick Tunnel is rotated."
-            else "A new public URL and a new MCP access key are created. Update the connector URL and reconnect.") },
-        confirmButton = { TextButton(onClick = {
-            rotating = false
-            runCatching {
-                androidx.core.content.ContextCompat.startForegroundService(context,
-                    Intent(context, LogMonitorService::class.java)
-                        .setAction(LogMonitorService.TUNNEL_ROTATE))
-                hint = "Rotating URL and key…"
-            }.onFailure { hint = "Cannot rotate: " + it.javaClass.simpleName }
-        }) { Text("Rotate") } },
-        dismissButton = { TextButton(onClick = { rotating = false }) { Text("Cancel") } },
-    )
-
     Column(modifier.verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ElevatedCard(modifier = Modifier.fillMaxWidth()) {
@@ -507,54 +488,67 @@ private fun BridgePage(modifier: Modifier) {
         }
         ElevatedCard(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        CardHeader(Icons.Rounded.Link, "Permanent relay (optional)", Tone.IDLE, null)
-        Text("GitHub Pages cannot serve live MCP. A deployed Cloudflare Worker can keep the ChatGPT URL unchanged when the embedded tunnel rotates.",
+        val stableUrl = StableMcpRelay.publicMcpUrl(context)
+        val publicStatus = when {
+            stableUrl == null -> "Setup needed"
+            tunnel == "Public MCP connected" -> "Online"
+            tunnel.contains("reconnect", true) || tunnel.contains("connect", true) ||
+                tunnel.contains("starting", true) -> "Connecting"
+            else -> "Offline"
+        }
+        CardHeader(Icons.Rounded.Cloud, "Public MCP",
+            if (stableUrl == null) Tone.IDLE else tunnelTone(tunnel),
+            publicStatus, subtitle = when {
+                stableUrl == null -> "Permanent HTTPS endpoint not configured"
+                tunnel == "Public MCP connected" -> "Permanent endpoint connected"
+                else -> "Permanent endpoint: $tunnel"
+            })
+        Text("One permanent URL for ChatGPT. The Android app automatically maintains the underlying tunnel after network changes and restarts.",
             style = MaterialTheme.typography.bodySmall)
-        OutlinedTextField(value = permanentUrl, onValueChange = { permanentUrl = it },
-            label = { Text("Worker HTTPS URL ending in /mcp") },
-            singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(value = permanentKey, onValueChange = { permanentKey = it },
-            label = { Text("Worker device registration secret") },
-            singleLine = true, modifier = Modifier.fillMaxWidth(),
-            visualTransformation = PasswordVisualTransformation())
-        FilledTonalButton(onClick = {
-            if (StableMcpRelay.save(context, permanentUrl, permanentKey)) {
-                hint = if (permanentUrl.isBlank()) "Permanent relay cleared. Switching to Quick Tunnel."
-                    else "Permanent relay saved. Reconnecting tunnel…"
-                sendAction(LogMonitorService.TUNNEL_RESTART)
-            } else {
-                hint = "Enter a deployed *.workers.dev/mcp HTTPS URL and a matching 32+ character device secret."
-            }
-        }) {
-            Icon(Icons.Rounded.Save, null)
-            Spacer(Modifier.width(6.dp))
-            Text("Save and reconnect")
-        }
-        Text("This is a one-time Worker setup. The device automatically updates the Worker after restarts or new Quick Tunnel registrations.",
-            style = MaterialTheme.typography.bodySmall)
-        }
-        }
-        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        CardHeader(Icons.Rounded.Cloud, "Public MCP", tunnelTone(tunnel),
-            when (tunnelTone(tunnel)) {
-                Tone.GOOD -> "Online"; Tone.BUSY -> "Connecting"
-                Tone.BAD -> "Offline"; Tone.IDLE -> "Stopped"
-            }, subtitle = if (StableMcpRelay.publicMcpUrl(context) == null)
-                "Quick Tunnel: $tunnel" else "Permanent relay: $tunnel")
-        if (publicUrl.isBlank()) {
-            Text("A public URL appears here once Cloudflare confirms the tunnel. It is saved and reused; it requires the phone to be online.",
-                style = MaterialTheme.typography.bodySmall)
-        }
-        OutlinedTextField(value = publicUrl, onValueChange = {}, readOnly = true,
-            label = { Text("Public HTTPS MCP URL") },
+        OutlinedTextField(
+            value = if (editingPermanentUrl) permanentUrl else stableUrl.orEmpty(),
+            onValueChange = { if (editingPermanentUrl) permanentUrl = it },
+            readOnly = !editingPermanentUrl,
+            label = { Text("Permanent HTTPS MCP URL") },
+            placeholder = { Text("https://your-worker.workers.dev/mcp") },
             modifier = Modifier.fillMaxWidth(), singleLine = true,
             trailingIcon = {
-                IconButton(onClick = { copy("Public MCP URL", publicUrl) },
-                    enabled = publicUrl.isNotBlank()) {
-                    Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy public MCP URL")
-                }
-            })
+                if (!editingPermanentUrl) IconButton(
+                    onClick = { copy("Permanent MCP URL", stableUrl.orEmpty()) },
+                    enabled = !stableUrl.isNullOrBlank()
+                ) { Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy permanent MCP URL") }
+            }
+        )
+        if (editingPermanentUrl) {
+            Text("Initial setup only: deploy the bundled Cloudflare Worker, then enter its URL and private registration secret. GitHub Pages cannot host a live MCP endpoint.",
+                style = MaterialTheme.typography.bodySmall)
+            OutlinedTextField(value = permanentKey, onValueChange = { permanentKey = it },
+                label = { Text("Worker registration secret") },
+                singleLine = true, modifier = Modifier.fillMaxWidth(),
+                visualTransformation = PasswordVisualTransformation())
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(onClick = {
+                    if (StableMcpRelay.save(context, permanentUrl, permanentKey)) {
+                        editingPermanentUrl = false
+                        hint = "Permanent endpoint saved. Connecting automatically…"
+                        sendAction(LogMonitorService.TUNNEL_RESTART)
+                    } else {
+                        hint = "Enter a deployed *.workers.dev/mcp URL and its matching 32+ character secret."
+                    }
+                }) { Text("Save and connect") }
+                if (stableUrl != null) TextButton(onClick = {
+                    permanentUrl = stableUrl
+                    permanentKey = StableMcpRelay.savedKey(context)
+                    editingPermanentUrl = false
+                }) { Text("Cancel") }
+            }
+        } else {
+            TextButton(onClick = {
+                permanentUrl = StableMcpRelay.savedUrl(context)
+                permanentKey = StableMcpRelay.savedKey(context)
+                editingPermanentUrl = true
+            }) { Text("Change permanent endpoint") }
+        }
         OutlinedTextField(value = clientToken,
             onValueChange = {}, readOnly = true,
             label = { Text("MCP client access key") }, singleLine = true,
@@ -594,10 +588,7 @@ private fun BridgePage(modifier: Modifier) {
                 Text("Reconnect tunnel")
             }
         }
-        TextButton(onClick = { rotating = true }) { Text("Rotate URL and access key") }
-        Text(if (StableMcpRelay.publicMcpUrl(context) == null)
-            "Quick Tunnel URLs are saved but may expire. Configure a permanent relay above if the URL must not change."
-            else "The permanent Worker URL survives tunnel rotations and device restarts. Only the underlying tunnel and client key are rotated.",
+        Text("Reconnecting the tunnel, restarting the app, or changing networks does not rotate your MCP URL or client access key.",
             style = MaterialTheme.typography.bodySmall)
         if (hint.isNotEmpty()) Text(hint, style = MaterialTheme.typography.bodySmall)
         }
@@ -607,7 +598,7 @@ private fun BridgePage(modifier: Modifier) {
         CardHeader(Icons.Rounded.Link, "Connect your AI client", Tone.BUSY, null)
         Text("One connection flow for Claude, ChatGPT and any compatible MCP agent.",
             style = MaterialTheme.typography.bodyMedium)
-        Text("1. Keep the MCP server and public tunnel running (status: Online). Copy the Public HTTPS MCP URL above.",
+        Text("1. Once the permanent endpoint shows Online, copy the single HTTPS MCP URL above.",
             style = MaterialTheme.typography.bodySmall)
         Text("2. In your AI agent's custom MCP connector, paste that URL. Select OAuth and automatic client registration (DCR) if requested. No custom headers are needed.",
             style = MaterialTheme.typography.bodySmall)
