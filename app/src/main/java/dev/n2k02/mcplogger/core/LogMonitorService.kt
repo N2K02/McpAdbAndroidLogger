@@ -52,13 +52,14 @@ class LogMonitorService : Service() {
                 resetGate.reset {
                     buffer.clear(resetDedup = true)
                     MonitorState.logs.value = emptyList()
-                    MonitorState.captureStats.value = LogCaptureStats()
+                    MonitorState.captureStats.value = LogCaptureStats(dayStartMs = today)
                     MonitorState.logcatMaintenanceStatus.value = "Daily cache rotated; previous-day entries pruned"
                 }
             } else {
                 // App process may recreate its foreground service without restarting.
                 buffer.clear(resetDedup = true)
                 MonitorState.logs.value = emptyList()
+                MonitorState.captureStats.value = LogCaptureStats(dayStartMs = today)
             }
             logDayStart = today
             return true
@@ -149,7 +150,8 @@ class LogMonitorService : Service() {
         }
         /** Home metrics only; ADB and tunnel status always remain truthful. */
         fun resetHomeStatistics() = resetGate.reset {
-            MonitorState.captureStats.value = LogCaptureStats()
+            MonitorState.captureStats.value = LogCaptureStats(
+                dayStartMs = LogDayPolicy.dayStart(System.currentTimeMillis()))
             MonitorState.errors.value = emptyList()
         }
     }
@@ -197,7 +199,8 @@ class LogMonitorService : Service() {
                             if (cleared) {
                                 buffer.clear(resetDedup = true)
                                 MonitorState.logs.value = emptyList()
-                                MonitorState.captureStats.value = LogCaptureStats()
+                                MonitorState.captureStats.value = LogCaptureStats(
+                                    dayStartMs = LogDayPolicy.dayStart(System.currentTimeMillis()))
                                 MonitorState.errors.value = emptyList()
                             }
                             MonitorState.clearingDeviceLogcat.value = false
