@@ -32,6 +32,26 @@ class LocalMcpOriginRegressionTest {
         assertTrue(oauth.contains("id=\"approval-form\""))
     }
 
+    @Test fun onlyConsentCanSetARegisteredCrossOriginRedirectInCsp() {
+        val redirectCsp = LocalMcpOAuth.consentSecurityPolicy(
+            "https://chatgpt.com/oauth/callback")
+        val cspHeader = mapOf("Content-Security-Policy" to redirectCsp)
+        assertEquals(redirectCsp,
+            LocalMcpServer.responseSecurityPolicy("text/html", cspHeader))
+        assertEquals("default-src 'none'; style-src 'unsafe-inline'; " +
+            "form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+            LocalMcpServer.responseSecurityPolicy("application/json", cspHeader))
+        assertTrue(LocalMcpServer.responseSecurityPolicy("text/html", emptyMap())
+            .contains("form-action 'self';"))
+        val oauthPath = "app/src/main/java/dev/n2k02/mcplogger/core/LocalMcpOAuth.kt"
+        val oauth = listOf(File(oauthPath), File("../$oauthPath")).first { it.isFile }.readText()
+        assertTrue(oauth.contains("mapOf(\"Content-Security-Policy\" to consentSecurityPolicy(callback))"))
+        assertTrue(oauth.contains("consentSecurityPolicy(record.getString(\"redirect\"))"))
+        val server = source()
+        assertTrue(server.contains("val policy = responseSecurityPolicy(type, extra)"))
+        assertTrue(server.contains("!key.equals(\"Content-Security-Policy\", true)"))
+    }
+
     @Test fun untrustedOriginProtectionAndSameOriginOAuthFormRemainInPlace() {
         val server = source()
         assertTrue(server.contains("respond(output, 403, \"Untrusted Origin\")"))

@@ -212,6 +212,39 @@ class LocalMcpOAuthPolicyTest {
         assertTrue(issue().orEmpty().contains("Not a refresh"))
     }
 
+    @Test fun chromeCallbackCspAllowsOnlyExactRegisteredOrigin() {
+        val callback = "https://chatgpt.com/connector_platform_oauth_redirect"
+        val policy = LocalMcpOAuth.consentSecurityPolicy(callback)
+        assertTrue(policy.contains("form-action 'self' https://chatgpt.com;"))
+        assertFalse(policy.contains("form-action *"))
+        assertFalse(policy.contains("form-action 'self' https:"))
+        assertFalse(policy.contains(callback))
+        assertTrue(policy.contains("default-src 'none'"))
+        assertTrue(policy.contains("frame-ancestors 'none'"))
+    }
+
+    @Test fun browserCallbackCspKeepsSchemeHostAndPortWithoutPathOrParameters() {
+        assertTrue(LocalMcpOAuth.consentSecurityPolicy(
+            "https://agent.example:8443/oauth/callback")
+            .contains("form-action 'self' https://agent.example:8443;"))
+        assertTrue(LocalMcpOAuth.consentSecurityPolicy(
+            "http://127.0.0.1:8123/oauth/callback")
+            .contains("form-action 'self' http://127.0.0.1:8123;"))
+        assertTrue(LocalMcpOAuth.consentSecurityPolicy(
+            "https://claude.ai/api/mcp/auth_callback")
+            .contains("form-action 'self' https://claude.ai;"))
+        for (bad in listOf(
+            "https://unsafe.example/callback?redirect=https://evil.example",
+            "https://unsafe.example/callback#fragment",
+            "https://user:password@unsafe.example/callback",
+            "https://unsafe.example\\r\\nX-Injected: bad/callback",
+            "http://evil.example/callback")) {
+            assertThrows(IllegalArgumentException::class.java) {
+                LocalMcpOAuth.consentSecurityPolicy(bad)
+            }
+        }
+    }
+
     @Test fun metadataSupportsDynamicRegistrationAndProtectedResource() {
         val previous = MonitorState.publicMcpUrl.value
         try {

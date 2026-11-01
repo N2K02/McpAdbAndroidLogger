@@ -323,6 +323,17 @@ object LocalMcpServer {
     internal fun referrerPolicy(contentType: String): String =
         if (contentType == "text/html") "strict-origin" else "no-referrer"
 
+    /** A callback-specific CSP is allowed only on the consent HTML response.
+     * Other requests retain the globally restrictive form-action 'self'.
+     */
+    internal fun responseSecurityPolicy(type: String, extra: Map<String,String>): String {
+        val fallback = "default-src 'none'; " +
+            (if (type == "text/html") "script-src 'self'; " else "") +
+            "style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+        return if (type == "text/html") extra["Content-Security-Policy"] ?: fallback
+            else fallback
+    }
+
     private fun respond(output: BufferedOutputStream, code: Int, text: String,
                         type: String = "text/plain", extra: Map<String,String> = emptyMap()) {
         val reason = when (code) {
@@ -333,16 +344,17 @@ object LocalMcpServer {
         }
         val bytes = text.toByteArray(StandardCharsets.UTF_8)
         val safeHeaders = extra.entries.filter { (key, value) ->
-            key.matches(Regex("[A-Za-z-]+")) && !value.contains('\r') && !value.contains('\n')
+            !key.equals("Content-Security-Policy", true) &&
+                key.matches(Regex("[A-Za-z-]+")) &&
+                !value.contains('\r') && !value.contains('\n')
         }.joinToString("") { it.key + ": " + it.value + "\r\n" }
+        val policy = responseSecurityPolicy(type, extra)
         val header = "HTTP/1.1 " + code + " " + reason + "\r\n" +
             "Content-Type: " + type + "; charset=utf-8\r\n" +
             "Content-Length: " + bytes.size + "\r\n" +
             "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n" +
             "Referrer-Policy: " + referrerPolicy(type) + "\r\n" +
-            "Content-Security-Policy: default-src 'none'; " +
-            (if (type == "text/html") "script-src 'self'; " else "") +
-            "style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'\r\n" +
+            "Content-Security-Policy: " + policy + "\r\n" +
             safeHeaders + "Connection: close\r\n\r\n"
         output.write(header.toByteArray(StandardCharsets.UTF_8))
         output.write(bytes)

@@ -320,6 +320,25 @@ internal object LocalMcpOAuth {
   });
 })();"""
 
+    /**
+     * Chrome and Safari validate form-action against BOTH POST /oauth/approve and
+     * its 302 redirect. Allow only the exact registered callback ORIGIN on the
+     * consent page; never broaden the global policy or use an arbitrary URL.
+     * The actual form still POSTS only to our own origin.
+     */
+    internal fun consentSecurityPolicy(registeredCallback: String): String {
+        require(validRedirect(registeredCallback)) { "Untrusted OAuth callback" }
+        val target = URI(registeredCallback)
+        val host = target.host.lowercase(java.util.Locale.ROOT)
+        require(host.matches(Regex("[A-Za-z0-9.\\[\\]:-]+"))) {
+            "Unsafe OAuth callback host"
+        }
+        val callbackOrigin = target.scheme.lowercase(java.util.Locale.ROOT) +
+            "://" + host + (if (target.port == -1) "" else ":" + target.port)
+        return "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; " +
+            "form-action 'self' $callbackOrigin; base-uri 'none'; frame-ancestors 'none'"
+    }
+
     private fun consentForm(ticket: String, heading: String, description: String,
                             actionLabel: String): String =
         """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MCP authorization</title><style>body{font-family:system-ui;background:#111827;color:#f9fafb;max-width:440px;margin:5vh auto;padding:24px}input,button{font-size:1rem;padding:12px;border-radius:8px;width:100%;box-sizing:border-box;margin-top:12px}button{background:#4f46e5;color:white;border:0}button:disabled{opacity:.65}p{line-height:1.5}</style><script src="/oauth/consent.js" defer></script></head><body><h2>$heading</h2><p>$description</p><form id="approval-form" method="post" action="/oauth/approve"><input type="hidden" name="ticket" value="$ticket"><input id="access-key" type="password" name="key" autocomplete="off" required aria-label="MCP access key"><button id="approve-button" type="submit">$actionLabel</button></form><p>Approval grants diagnostic reading, never shell commands.</p></body></html>"""
@@ -396,7 +415,8 @@ internal object LocalMcpOAuth {
         val page = consentForm(ticket, "Authorize $display",
             "Requesting callback domain: <b>$domain</b>. Grant this agent read-only access to Android diagnostic logs. Check the callback domain before approving. The agent does not receive your existing key.",
             "Approve access")
-        Reply(200, page, "text/html")
+        Reply(200, page, "text/html",
+            mapOf("Content-Security-Policy" to consentSecurityPolicy(callback)))
     }
     internal fun validApprovalTicket(value: String): Boolean =
         Regex("[A-Za-z0-9_-]{43,128}").matches(value)
@@ -452,7 +472,10 @@ internal object LocalMcpOAuth {
             if (attempts >= 5) return@synchronized failure("access_denied", 403,
                 approvalFailureReason("locked"))
             return@synchronized Reply(403, retryForm(rawTicket, 5 - attempts),
-                "text/html", auditCode = "access_denied",
+                "text/html",
+                headers = mapOf("Content-Security-Policy" to
+                    consentSecurityPolicy(record.getString("redirect"))),
+                auditCode = "access_denied",
                 auditReason = "Incorrect MCP access key; " + (5 - attempts) +
                     " attempts remaining")
         }

@@ -193,6 +193,18 @@ successful approval returns HTTP 302 to the registered OAuth callback. For
 connection verification, look for a subsequent POST /oauth/token with HTTP 200
 and an authenticated MCP initialize in the audit, not only the approval 302.
 
+## Chrome/Safari consent redirect compatibility
+
+The OAuth consent page applies a callback-specific CSP: its form action stays
+same-origin (`POST /oauth/approve`), while the browser may follow the
+successful HTTP 302 redirect to **only the previously registered callback
+origin**. A blanket `form-action 'self'` blocks this redirect in Chrome and
+Safari after the server has already consumed the approval ticket, leaving the
+button stuck at "Approving…" even though the audit shows HTTP 302. The CSP on
+all other responses remains restricted, and the server never sends the shared
+access key to the OAuth client. Security regression tests cover exact callback
+origins, local loopback ports, hostile URI input and retry forms.
+
 ## MCP OAuth compatibility references and verification
 
 This phone-hosted server follows the OAuth authorization-code + PKCE flow and
