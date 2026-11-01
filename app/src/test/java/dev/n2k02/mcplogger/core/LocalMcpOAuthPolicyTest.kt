@@ -110,6 +110,38 @@ class LocalMcpOAuthPolicyTest {
         assertEquals("unknown", LocalMcpOAuth.approvalStatus(db, "hashed-ticket", 4_000_001L))
     }
 
+    @Test fun consentWindowAllowsSwitchingAppsToCopyKey() {
+        assertEquals(20L * 60 * 1000, LocalMcpOAuth.APPROVAL_MS)
+        assertTrue(LocalMcpOAuth.validApprovalTicket("a".repeat(43)))
+        assertFalse(LocalMcpOAuth.validApprovalTicket(""))
+        assertFalse(LocalMcpOAuth.validApprovalTicket("<script>"))
+    }
+
+    @Test fun invalidKeysAllowRetriesThenLockOnlyTheAffectedTicket() {
+        val db = state()
+        db.getJSONObject("pending").put("another-ticket",
+            JSONObject().put("expiry", 50_000L).put("attempts", 0))
+        for (attempt in 1..4) {
+            assertEquals(attempt,
+                LocalMcpOAuth.rejectApprovalKey(db, "hashed-ticket", 100L))
+            assertEquals("valid", LocalMcpOAuth.approvalStatus(db, "hashed-ticket", 100L))
+        }
+        assertEquals(5, LocalMcpOAuth.rejectApprovalKey(db, "hashed-ticket", 100L))
+        assertEquals("locked", LocalMcpOAuth.approvalStatus(db, "hashed-ticket", 101L))
+        assertEquals("valid", LocalMcpOAuth.approvalStatus(db, "another-ticket", 101L))
+    }
+
+    @Test fun completedConsentIsNeverReusedEvenAfterSerialization() {
+        val db = state()
+        val reopened = JSONObject(db.toString()) // Simulate app/process restart.
+        assertEquals("valid", LocalMcpOAuth.approvalStatus(reopened, "hashed-ticket", 100L))
+        LocalMcpOAuth.completeApproval(reopened, "hashed-ticket", 100L)
+        assertEquals("used", LocalMcpOAuth.approvalStatus(reopened, "hashed-ticket", 101L))
+        val persisted = JSONObject(reopened.toString())
+        assertEquals("used", LocalMcpOAuth.approvalStatus(persisted, "hashed-ticket", 101L))
+        assertEquals(0, persisted.getJSONObject("pending").length())
+    }
+
     @Test fun metadataSupportsDynamicRegistrationAndProtectedResource() {
         val previous = MonitorState.publicMcpUrl.value
         try {

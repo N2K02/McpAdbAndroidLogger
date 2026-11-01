@@ -27,7 +27,7 @@ internal object LocalMcpOAuth {
     private const val REFRESH_MS = 30L * 24 * 60 * 60 * 1000
     private const val CODE_MS = 5L * 60 * 1000
     // Allow time to switch from browser to the Android app to retrieve the key.
-    private const val APPROVAL_MS = 20L * 60 * 1000
+    internal const val APPROVAL_MS = 20L * 60 * 1000
     private const val HISTORY_MS = 60L * 60 * 1000
     private const val FILE = "local-mcp-oauth.json"
     private val random = SecureRandom()
@@ -201,7 +201,15 @@ internal object LocalMcpOAuth {
         }.sortedBy { it.name }
     }
     fun refreshState(c: Context) = synchronized(lock) {
-        val s = current(c); save(c,s); updateConnected(s)
+        runCatching {
+            val s = current(c)
+            updateConnected(s)
+        }.onFailure {
+            // A damaged state store must not crash the Settings screen or be reset.
+            connected.value = emptyList()
+            MonitorState.error("OAuth state unavailable: " + it.javaClass.simpleName)
+        }
+        Unit
     }
     private fun issuer(): String? {
         val uri = runCatching { URI(MonitorState.publicMcpUrl.value) }.getOrNull() ?: return null
@@ -336,12 +344,32 @@ internal object LocalMcpOAuth {
         val page = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MCP authorization</title><style>body{font-family:system-ui;background:#111827;color:#f9fafb;max-width:440px;margin:5vh auto;padding:24px}input,button{font-size:1rem;padding:12px;border-radius:8px;width:100%;box-sizing:border-box;margin-top:12px}button{background:#4f46e5;color:white;border:0}p{line-height:1.5}</style></head><body><h2>Authorize $display</h2><p>Requesting callback domain: <b>$domain</b></p><p>Grant this agent read-only access to Android diagnostic logs. Check the callback domain before approving. The agent does not receive your existing key.</p><form method="post" action="/oauth/approve"><input type="hidden" name="ticket" value="$ticket"><input type="password" name="key" autocomplete="off" required aria-label="MCP access key"><button type="submit">Approve access</button></form><p>Approval grants diagnostic reading, never shell commands.</p></body></html>"""
         Reply(200,page,"text/html")
     }
+    internal fun validApprovalTicket(value: String): Boolean =
+        Regex("[A-Za-z0-9_-]{43,128}").matches(value)
+
+    /** One incorrect key never invalidates another pending browser consent. */
+    internal fun rejectApprovalKey(s: JSONObject, fingerprint: String, now: Long): Int {
+        val pending = table(s, "pending")
+        val record = pending.getJSONObject(fingerprint)
+        val attempts = record.optInt("attempts") + 1
+        if (attempts >= 5) {
+            pending.remove(fingerprint)
+            retire(s, fingerprint, "locked", now)
+        } else record.put("attempts", attempts)
+        return attempts
+    }
+
+    internal fun completeApproval(s: JSONObject, fingerprint: String, now: Long) {
+        table(s, "pending").remove(fingerprint)
+        retire(s, fingerprint, "used", now)
+    }
+
     private fun retryForm(ticket: String, remaining: Int): String =
         """<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Retry MCP approval</title></head><body><h2>Incorrect access key</h2><p>$remaining attempts remaining. Enter the current key shown in the Android app.</p><form method="post" action="/oauth/approve"><input type="hidden" name="ticket" value="$ticket"><input type="password" name="key" autocomplete="off" required><button type="submit">Try again</button></form></body></html>"""
 
     fun approve(c: Context, form: Map<String,String>): Reply = synchronized(lock) {
         val rawTicket = form["ticket"].orEmpty()
-        if (!Regex("[A-Za-z0-9_-]{43,128}").matches(rawTicket))
+        if (!validApprovalTicket(rawTicket))
             return@synchronized failure("invalid_request",
                 description = approvalFailureReason("unknown"))
         val s = current(c)
@@ -362,16 +390,10 @@ internal object LocalMcpOAuth {
         val master = BridgeClient.clientToken(c)
         val key = form["key"].orEmpty()
         if (master.isBlank() || key.length > 256 || !same(master, key)) {
-            val attempts = record.optInt("attempts") + 1
-            if (attempts >= 5) {
-                pending.remove(fingerprint)
-                retire(s, fingerprint, "locked", now)
-                save(c, s)
-                return@synchronized failure("access_denied", 403,
-                    approvalFailureReason("locked"))
-            }
-            record.put("attempts", attempts)
+            val attempts = rejectApprovalKey(s, fingerprint, now)
             save(c, s)
+            if (attempts >= 5) return@synchronized failure("access_denied", 403,
+                approvalFailureReason("locked"))
             return@synchronized Reply(403, retryForm(rawTicket, 5 - attempts),
                 "text/html", auditCode = "access_denied",
                 auditReason = "Incorrect MCP access key; " + (5 - attempts) +
@@ -389,8 +411,7 @@ internal object LocalMcpOAuth {
             .put("aud", record.getString("aud"))
             .put("scope", record.getString("scope"))
             .put("expiry", now + CODE_MS))
-        pending.remove(fingerprint)
-        retire(s, fingerprint, "used", now)
+        completeApproval(s, fingerprint, now)
         save(c, s)
         val parameters = mutableMapOf("code" to code, "iss" to currentIssuer)
         if (record.optString("state").isNotEmpty())
