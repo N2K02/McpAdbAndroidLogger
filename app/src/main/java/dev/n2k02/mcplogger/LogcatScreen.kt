@@ -495,7 +495,7 @@ private fun LogcatEntryCard(event: LogEvent, onCopy: () -> Unit) {
         else -> MaterialTheme.colorScheme.primary
     }
     val timestamp = remember(event.epochMillis) {
-        SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(event.epochMillis))
+        SimpleDateFormat("HH:mm:ss", Locale.ROOT).format(Date(event.epochMillis))
     }
     val safeTag = remember(event.tag) { SensitiveLogRedactor.redact(event.tag).take(70) }
     val safeMessage = remember(event.message) { SensitiveLogRedactor.redact(event.message) }
@@ -526,7 +526,7 @@ private fun LogcatEntryCard(event: LogEvent, onCopy: () -> Unit) {
             overflow = if (expanded) TextOverflow.Clip else TextOverflow.Ellipsis)
         if (expanded) {
             Text("PID " + event.pid + " · UID " + event.uid +
-                " · " + SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
+                " · " + SimpleDateFormat("HH:mm:ss.SSS", Locale.ROOT)
                     .format(Date(event.epochMillis)),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
