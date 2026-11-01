@@ -143,6 +143,46 @@ class LocalMcpProtocolTest {
         }
     }
 
+    @Test fun homeMcpReadBadgesFollowToolLifetimeEvenOnFailure() {
+        val logRequest = JSONObject("""{"jsonrpc":"2.0","method":"tools/call","id":11,
+            "params":{"name":"get_live_logs"}}""")
+        val cpuRequest = JSONObject("""{"jsonrpc":"2.0","method":"tools/call","id":12,
+            "params":{"name":"get_cpu_usage"}}""")
+        MonitorState.clearMcpTools()
+        try {
+            assertTrue(MonitorState.mcpToolsInFlight.value.isEmpty())
+            val logResult = LocalMcpProtocol.execute(logRequest, logsReader = {
+                assertTrue("get_live_logs" in MonitorState.mcpToolsInFlight.value)
+                emptyList()
+            })!!
+            assertFalse(logResult.has("error"))
+            assertTrue(MonitorState.mcpToolsInFlight.value.isEmpty())
+
+            val cpuResult = LocalMcpProtocol.execute(cpuRequest, performanceReader = { _, _ ->
+                assertTrue("get_cpu_usage" in MonitorState.mcpToolsInFlight.value)
+                JSONObject().put("status", "ok")
+            })!!
+            assertFalse(cpuResult.has("error"))
+            assertTrue(MonitorState.mcpToolsInFlight.value.isEmpty())
+
+            val failed = LocalMcpProtocol.execute(logRequest, logsReader = {
+                assertTrue("get_live_logs" in MonitorState.mcpToolsInFlight.value)
+                throw IllegalStateException("test read failure")
+            })!!
+            assertTrue(failed.has("error"))
+            assertTrue(MonitorState.mcpToolsInFlight.value.isEmpty())
+
+            MonitorState.beginMcpTool("get_live_logs")
+            MonitorState.beginMcpTool("get_live_logs")
+            MonitorState.endMcpTool("get_live_logs")
+            assertEquals(setOf("get_live_logs"), MonitorState.mcpToolsInFlight.value)
+            MonitorState.endMcpTool("get_live_logs")
+            assertTrue(MonitorState.mcpToolsInFlight.value.isEmpty())
+        } finally {
+            MonitorState.clearMcpTools()
+        }
+    }
+
     @Test fun rejectsExecutionAndUnknownMethods() {
         val unknown = LocalMcpProtocol.execute(JSONObject(
             """{"jsonrpc":"2.0","method":"run_command","id":3}"""))!!

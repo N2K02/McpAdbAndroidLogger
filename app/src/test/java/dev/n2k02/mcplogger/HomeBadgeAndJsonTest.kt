@@ -5,6 +5,9 @@ import org.junit.Test
 
 class HomeBadgeAndJsonTest {
     @Test fun badgesReflectReadingAndConnectionStates() {
+        assertNull(HomeBadgePolicy.mcpSource(false))
+        assertEquals("MCP", HomeBadgePolicy.mcpSource(true)?.label)
+        assertEquals(Tone.BUSY, HomeBadgePolicy.mcpSource(true)?.tone)
         assertEquals("Idle", HomeBadgePolicy.logs(false, false).label)
         assertEquals("Ready", HomeBadgePolicy.logs(false, true).label)
         assertEquals("Reading", HomeBadgePolicy.logs(true, true).label)

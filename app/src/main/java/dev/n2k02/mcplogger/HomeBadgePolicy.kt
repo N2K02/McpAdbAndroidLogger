@@ -1,8 +1,13 @@
 package dev.n2k02.mcplogger
 
+
 internal data class HomeBadge(val label: String, val tone: Tone)
 
 internal object HomeBadgePolicy {
+    /** Extra provenance badge shown only while MCP is performing an on-demand read. */
+    fun mcpSource(mcpReading: Boolean): HomeBadge? =
+        if (mcpReading) HomeBadge("MCP", Tone.BUSY) else null
+
     fun logs(reading: Boolean, buffered: Boolean): HomeBadge = when {
         reading -> HomeBadge("Reading", Tone.BUSY)
         buffered -> HomeBadge("Ready", Tone.GOOD)

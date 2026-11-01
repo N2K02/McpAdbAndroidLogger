@@ -35,9 +35,14 @@ internal object LocalMcpProtocol {
                 "tools/list" -> JSONObject().put("tools", toolList(auditReader != null))
                 "tools/call" -> {
                     val params = req.optJSONObject("params") ?: JSONObject()
-                    val body = readTool(params.optString("name"),
-                        params.optJSONObject("arguments") ?: JSONObject(), auditReader,
-                        logsReader, appsReader, performanceReader)
+                    val name = params.optString("name")
+                    MonitorState.beginMcpTool(name)
+                    val body = try {
+                        readTool(name, params.optJSONObject("arguments") ?: JSONObject(),
+                            auditReader, logsReader, appsReader, performanceReader)
+                    } finally {
+                        MonitorState.endMcpTool(name)
+                    }
                     JSONObject().put("content", JSONArray().put(JSONObject().put("type", "text")
                         .put("text", body.toString()))).put("isError", false)
                 }

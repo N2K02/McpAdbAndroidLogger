@@ -49,6 +49,12 @@ internal fun HomeDashboard(
 ) {
     val active by MonitorState.active.collectAsState()
     val readOrigin by MonitorState.logReadOrigin.collectAsState()
+    val mcpToolsInFlight by MonitorState.mcpToolsInFlight.collectAsState()
+    val mcpLogReading = (active && readOrigin == LogReadOrigin.MCP) ||
+        mcpToolsInFlight.any { it in setOf("get_live_logs", "search_logs", "get_crashes", "get_anrs") }
+    val mcpPerformanceReading = mcpToolsInFlight.any {
+        it in setOf("get_cpu_usage", "get_frame_timing", "get_performance_snapshot")
+    }
     val adb by MonitorState.adb.collectAsState()
     val tunnel by MonitorState.tunnel.collectAsState()
     val publicUrl by MonitorState.publicMcpUrl.collectAsState()
@@ -107,8 +113,8 @@ internal fun HomeDashboard(
                 ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         CardHeader(Icons.Rounded.Terminal, "Logcat (Today)",
-                            if (active) Tone.BUSY else Tone.IDLE,
-                            if (active) "Reading" else "Daily reset enabled",
+                            if (active || mcpLogReading) Tone.BUSY else Tone.IDLE,
+                            if (active || mcpLogReading) "Reading" else "Daily reset enabled",
                             subtitle = "Today's local-day capture")
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             StatMetric("Captured today", currentStats.uniqueCaptured.toString(),
@@ -145,18 +151,20 @@ internal fun HomeDashboard(
                     .format(Date(currentStats.lastSuccessAtMillis)) +
                     " · +" + currentStats.lastBatchCaptured + " new"
                 HomeStatusCard(Icons.Rounded.Terminal, "On-demand logs", lastReadSubtitle,
-                    HomeBadgePolicy.logs(active, todayBuffered > 0),
+                    HomeBadgePolicy.logs(active || mcpLogReading, todayBuffered > 0),
+                    sourceBadge = HomeBadgePolicy.mcpSource(mcpLogReading),
                     onClick = onLogs)
                 HomeStatusCard(Icons.Rounded.SettingsInputAntenna, "ADB status",
                     if (verified) "Connected · UID 2000" else "Authorization needed",
-                    HomeBadgePolicy.adb(verified, active),
+                    HomeBadgePolicy.adb(verified, active || mcpPerformanceReading),
                     onClick = { selectHomeTab(HomeTab.CONNECTION) })
                 HomeStatusCard(Icons.Rounded.Cloud, "MCP connection", tunnel,
-                    HomeBadgePolicy.mcp(tunnel, active && readOrigin == LogReadOrigin.MCP),
+                    HomeBadgePolicy.mcp(tunnel, mcpToolsInFlight.isNotEmpty() || mcpLogReading),
                     onClick = { selectHomeTab(HomeTab.CONNECTION) })
                 HomeStatusCard(Icons.Rounded.Speed, "Performance tools",
                     "CPU processes and UI frame timing · on demand",
-                    HomeBadgePolicy.performance(perfBusy),
+                    HomeBadgePolicy.performance(perfBusy || mcpPerformanceReading),
+                    sourceBadge = HomeBadgePolicy.mcpSource(mcpPerformanceReading),
                     onClick = { selectHomeTab(HomeTab.PERFORMANCE) })
                 }
             }
@@ -299,7 +307,8 @@ private fun StatMetric(label: String, value: String, modifier: Modifier, tone: T
 /** Compact clickable navigation row with a state-derived status pill. */
 @Composable
 private fun HomeStatusCard(icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String, subtitle: String, badge: HomeBadge, onClick: () -> Unit) {
+    title: String, subtitle: String, badge: HomeBadge,
+    sourceBadge: HomeBadge? = null, onClick: () -> Unit) {
     OutlinedCard(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically) {
@@ -312,6 +321,10 @@ private fun HomeStatusCard(icon: androidx.compose.ui.graphics.vector.ImageVector
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Spacer(Modifier.width(5.dp))
+            if (sourceBadge != null) {
+                StatusBadge(sourceBadge.label, sourceBadge.tone)
+                Spacer(Modifier.width(4.dp))
+            }
             StatusBadge(badge.label, badge.tone)
             Icon(Icons.Rounded.ChevronRight, contentDescription = "Open " + title,
                 modifier = Modifier.size(16.dp))

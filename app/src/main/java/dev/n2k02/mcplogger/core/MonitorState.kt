@@ -41,6 +41,23 @@ data class RecentLogRequest(
 object MonitorState {
     val active = MutableStateFlow(false)
     val logReadOrigin = MutableStateFlow<LogReadOrigin?>(null)
+    /** Tracks overlapping MCP tool calls so Home badges reflect any in-flight request. */
+    val mcpToolsInFlight = MutableStateFlow<Set<String>>(emptySet())
+    private val mcpToolCounts = mutableMapOf<String, Int>()
+    @Synchronized fun beginMcpTool(name: String) {
+        if (name.isBlank()) return
+        mcpToolCounts[name] = (mcpToolCounts[name] ?: 0) + 1
+        mcpToolsInFlight.value = mcpToolCounts.keys.toSet()
+    }
+    @Synchronized fun endMcpTool(name: String) {
+        val count = mcpToolCounts[name] ?: return
+        if (count == 1) mcpToolCounts.remove(name) else mcpToolCounts[name] = count - 1
+        mcpToolsInFlight.value = mcpToolCounts.keys.toSet()
+    }
+    @Synchronized fun clearMcpTools() {
+        mcpToolCounts.clear()
+        mcpToolsInFlight.value = emptySet()
+    }
     val recentLogRequest = MutableStateFlow<RecentLogRequest?>(null)
     val adb = MutableStateFlow("Not connected")
     val gateway = MutableStateFlow("Disconnected")
@@ -62,6 +79,7 @@ object MonitorState {
     fun quit() {
         active.value = false
         logReadOrigin.value = null
+        clearMcpTools()
         recentLogRequest.value = null
         adb.value = "Stopped"
         gateway.value = "Stopped"
