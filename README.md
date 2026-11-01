@@ -143,6 +143,35 @@ and Cloudflare tunnel. Foreground-service and battery restrictions may stop
 background connectivity. The previous external gateway implementation is
 retained for legacy use but no longer uploads logs in phone-hosted mode.
 
+## MCP package filtering (remote Logcat tools)
+
+The Android **Logs** page already has an app/package picker. **Remote MCP
+clients now have their own optional `package_name` argument**, independent of
+the phone's UI filter, on `get_live_logs`, `search_logs`, `get_crashes` and
+`get_anrs`. To find exact names call `list_installed_apps` first (the ADB
+shell lists third-party packages with UID mappings).
+
+For example, ask your connected MCP agent to call
+`get_live_logs` with `{"package_name":"com.example.app","limit":100}` or
+`search_logs` with
+`{"package_name":"com.example.app","query":"exception","limit":50}`.
+You can similarly filter `get_crashes` and `get_anrs`. The
+`after_cursor`, `level` and `query` options on `get_live_logs` continue
+to combine with the package filter as before.
+
+**Matching is UID-based, not a substring of the log message.** If a requested
+package has no verified UID mapping or is not currently discoverable, the
+query returns **no entries**, never all-device logs. Omit `package_name` to
+read logs from all captured packages. Android-system crash/ANR records may use
+system UIDs rather than the target app's UID and therefore may not appear in a
+package-scoped query; omit the filter to investigate such records.
+
+All filtering is read-only and runs over the existing bounded in-memory Logcat
+buffer. It does not change ADB capture, the phone's on-screen app filter,
+permissions, public MCP URL, registration token or client access key. Update
+the experimental APK and reconnect/refresh MCP tools in your AI client for the
+new `package_name` schema to become visible.
+
 ## Home and Android Logcat redesign
 
 The bottom navigation is **Home · Logs · Settings · Quit**. Home shows ADB shell
