@@ -9,9 +9,13 @@ import android.os.Build
 import android.widget.ImageView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -147,6 +151,8 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
     var deviceClearConfirmation by remember { mutableStateOf(false) }
     var timeExpanded by remember { mutableStateOf(false) }
     var levelExpanded by remember { mutableStateOf(false) }
+    var quickLevelExpanded by remember { mutableStateOf(false) }
+    var quickTimeExpanded by remember { mutableStateOf(false) }
     var actionMenu by remember { mutableStateOf(false) }
     val recentFirst = remember(filtered) { filtered.asReversed() }
     var exportSnapshot by remember { mutableStateOf<List<LogEvent>>(emptyList()) }
@@ -238,12 +244,18 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
         TabRow(selectedTabIndex = tab.ordinal) {
             LogcatTab.entries.forEach { destination ->
                 Tab(selected = tab == destination, onClick = { tab = destination },
-                    text = { Text(destination.title, maxLines = 1) },
-                    icon = { Icon(when (destination) {
-                        LogcatTab.LOGS -> Icons.Rounded.Terminal
-                        LogcatTab.FILTERS -> Icons.Rounded.FilterAlt
-                        LogcatTab.STORAGE -> Icons.Rounded.Storage
-                    }, null, modifier = Modifier.size(18.dp)) })
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(when (destination) {
+                                LogcatTab.LOGS -> Icons.Rounded.Terminal
+                                LogcatTab.FILTERS -> Icons.Rounded.FilterAlt
+                                LogcatTab.STORAGE -> Icons.Rounded.Storage
+                            }, null, modifier = Modifier.size(16.dp))
+                            Text(destination.title, maxLines = 1,
+                                style = MaterialTheme.typography.labelLarge)
+                        }
+                    })
             }
         }
         when (tab) {
@@ -302,19 +314,96 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                         }
                     }
                 }
-                OutlinedTextField(value = filter.search,
-                    onValueChange = { update(filter.copy(search = it)) },
-                    placeholder = { Text("Search logs, tags or PID") },
-                    leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
-                    trailingIcon = {
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 3.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                ) {
+                    Row(Modifier.height(46.dp).padding(horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Rounded.Search, null, modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        BasicTextField(value = filter.search,
+                            onValueChange = { update(filter.copy(search = it)) },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                color = MaterialTheme.colorScheme.onSurface),
+                            decorationBox = { inner ->
+                                Box {
+                                    if (filter.search.isBlank())
+                                        Text("Search logs, tags or PID",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    inner()
+                                }
+                            })
                         if (filter.search.isNotBlank()) {
-                            IconButton(onClick = { update(filter.copy(search = "")) }) {
-                                Icon(Icons.Rounded.Close, contentDescription = "Clear search")
+                            IconButton(onClick = { update(filter.copy(search = "")) },
+                                modifier = Modifier.size(36.dp)) {
+                                Icon(Icons.Rounded.Close, contentDescription = "Clear search",
+                                    modifier = Modifier.size(18.dp))
                             }
                         }
-                    })
+                    }
+                }
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(selected = filter.packageName.isNotBlank(),
+                        onClick = { showPicker = true },
+                        label = { Text(if (filter.packageName.isBlank()) "App: All" else
+                            (currentApp?.label ?: filter.packageName).take(16)) },
+                        leadingIcon = { Icon(Icons.Rounded.Apps, null,
+                            modifier = Modifier.size(16.dp)) })
+                    Box {
+                        FilterChip(selected = filter.minLevel != "V",
+                            onClick = { quickLevelExpanded = true },
+                            label = { Text("Level: " + when (filter.minLevel) {
+                                "D" -> "Debug+"; "I" -> "Info+"; "W" -> "Warn+"
+                                "E" -> "Error+"; "F" -> "Fatal"; else -> "All"
+                            }) },
+                            trailingIcon = { Icon(Icons.Rounded.ArrowDropDown, null) })
+                        DropdownMenu(expanded = quickLevelExpanded,
+                            onDismissRequest = { quickLevelExpanded = false }) {
+                            listOf("V" to "All", "D" to "Debug +", "I" to "Info +",
+                                "W" to "Warning +", "E" to "Error +", "F" to "Fatal")
+                                .forEach { (code, label) ->
+                                    DropdownMenuItem(text = { Text(label) }, onClick = {
+                                        update(filter.copy(minLevel = code))
+                                        quickLevelExpanded = false
+                                    })
+                                }
+                        }
+                    }
+                    Box {
+                        FilterChip(selected = filter.windowMinutes != 0,
+                            onClick = { quickTimeExpanded = true },
+                            label = { Text("Time: " + when (filter.windowMinutes) {
+                                5 -> "5m"; 15 -> "15m"; 60 -> "1h"; else -> "Any"
+                            }) },
+                            trailingIcon = { Icon(Icons.Rounded.ArrowDropDown, null) })
+                        DropdownMenu(expanded = quickTimeExpanded,
+                            onDismissRequest = { quickTimeExpanded = false }) {
+                            listOf(0 to "Any time", 5 to "Last 5 minutes",
+                                15 to "Last 15 minutes", 60 to "Last hour")
+                                .forEach { (minutes, label) ->
+                                    DropdownMenuItem(text = { Text(label) }, onClick = {
+                                        update(filter.copy(windowMinutes = minutes))
+                                        quickTimeExpanded = false
+                                    })
+                                }
+                        }
+                    }
+                    FilterChip(selected = filter.crashesOnly,
+                        onClick = { update(filter.copy(crashesOnly = !filter.crashesOnly)) },
+                        label = { Text("Crashes/ANRs") },
+                        leadingIcon = { Icon(Icons.Rounded.BugReport, null,
+                            modifier = Modifier.size(16.dp)) })
+                }
                 if (feedback.isNotBlank())
                     Text(feedback, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.labelSmall,
@@ -489,49 +578,83 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
 @Composable
 private fun LogcatEntryCard(event: LogEvent, onCopy: () -> Unit) {
     var expanded by remember(event.id) { mutableStateOf(false) }
+    val severity = remember(event.level) { LogSeverity.title(event.level) }
     val tone = when (event.level) {
-        "E", "F" -> MaterialTheme.colorScheme.error
-        "W" -> MaterialTheme.colorScheme.tertiary
-        else -> MaterialTheme.colorScheme.primary
+        "F" -> Color(0xFFFF6478)
+        "E" -> Color(0xFFFF8B73)
+        "W" -> Color(0xFFF6C45B)
+        "I" -> Color(0xFF6FD8A4)
+        "D" -> Color(0xFF80BEFF)
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     val timestamp = remember(event.epochMillis) {
         SimpleDateFormat("HH:mm:ss", Locale.ROOT).format(Date(event.epochMillis))
     }
-    val safeTag = remember(event.tag) { SensitiveLogRedactor.redact(event.tag).take(70) }
+    val detailedTime = remember(event.epochMillis) {
+        SimpleDateFormat("HH:mm:ss.SSS", Locale.ROOT).format(Date(event.epochMillis))
+    }
+    val safeTag = remember(event.tag) { SensitiveLogRedactor.redact(event.tag).take(120) }
     val safeMessage = remember(event.message) { SensitiveLogRedactor.redact(event.message) }
-    // Dense Logcat rows prioritize visible text over nested cards and buttons.
-    Column(Modifier.fillMaxWidth().clickable { expanded = !expanded }
-        .padding(horizontal = 10.dp, vertical = 5.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(timestamp, style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(event.level, color = tone, fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.labelMedium)
-            Text(safeTag,
+    val collapsedMessage = remember(safeMessage) {
+        safeMessage.replace('\n', ' ').replace('\r', ' ').trim()
+    }
+    // A single-line summary is always tap-to-expand, with a chevron on every row.
+    Row(Modifier.fillMaxWidth()
+        .clickable { expanded = !expanded }
+        .heightIn(min = 44.dp)
+        .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+        Surface(shape = RoundedCornerShape(6.dp),
+            color = tone.copy(alpha = 0.17f)) {
+            Text(LogSeverity.code(event.level), color = tone,
                 style = MaterialTheme.typography.labelMedium,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                color = tone, modifier = Modifier.weight(1f))
-            if (expanded) {
-                IconButton(onClick = onCopy, modifier = Modifier.size(26.dp)) {
-                    Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy log entry",
-                        modifier = Modifier.size(16.dp))
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp))
+        }
+        Text(timestamp, style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+        Text(safeTag, style = MaterialTheme.typography.labelSmall,
+            color = tone, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(0.37f))
+        Text(collapsedMessage, style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface, maxLines = 1,
+            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(0.63f))
+        Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+            contentDescription = if (expanded) "Collapse log details" else "Expand log details",
+            modifier = Modifier.size(18.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    if (expanded) {
+        Surface(modifier = Modifier.fillMaxWidth()
+            .padding(start = 8.dp, end = 8.dp, bottom = 6.dp),
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+            border = BorderStroke(1.dp, tone.copy(alpha = 0.4f))) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(severity, color = tone, fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.weight(1f))
+                    Text(detailedTime, style = MaterialTheme.typography.labelMedium)
+                    TextButton(onClick = onCopy) {
+                        Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy log entry",
+                            modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Copy")
+                    }
+                }
+                Text("Tag: " + safeTag, style = MaterialTheme.typography.labelMedium)
+                Text("PID " + event.pid + "  ·  UID " + event.uid,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                HorizontalDivider()
+                SelectionContainer {
+                    Text(safeMessage, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
-        Text(safeMessage,
-            style = MaterialTheme.typography.bodySmall,
-            maxLines = if (expanded) Int.MAX_VALUE else 2,
-            overflow = if (expanded) TextOverflow.Clip else TextOverflow.Ellipsis)
-        if (expanded) {
-            Text("PID " + event.pid + " · UID " + event.uid +
-                " · " + SimpleDateFormat("HH:mm:ss.SSS", Locale.ROOT)
-                    .format(Date(event.epochMillis)),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
     }
     HorizontalDivider(thickness = 0.5.dp,
-        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f))
 }

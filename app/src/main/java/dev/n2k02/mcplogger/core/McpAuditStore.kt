@@ -15,27 +15,65 @@ internal object McpAuditStore {
     val entries = MutableStateFlow<List<McpAuditEntry>>(emptyList())
     private val lock = Any()
     private const val FILE = "mcp-audits.json"
+    // A full 160-entry journal can exceed 5 MB with redacted request/response previews.
+    private const val MAX_READ_CHARS = 8_000_000
     private var lastDeniedAtMs = 0L
+    // Avoid rereading and reparsing the entire journal on every MCP request.
+    private var loaded = false
 
     private fun file(c: Context) = AtomicFile(File(c.noBackupFilesDir, FILE))
     private fun read(c: Context): List<McpAuditEntry> = runCatching {
         val f = file(c)
         if (!f.baseFile.isFile) return@runCatching emptyList()
-        val data = f.openRead().bufferedReader().use { it.readText().take(5_000_000) }
+        val data = f.openRead().bufferedReader().use { it.readText().take(MAX_READ_CHARS) }
         val array = JSONArray(data)
         (0 until array.length()).mapNotNull { index ->
             runCatching { McpAuditEntry.fromJson(array.getJSONObject(index)) }.getOrNull()
         }.takeLast(McpAuditPolicy.KEEP)
     }.getOrDefault(emptyList())
 
-    fun reload(c: Context) = synchronized(lock) { entries.value = read(c) }
 
-    /** Read a consistent snapshot; callers must first pass the local opt-in gate. */
-    fun readForAgent(c: Context): List<McpAuditEntry> = synchronized(lock) { read(c) }
+    /** Persist an atomic, bounded snapshot; empty means no previous-day journal. */
+    private fun persist(c: Context, all: List<McpAuditEntry>) {
+        val destination = file(c)
+        if (all.isEmpty()) {
+            destination.delete()
+            return
+        }
+        val json = JSONArray()
+        all.forEach { json.put(it.toJson()) }
+        val stream = destination.startWrite()
+        try {
+            stream.write(json.toString().toByteArray(Charsets.UTF_8))
+            destination.finishWrite(stream)
+        } catch (error: Exception) {
+            destination.failWrite(stream)
+            throw error
+        }
+    }
+
+    /** Prune previous-day entries on load, remote read, write and midnight tick. */
+    private fun pruneLocked(c: Context, nowMs: Long = System.currentTimeMillis()): List<McpAuditEntry> {
+        val old = if (loaded) entries.value else read(c)
+        val current = McpAuditPolicy.today(old, nowMs)
+        if (old.size != current.size || (current.isEmpty() && file(c).baseFile.isFile))
+            persist(c, current)
+        entries.value = current
+        loaded = true
+        return current
+    }
+
+    fun prune(c: Context) = synchronized(lock) { pruneLocked(c); Unit }
+    fun reload(c: Context) = prune(c)
+
+    /** Read a consistent today-only snapshot after the local opt-in gate. */
+    fun readForAgent(c: Context): List<McpAuditEntry> =
+        synchronized(lock) { pruneLocked(c) }
 
     fun clear(c: Context) = synchronized(lock) {
         entries.value = emptyList()
         file(c).delete()
+        loaded = true
     }
 
     fun record(c: Context, identity: Agent, request: String, response: String,
@@ -59,18 +97,9 @@ internal object McpAuditStore {
                     McpAuditPolicy.snapshot(endpoint, 100).text,
                     httpStatus.coerceIn(0, 599),
                     McpAuditPolicy.snapshot(reason, 160).text)
-                val all = (read(c) + entry).takeLast(McpAuditPolicy.KEEP)
-                val json = JSONArray()
-                all.forEach { json.put(it.toJson()) }
-                val outputFile = file(c)
-                val stream = outputFile.startWrite()
-                try {
-                    stream.write(json.toString().toByteArray(Charsets.UTF_8))
-                    outputFile.finishWrite(stream)
-                } catch (e: Exception) {
-                    outputFile.failWrite(stream)
-                    throw e
-                }
+                val all = McpAuditPolicy.today(
+                    pruneLocked(c) + entry, System.currentTimeMillis())
+                persist(c, all)
                 entries.value = all
             }
             Unit

@@ -8,6 +8,13 @@ internal object McpAuditPolicy {
     const val MAX_REQUEST_CHARS = 10_000
     const val MAX_RESPONSE_CHARS = 25_000
     const val KEEP = 160
+    /** All MCP audit entries are limited to the device's current local day. */
+    fun today(entries: List<McpAuditEntry>, nowMs: Long): List<McpAuditEntry> {
+        val start = LogDayPolicy.dayStart(nowMs)
+        val end = LogDayPolicy.nextMidnight(nowMs)
+        return entries.filter { it.timestamp >= start && it.timestamp < end &&
+            it.timestamp <= nowMs + 60_000L }.takeLast(KEEP)
+    }
     private val secretName = Regex(
         "(?i)(authorization|password|passphrase|secret|token|api[_-]?key|" +
             "client[_-]?secret|cookie|credential|pairing|pin|private[_-]?key|" +
