@@ -25,7 +25,7 @@ Android Logcat monitoring and a read-only AI MCP bridge, using the **same shared
 - **Android app:** Material 3 Expressive via `dev.n2k02:theme:0.1.4`, single mRadio-style header, Home, Settings, Logs, Quit.
 - **In-app updater:** `dev.n2k02:updater:0.1.19`, stable/experimental channels, shared update screen, pending-update badges and install guard while capture is active. Configured for `https://n2k02.github.io/mcpadbandroidlogger/updates`.
 - **Embedded ADB:** VRec-derived private ADB client; first-pairing via Android Wireless debugging, mDNS port discovery, UID 2000 verification, optional TCP/5555 promotion and reconnect.
-- **Logcat:** LogFox-inspired `logcat -v epoch -v uid` parser, package/UID filtering, bounded history, exception/ANR detection; read-only.
+- **Logcat:** On-demand, bounded `logcat -d` snapshots via ADB (no continuous polling), LogFox-inspired parsing, package/UID filtering, cursor history and crash/ANR detection; read-only.
 - **MCP gateway:** outbound HTTPS ingestion and authenticated Streamable HTTP MCP server. The gateway cannot execute device commands.
 
 ## Build
@@ -44,7 +44,7 @@ This repository's Actions secrets must be configured; secrets from other reposit
 1. Install debug APK. Enable USB debugging and Wireless debugging.
 2. Open **ADB connection**, choose Android's **Pair device with pairing code**, and enter the code and port (or enable the optional Accessibility pairing helper to read a visible Settings pairing dialog automatically). Android must authorize the initial connection.
 3. The app validates `id -u == 2000` before starting capture. TCP/5555 is enabled by default but can expose an ADB listener to the LAN; disable in Settings if not wanted.
-4. Start monitoring and select a package. Logcat access varies by Android build, and monitoring requires a visible foreground notification.
+4. Use **Home → Refresh** or **Logs → Refresh logs from Android**, or request a Logcat tool from MCP. Each request reads Android's existing logd buffer once and stops. ADB and the phone-hosted MCP foreground service remain connected; no continuous capture runs.
 5. For remote AI access, follow the **Start here** Cloudflare Worker steps above. Your phone hosts the MCP service; once the permanent Worker endpoint is **Online**, connect via OAuth/DCR. **Do not generate or rotate the MCP client access key merely to troubleshoot a Worker deployment.**
 
 ## Legacy external MCP gateway (optional, not the recommended phone-hosted flow)
@@ -135,10 +135,10 @@ The signed APK contains the official Cloudflare 2026.10.7 ARM64 binary
 verified with SHA-256. Other CPU architectures expose only local MCP.
 No executable is downloaded at runtime. The server binds to 127.0.0.1,
 validates Origin, uses constant-time bearer-token authentication and strict
-request size limits. Tools read the bounded redacted Logcat buffer and cannot
-execute shell commands.
+request size limits. Log tools trigger one bounded, read-only ADB Logcat dump, redact
+results and return them; they do not grant an MCP client arbitrary shell access.
 
-Logcat can be paused independently; Quit stops the service, local MCP,
+Logcat is idle between explicit refreshes; Quit stops the service, local MCP,
 and Cloudflare tunnel. Foreground-service and battery restrictions may stop
 background connectivity. The previous external gateway implementation is
 retained for legacy use but no longer uploads logs in phone-hosted mode.
@@ -166,16 +166,18 @@ read logs from all captured packages. Android-system crash/ANR records may use
 system UIDs rather than the target app's UID and therefore may not appear in a
 package-scoped query; omit the filter to investigate such records.
 
-All filtering is read-only and runs over the existing bounded in-memory Logcat
-buffer. It does not change ADB capture, the phone's on-screen app filter,
-permissions, public MCP URL, registration token or client access key. Update
+All filtering is read-only: each MCP log query triggers one bounded Android Logcat
+snapshot, followed by filtering of the deduplicated 2,000-entry in-memory cache.
+This preserves cursor continuity and local review without continuous collection.
+It does not change the phone's on-screen app filter, permissions, public MCP URL,
+registration token or client access key. Update
 the experimental APK and reconnect/refresh MCP tools in your AI client for the
 new `package_name` schema to become visible.
 
 ## Home and Android Logcat redesign
 
 The bottom navigation is **Home · Logs · Settings · Quit**. Home shows ADB shell
-readiness, a monitoring Start/Pause control, this-session metrics (lines scanned,
+readiness, an on-demand Refresh/Cancel control, this-session metrics (lines scanned,
 unique events, buffered entries, scan cycles, last successful scan, errors),
 and local/public MCP status. It no longer displays recent Logcat entries or an
 app selector.
@@ -184,8 +186,8 @@ app selector.
 installed-app names and icons when Android allows launcher visibility, with
 package-name/icon fallbacks for hidden packages. Filter by app UID, severity
 minimum, text, time window, crash/ANR, tag and PID. Filtering never changes
-what the authorized ADB shell collects: all events are retained in the bounded
-in-memory buffer for local review and MCP. **Reset filters** changes only the
+which Android events are read on demand: recent snapshots accumulate in a bounded
+2,000-entry in-memory buffer for local review and MCP cursors. No continuous Logcat reader runs. **Reset filters** changes only the
 view. **Clear logs** drops captured rows but preserves recent deduplication so
 a repeated logcat snapshot does not immediately repopulate old messages.
 **Copy** copies up to the 200 newest visible redacted entries; **Export** saves
@@ -326,14 +328,14 @@ changing the switch.
 ## Clear Logcat and reset Home cards
 
 - **Logs → Clear** removes only captured in-memory Logcat events, preserving
-  Android's original system buffers. An in-flight polling result is discarded
+  Android's original system buffers. An in-flight snapshot result is discarded
   so it cannot refill the list with pre-clear entries.
 - **Logs → Clear device Logcat (all buffers)** requires a separate confirmation,
   a connected and newly verified ADB shell UID 2000, and executes
   `logcat -b all -c`. This deletes Android's available system-wide Logcat
   buffers (including logs from other apps). It resets the app's captured-log
   cache, dedup window and current-session counters only on success. New
-  events appear as monitoring continues.
+  events appear after the next explicit manual or MCP refresh.
 - **Home → Logcat activity → Reset Home statistics** resets the scan totals,
   error count and last-scan timestamp without deleting the buffered events.
   ADB connection, public MCP URL, access key and live statuses remain

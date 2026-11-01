@@ -261,7 +261,15 @@ object LocalMcpServer {
                         { if (McpAgentAuditAccess.enabled(context))
                             McpAuditStore.readForAgent(context) else emptyList() }
                     } else null
-                val result = LocalMcpProtocol.execute(request, auditReader)
+                val result = LocalMcpProtocol.execute(request, auditReader,
+                    logsReader = {
+                        // The authenticated MCP worker thread may block while
+                        // one bounded shell read executes; no background polling.
+                        kotlinx.coroutines.runBlocking { LogMonitorService.readOnDemand() }
+                    },
+                    appsReader = {
+                        kotlinx.coroutines.runBlocking { LogMonitorService.refreshInstalledApps() }
+                    })
                 val status = if (result == null) "Accepted"
                     else if (result.has("error")) "Error" else "OK"
                 val responseBody = result?.toString().orEmpty()

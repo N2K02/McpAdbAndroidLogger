@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
+import android.os.SystemClock
 import android.os.Build
 import dev.n2k02.mcplogger.MainActivity
 import dev.n2k02.mcplogger.R
@@ -22,6 +23,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * LogFox-compatible logcat capture. Read-only shell commands; collection is
@@ -38,7 +41,80 @@ class LogMonitorService : Service() {
         const val QUIT = "dev.n2k02.mcplogger.QUIT"
         private val buffer = LogBuffer()
         private val resetGate = LogcatResetGate()
+        private val readLock = Mutex()
+        private val packageListLock = Mutex()
+        private var lastPackagesRefreshedAtMs = -1L
         fun snapshot(after: Long = 0, limit: Int = 300) = buffer.snapshot(after, limit)
+
+        /**
+         * Android's logd already retains a circular buffer. A foreground MCP
+         * connection must NOT poll or stream it: one explicit request runs one
+         * bounded "logcat -d", then the shell command completes. The 2,000-entry
+         * cache preserves existing MCP cursors and the local Logs viewer, but is
+         * never replenished in the background.
+         */
+        suspend fun readOnDemand(): List<LogEvent> = readLock.withLock {
+            val readGeneration = resetGate.generation()
+            MonitorState.active.value = true
+            try {
+                check(AdbCoordinator.verified.value) { "ADB shell UID 2000 is not verified" }
+                // Package identities rarely change; avoid invoking PackageManager for
+                // every remote MCP log query while keeping an explicit refresh path.
+                refreshInstalledApps(force = false)
+                val output = AdbTransport.exec(
+                    "logcat -b main -b system -b crash -v uid -v epoch -d -t 2000",
+                    timeoutMs = 12000
+                ).getOrThrow()
+                val parsed = output.lineSequence().mapNotNull(LogFoxParser::parse).toList()
+                val accepted = resetGate.applyIfCurrent(readGeneration) {
+                    val newEntries = buffer.add(parsed, null, null)
+                    MonitorState.logs.value = buffer.snapshot(0, 2000)
+                    val previous = MonitorState.captureStats.value
+                    MonitorState.captureStats.value = previous.copy(
+                        linesScanned = previous.linesScanned + parsed.size,
+                        uniqueCaptured = previous.uniqueCaptured + newEntries.size,
+                        scanCycles = previous.scanCycles + 1,
+                        lastSuccessAtMillis = System.currentTimeMillis(),
+                        lastBatchCaptured = newEntries.size,
+                    )
+                }
+                // Never return entries that a concurrent Clear discarded.
+                if (accepted) buffer.snapshot(0, 2000) else emptyList()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                resetGate.applyIfCurrent(readGeneration) {
+                    val previous = MonitorState.captureStats.value
+                    MonitorState.captureStats.value = previous.copy(
+                        readFailures = previous.readFailures + 1
+                    )
+                }
+                MonitorState.error("Logcat: " + (error.message ?: "read failed"))
+                throw error
+            } finally {
+                MonitorState.active.value = false
+            }
+        }
+
+        /** Explicit app-list requests force fresh data. Log snapshots reuse a
+         *  recent verified UID list to avoid repeated PackageManager shell work. */
+        suspend fun refreshInstalledApps(force: Boolean = true): List<String> =
+            packageListLock.withLock {
+                check(AdbCoordinator.verified.value) { "ADB shell UID 2000 is not verified" }
+                val now = SystemClock.elapsedRealtime()
+                if (!PackageRefreshPolicy.shouldRefresh(
+                        now, lastPackagesRefreshedAtMs,
+                        MonitorState.packageUids.value.isNotEmpty(), force)) {
+                    return@withLock MonitorState.packages.value
+                }
+                val output = AdbTransport.exec("pm list packages -3 -U",
+                    timeoutMs = 12000).getOrThrow()
+                val known = PackageListParser.parse(output)
+                MonitorState.packageUids.value = known
+                MonitorState.packages.value = known.keys.sorted().take(500)
+                lastPackagesRefreshedAtMs = SystemClock.elapsedRealtime()
+                MonitorState.packages.value
+            }
         /** Clear app-only cached Logcat records; retain Android system buffers. */
         fun clear() = resetGate.reset {
             buffer.clear()
@@ -105,6 +181,7 @@ class LogMonitorService : Service() {
             }
             QUIT -> {
                 stopCapture()
+                clear()
                 QuickMcpTunnel.stop()
                 tunnelJob?.cancel()
                 tunnelJob = null
@@ -226,65 +303,23 @@ class LogMonitorService : Service() {
         foreground = true
     }
 
+    /** One explicit Home/Logs refresh; never start a repeating polling loop. */
     private fun startCapture() {
-        if (job?.isActive == true) return
+        if (job?.isActive == true || MonitorState.active.value) return
         getSharedPreferences("mcp_logger", MODE_PRIVATE).edit()
             .putBoolean("manual_quit", false).apply()
-        MonitorState.active.value = true
         job = scope.launch {
-            AdbCoordinator.discover(applicationContext)
-            var attempt = 0
-            while (isActive && MonitorState.active.value) {
-                try {
-                    if (!AdbTransport.isConnected) {
-                        AdbCoordinator.connect(applicationContext).getOrThrow()
-                        attempt = 0
-                    }
-                    // Query package identities through the authorized shell rather than
-                    // requesting broad Android QUERY_ALL_PACKAGES app visibility.
-                    val packagesOutput = AdbTransport.exec("pm list packages -3 -U", timeoutMs = 12000)
-                        .getOrNull().orEmpty()
-                    if (packagesOutput.isNotBlank()) {
-                        val known = PackageListParser.parse(packagesOutput)
-                        MonitorState.packageUids.value = known
-                        MonitorState.packages.value = known.keys.sorted().take(500)
-                    }
-                    // Filtering is UI-only so switching apps cannot discard captured logs.
-                    val readGeneration = resetGate.generation()
-                    val output = AdbTransport.exec("logcat -b main -b system -b crash -v uid -v epoch -d -t 300",
-                        timeoutMs = 12000).getOrThrow()
-                    val parsed = output.lineSequence().mapNotNull(LogFoxParser::parse).toList()
-                    resetGate.applyIfCurrent(readGeneration) {
-                        val newEntries = buffer.add(parsed, null, null)
-                        MonitorState.logs.value = buffer.snapshot(0, 2000)
-                        val previous = MonitorState.captureStats.value
-                        MonitorState.captureStats.value = previous.copy(
-                            linesScanned = previous.linesScanned + parsed.size,
-                            uniqueCaptured = previous.uniqueCaptured + newEntries.size,
-                            scanCycles = previous.scanCycles + 1,
-                            lastSuccessAtMillis = System.currentTimeMillis(),
-                            lastBatchCaptured = newEntries.size,
-                        )
-                    }
-                    attempt = 0
-                    delay(2500L)
-                } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                    throw cancelled
-                } catch (error: Exception) {
-                    MonitorState.error("Logcat: " + (error.message ?: "capture error"))
-                    resetGate.applyIfCurrent(resetGate.generation()) {
-                        val previous = MonitorState.captureStats.value
-                        MonitorState.captureStats.value = previous.copy(
-                            readFailures = previous.readFailures + 1)
-                    }
-                    attempt = (attempt + 1).coerceAtMost(6)
-                    delay((1000L shl attempt).coerceAtMost(60000L))
-                }
+            try {
+                readOnDemand()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // readOnDemand records the sanitized failure in MonitorState.
             }
         }
     }
+
     private fun stopCapture() {
-        MonitorState.active.value = false
         job?.cancel()
         job = null
     }

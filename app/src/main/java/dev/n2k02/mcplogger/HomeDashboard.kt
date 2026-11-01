@@ -47,7 +47,7 @@ internal fun HomeDashboard(
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Device diagnostics", style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.SemiBold)
-        Text("Live status and Logcat collection from this Android device",
+        Text("ADB diagnostics and on-demand Android Logcat snapshots",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
 
@@ -66,8 +66,8 @@ internal fun HomeDashboard(
         ElevatedCard(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 CardHeader(Icons.Rounded.Terminal, "Android Logcat",
-                    if (active) Tone.GOOD else Tone.IDLE, if (active) "Running" else "Paused")
-                Text("Capture all apps; narrow results with the filters in Logs.",
+                    if (active) Tone.GOOD else Tone.IDLE, if (active) "Reading" else "Idle")
+                Text("No background polling. Refresh here or request logs through MCP; filter results in Logs.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -75,13 +75,13 @@ internal fun HomeDashboard(
                         modifier = Modifier.weight(1f)) {
                         Icon(Icons.Rounded.PlayArrow, null)
                         Spacer(Modifier.width(4.dp))
-                        Text("Start")
+                        Text("Refresh")
                     }
                     OutlinedButton(onClick = onStop, enabled = active,
                         modifier = Modifier.weight(1f)) {
                         Icon(Icons.Rounded.Stop, null)
                         Spacer(Modifier.width(4.dp))
-                        Text("Pause")
+                        Text("Cancel")
                     }
                 }
             }
@@ -137,7 +137,7 @@ internal fun HomeDashboard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error)
                 }
-                Text("Scanned lines may repeat across polls; unique captured counts new events.",
+                Text("Scanned lines may repeat across snapshots; unique captured counts new events.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 OutlinedButton(
@@ -150,7 +150,7 @@ internal fun HomeDashboard(
                     Spacer(Modifier.width(6.dp))
                     Text("Reset Home statistics")
                 }
-                Text("Resets collection counts and prior read errors. Live ADB and MCP " +
+                Text("Resets request counts and prior read errors. Live ADB and MCP " +
                     "connection status, saved keys, and existing buffered logs stay unchanged.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
