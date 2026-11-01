@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import dev.n2k02.mcplogger.core.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -113,7 +114,7 @@ private fun AppPickerDialog(apps: List<InstalledApp>, selected: String,
         })
 }
 
-/** Rich Android Logcat viewer; all filters are in-memory and independent of capture. */
+/** Android Logcat snapshot viewer; no automatic collection while idle. */
 @Composable
 internal fun LogcatScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -189,7 +190,7 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
     if (clearConfirmation) {
         AlertDialog(onDismissRequest = { clearConfirmation = false },
             title = { Text("Clear captured Logcat?") },
-            text = { Text("Discard the current in-memory logs. New events will continue appearing while monitoring runs. This does not erase Android's system log buffer.") },
+            text = { Text("Discard the current in-memory logs. New entries appear only after another manual or MCP request. This does not erase Android's system log buffer.") },
             confirmButton = {
                 TextButton(onClick = {
                     LogMonitorService.clear()
@@ -229,12 +230,25 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.Terminal, null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
-                Text("Live Android Logcat", style = MaterialTheme.typography.titleMedium,
+                Text("Android Logcat snapshots", style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f))
-                Text(if (active) "● Live" else "● Paused",
+                Text(if (active) "● Reading" else "● Idle",
                     style = MaterialTheme.typography.labelMedium,
                     color = if (active) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            OutlinedButton(
+                onClick = {
+                    ContextCompat.startForegroundService(context,
+                        Intent(context, LogMonitorService::class.java)
+                            .setAction(LogMonitorService.START))
+                },
+                enabled = !active && !deviceLogcatClearing && adbVerified,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Rounded.Refresh, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(if (active) "Reading Android Logcat..." else "Refresh logs from Android")
             }
             OutlinedCard(onClick = { showPicker = true }, modifier = Modifier.fillMaxWidth()) {
                 Row(Modifier.fillMaxWidth().padding(10.dp),
@@ -383,7 +397,7 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                     Text(if (logs.isEmpty()) "No captured Logcat entries yet"
                         else "No entries match these filters",
                         style = MaterialTheme.typography.titleSmall)
-                    Text(if (logs.isEmpty()) "Start monitoring on Home after ADB is authorized."
+                    Text(if (logs.isEmpty()) "Refresh logs here or request them via MCP after ADB is authorized."
                         else "Change app, level, time or search, or tap Reset filters.",
                         style = MaterialTheme.typography.bodySmall)
                 }
