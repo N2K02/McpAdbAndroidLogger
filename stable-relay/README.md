@@ -1,38 +1,54 @@
-# Stable HTTPS MCP relay
+# One permanent HTTPS MCP URL
 
-The existing Android app runs the Cloudflare Quick Tunnel internally. Its
-`trycloudflare.com` URL may expire or change. This Worker stores only the
-current **tunnel URL**, so MCP clients can always use the same Worker address.
+The Android app now displays **one** public MCP endpoint and **one persistent**
+MCP client access key. The Cloudflare Quick Tunnel still runs **inside the app**
+but its changing hostname is never offered to users or MCP clients.
 
-A GitHub Pages URL such as
-`https://n2k02.github.io/McpAdbAndroidLogger/mcp` **cannot** be the MCP
-endpoint: GitHub Pages does not support server-side POST/OAuth proxying.
-Leave the main website untouched.
+GitHub Pages (`https://n2k02.github.io/McpAdbAndroidLogger/mcp`) cannot
+receive MCP POST or OAuth requests. It cannot replace a live HTTPS proxy.
 
-## One-time provisioning (unavoidable)
+## One-time Cloudflare owner provisioning (required)
 
-1. Create a Cloudflare Worker in your Cloudflare account and deploy this folder
-   using `npx wrangler deploy` (Wrangler will prompt for Cloudflare login).
-   Deployment creates a permanent `https://n2k02-mcp-adb-logger.<account>.workers.dev/mcp` URL.
-2. Set the secret `DEVICE_TOKEN` using `npx wrangler secret put DEVICE_TOKEN`.
-   Choose a new random 32+ character token; **never** commit it, embed it in
-   GitHub Pages, or use the MCP client's OAuth approval token.
-3. In the Android app's **MCP connection → Permanent relay**, paste the Worker
-   HTTPS URL ending in `/mcp` and the same `DEVICE_TOKEN`; save/reconnect.
-   The device publishes each tunnel registration automatically.
-4. Paste the Worker URL in your ChatGPT MCP connector once. Use the existing
-   on-device OAuth approval flow. This URL remains stable when the device
-   reconnects to Wi-Fi, reboots, or receives a newly assigned Quick Tunnel.
+Cloudflare account ownership cannot be inferred from a GitHub Pages address.
+We cannot securely deploy a Worker, select an account's `workers.dev` name,
+or configure its secret without the account owner's authorization.
 
-The Android device must be running and online for the endpoint to serve MCP.
-If offline, the Worker returns 503. Cloudflare Workers/Durable Objects have
-free-tier limits; the Worker is not deployed until an account owner provisions
-it. GitHub Pages cannot remove that one-time setup.
+1. In the Cloudflare account, deploy this folder's `wrangler.toml` and
+   `worker.mjs` using `npx wrangler deploy`.
+2. Create a random 32+ character registration secret and set it using
+   `npx wrangler secret put DEVICE_TOKEN`. Store it securely.
+3. In the Android app, open **MCP connection → Public MCP**. Enter the assigned
+   `https://n2k02-mcp-adb-logger.<your-account>.workers.dev/mcp` URL and
+   the same registration secret; tap **Save and connect**.
+4. Once the card says **Online**, copy the single permanent HTTPS MCP URL to
+   your ChatGPT MCP connector. Authorize using the existing, persistent
+   **MCP client access key** displayed in that same card.
 
-Security: `/register` requires a separate secret; only `*.trycloudflare.com`
-endpoints are allowed, to block arbitrary upstream SSRF. Client authorization
-remains enforced by the Android OAuth server; the Worker never stores Logcat.
-The Android MCP server is read-only and redacts captured log data. The tunnel
-address still exists publicly, so OAuth and local permission checks are critical.
+Steps 1–3 cannot be skipped for a Worker that has never been deployed. Do not
+paste the GitHub Pages address or a `trycloudflare.com` URL into ChatGPT.
 
-Run relay validation with `node --test stable-relay/worker.test.mjs`.
+## Automatic from then onward
+
+- The local MCP server and Quick Tunnel run in the app foreground service.
+- Wi-Fi/mobile changes and reconnects reuse the saved tunnel registration.
+- If Cloudflare invalidates the hidden Quick Tunnel address, Android
+  re-registers it, and updates the **same Worker URL** automatically.
+- Android renews the live Worker mapping each minute. The mapping expires
+  safely after four minutes without a successful update.
+- **Reconnect**, app restart and phone restart do **not** rotate the Worker URL,
+  MCP client key or existing OAuth approval tokens. Updating the Worker URL
+  manually is an exceptional, explicit configuration change.
+- **Stop server** and **Quit** shut down remote access rather than pretending to
+  be online. The public URL remains unchanged, but returns unavailable.
+- Uninstalling or clearing the app's data erases its locally saved secrets.
+  Preserve them separately if reinstalling; they are not regenerated on
+  normal upgrades and restarts.
+
+Security: registration uses a distinct high-entropy `DEVICE_TOKEN`; never
+commit it to GitHub, GitHub Pages or a public Android APK. Worker routes only
+`*.trycloudflare.com` origin endpoints. Android enforces MCP client key/OAuth,
+read-only tools, audit logging, and Logcat redaction. The Worker stores only
+the current hidden tunnel URL, not user logs.
+
+Run automated Worker checks with
+`node --test stable-relay/worker.test.mjs`.
