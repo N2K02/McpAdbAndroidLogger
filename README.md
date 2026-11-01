@@ -74,13 +74,14 @@ The ADB setup page uses VRec-style guided wireless pairing, a live port/status d
 
 ## Permanent MCP URL (Cloudflare Worker)
 
-The embedded Cloudflare Quick Tunnel remains the Android transport, but an
-optional stable Cloudflare Worker + Durable Object now provides an address that
-**does not change** when the phone restarts, reconnects, or Quick Tunnel rotates.
-A deployed Worker is configured in **MCP connection → Permanent relay**; the
-app publishes each newly connected `trycloudflare.com` address to it using a
-separate private registration token. OAuth is still managed exclusively by the
-Android phone and the Worker stores no logs.
+The embedded Cloudflare Quick Tunnel remains an internal Android transport.
+The app presents only **one permanent public MCP URL** and **one persistent MCP
+client access key** on a single **MCP connection → Public MCP** card.
+Cloudflare Worker + Durable Object provides the permanent address; the app
+publishes each newly connected hidden `trycloudflare.com` address to it
+automatically using a separate private device registration token. Neither
+reconnecting nor restarting the app rotates the MCP client key. OAuth remains
+on the Android phone, and the Worker stores no logs.
 
 **GitHub Pages cannot provide `/McpAdbAndroidLogger/mcp` as a functional
 endpoint** because it cannot run an HTTP/OAuth reverse proxy. The stable endpoint
@@ -94,21 +95,23 @@ Never commit a registration secret to source control.
 ## Phone-hosted MCP (no separate server)
 
 Opening the app starts a read-only **local MCP server** at
-`http://127.0.0.1:8765/mcp` in the foreground service. On supported Android ARM64
-phones the app also registers a free Cloudflare Quick Tunnel, opens an
-outbound-only connection, and displays its real public HTTPS URL only after
-cloudflared reports edge registration. No Docker or separate PC is needed.
+`http://127.0.0.1:8765/mcp` in the foreground service. Supported ARM64
+phones also run Cloudflare Quick Tunnel in the app, forwarding traffic to the
+local server through the single configured permanent Worker endpoint.
+The changing Quick Tunnel URL is deliberately hidden and is never a user
+connection option. No Docker, Termux, or separate PC is needed.
 
-In Settings → MCP connection, copy the public HTTPS MCP URL and the
-separate MCP client access key. Configure Claude or ChatGPT to send
-`Authorization: Bearer <key>` when the client supports static bearer tokens.
-Some clients require OAuth and account-side connector approvals; the app
-cannot bypass those authentication requirements.
+On the **Public MCP** card, configure the deployed Cloudflare Worker URL
+and private registration secret once. After connecting, copy the one permanent
+MCP URL and the existing MCP client access key. The key stays the same across
+normal reconnects, tunnel renewals, device restarts, and app updates. Some
+clients require OAuth and account-side connector approval; those requirements
+cannot be bypassed.
 
-The loopback URL works only with other Android apps supporting local MCP,
-not with cloud-hosted Claude or ChatGPT. Quick Tunnel URLs change every time
-the tunnel restarts, have no uptime guarantee, and don't support SSE;
-the embedded server uses JSON-only Streamable HTTP responses.
+The loopback server address works only with apps on the Android phone; GitHub
+Pages cannot proxy cloud-hosted ChatGPT/Claude traffic. The app uses JSON-only
+Streamable HTTP MCP responses; its hidden Cloudflare Quick Tunnel URL may
+change without altering the public Worker URL.
 
 The signed APK contains the official Cloudflare 2026.10.7 ARM64 binary
 verified with SHA-256. Other CPU architectures expose only local MCP.
