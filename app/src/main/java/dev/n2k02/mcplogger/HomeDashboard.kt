@@ -12,6 +12,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.os.Build
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.Alignment
@@ -22,14 +23,17 @@ import dev.n2k02.mcplogger.core.BridgeClient
 import dev.n2k02.mcplogger.core.MonitorState
 import dev.n2k02.mcplogger.core.LogMonitorService
 import dev.n2k02.mcplogger.core.LogDayPolicy
-import dev.n2k02.mcplogger.core.LogViewPolicy
 import dev.n2k02.mcplogger.core.LogCaptureStats
 import dev.n2k02.mcplogger.core.PerformanceDiagnostics
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
 
-/** Operational dashboard: no log items, app picker or Logcat navigation shortcuts. */
+private enum class HomeTab(val title: String) {
+    OVERVIEW("Overview"), PERFORMANCE("Performance"), CONNECTION("Connection")
+}
+
+/** Portrait-first dashboard; global Home / Logs / Settings / Quit remains unchanged. */
 @Composable
 internal fun HomeDashboard(
     modifier: Modifier = Modifier,
@@ -44,114 +48,126 @@ internal fun HomeDashboard(
     val publicUrl by MonitorState.publicMcpUrl.collectAsState()
     val stats by MonitorState.captureStats.collectAsState()
     val buffered by MonitorState.logs.collectAsState()
-    val logFilter by MonitorState.logFilter.collectAsState()
-    val packageUids by MonitorState.packageUids.collectAsState()
     val today = LogDayPolicy.dayStart(System.currentTimeMillis())
     val currentStats = if (stats.dayStartMs == today) stats else LogCaptureStats(dayStartMs = today)
     val todayBuffered = remember(buffered, today) {
         buffered.count { it.epochMillis >= today }
     }
-    val todayShown = remember(buffered, logFilter, packageUids, today) {
-        LogViewPolicy.select(buffered, logFilter, packageUids, System.currentTimeMillis())
-            .count { it.epochMillis >= today }
-    }
     val verified = adb.startsWith("UID 2000 verified")
     val context = LocalContext.current
     val clientToken = BridgeClient.clientTokenState(context).collectAsState().value.orEmpty()
     var copyHint by remember { mutableStateOf("") }
+    var homeTab by rememberSaveable { mutableStateOf(HomeTab.OVERVIEW) }
     val perfScope = rememberCoroutineScope()
     var perfPackage by remember { mutableStateOf("") }
     var perfBusy by remember { mutableStateOf(false) }
     var perfResult by remember { mutableStateOf("No performance snapshot yet.") }
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("Device diagnostics", style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.SemiBold)
-        Text("ADB diagnostics and on-demand Android Logcat snapshots",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                CardHeader(Icons.Rounded.Terminal, "Logcat (Today)", Tone.IDLE,
-                    "Daily reset enabled",
-                    subtitle = "Today's local-day capture summary")
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StatMetric("Captured today", currentStats.uniqueCaptured.toString(),
-                        Modifier.weight(1f), Tone.GOOD)
-                    StatMetric("Shown today", todayShown.toString(),
-                        Modifier.weight(1f), Tone.BUSY)
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StatMetric("Read cycles", currentStats.scanCycles.toString(),
-                        Modifier.weight(1f), Tone.IDLE)
-                    StatMetric("Buffered today", todayBuffered.toString(),
-                        Modifier.weight(1f), Tone.BUSY)
-                }
-                Text(if (currentStats.lastSuccessAtMillis == 0L) "No refresh today"
-                    else "Last refresh today: " +
-                        DateFormat.getTimeInstance(DateFormat.MEDIUM)
-                            .format(Date(currentStats.lastSuccessAtMillis)),
-                    style = MaterialTheme.typography.bodySmall)
-                Text("Private cache and counters reset at local midnight. " +
-                    "Android's system Logcat and MCP audit history are unchanged.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (currentStats.readFailures > 0L)
-                    Text("Read errors today: " + currentStats.readFailures,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error)
-                OutlinedButton(onClick = {
-                    LogMonitorService.resetHomeStatistics()
-                    copyHint = ""
-                }, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Rounded.RestartAlt, null)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Reset Home statistics")
-                }
-                Text("Resets today's Home counts only, not buffered logs or connection state.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Column(modifier.fillMaxSize()) {
+        TabRow(selectedTabIndex = homeTab.ordinal) {
+            HomeTab.entries.forEach { destination ->
+                Tab(selected = homeTab == destination, onClick = { homeTab = destination },
+                    text = { Text(destination.title, maxLines = 1,
+                        style = MaterialTheme.typography.labelLarge) })
             }
         }
-
-        ElevatedCard(onClick = onAdb, modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                CardHeader(Icons.Rounded.SettingsInputAntenna, "ADB shell", adbTone(adb),
-                    if (verified) "UID 2000" else "Needs setup",
-                    subtitle = if (verified) "Connected · shell verified" else "ADB authorization needed")
-                Text(adb, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("Connection details", style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary)
-            }
-        }
-
-        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                CardHeader(Icons.Rounded.Terminal, "Android Logcat",
-                    if (active) Tone.GOOD else Tone.IDLE, if (active) "Reading" else "Idle")
-                Text("No background polling. Refresh here or request logs through MCP; filter results in Logs.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(onClick = onStart, enabled = !active,
-                        modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Rounded.PlayArrow, null)
-                        Spacer(Modifier.width(4.dp))
-                        Text("Refresh")
-                    }
-                    OutlinedButton(onClick = onStop, enabled = active,
-                        modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Rounded.Stop, null)
-                        Spacer(Modifier.width(4.dp))
-                        Text("Cancel")
+        when (homeTab) {
+            HomeTab.OVERVIEW -> {
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                    .padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CardHeader(Icons.Rounded.Terminal, "Logcat (Today)", Tone.IDLE,
+                            "Daily reset enabled", subtitle = "Today's local-day capture")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            StatMetric("Captured today", currentStats.uniqueCaptured.toString(),
+                                Modifier.weight(1f), Tone.GOOD)
+                            StatMetric("Buffered", todayBuffered.toString(),
+                                Modifier.weight(1f), Tone.BUSY)
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            StatMetric("Read cycles", currentStats.scanCycles.toString(),
+                                Modifier.weight(1f), Tone.IDLE)
+                            StatMetric("Last refresh",
+                                if (currentStats.lastSuccessAtMillis == 0L) "—" else
+                                    DateFormat.getTimeInstance(DateFormat.SHORT)
+                                        .format(Date(currentStats.lastSuccessAtMillis)),
+                                Modifier.weight(1f), Tone.IDLE)
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = onStart, enabled = !active && verified,
+                                modifier = Modifier.weight(1f)) {
+                                Icon(Icons.Rounded.Refresh, null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Refresh")
+                            }
+                            OutlinedButton(onClick = onStop, enabled = active,
+                                modifier = Modifier.weight(1f)) {
+                                Icon(Icons.Rounded.Stop, null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Cancel")
+                            }
+                        }
+                        if (currentStats.readFailures > 0L)
+                            Text("Read errors today: " + currentStats.readFailures,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.labelSmall)
+                        TextButton(onClick = {
+                            LogMonitorService.resetHomeStatistics()
+                            copyHint = ""
+                        }, modifier = Modifier.align(Alignment.End)) {
+                            Icon(Icons.Rounded.RestartAlt, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Reset Home statistics")
+                        }
                     }
                 }
+                OutlinedCard(onClick = { homeTab = HomeTab.CONNECTION },
+                    modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.fillMaxWidth().padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.SettingsInputAntenna, null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("ADB status", style = MaterialTheme.typography.titleSmall)
+                            Text(if (verified) "Connected · UID 2000" else "Authorization needed", style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Icon(Icons.Rounded.ChevronRight, contentDescription = "Open ADB status")
+                    }
+                }
+                OutlinedCard(onClick = { homeTab = HomeTab.CONNECTION },
+                    modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.fillMaxWidth().padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Cloud, null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("MCP connection", style = MaterialTheme.typography.titleSmall)
+                            Text(tunnel, style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Icon(Icons.Rounded.ChevronRight, contentDescription = "Open MCP connection")
+                    }
+                }
+                OutlinedCard(onClick = { homeTab = HomeTab.PERFORMANCE },
+                    modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.fillMaxWidth().padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Speed, null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Performance tools", style = MaterialTheme.typography.titleSmall)
+                            Text("CPU processes and UI frame timing · on demand", style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Icon(Icons.Rounded.ChevronRight, contentDescription = "Open Performance tools")
+                    }
+                }
+                }
             }
-        }
-
-
+            HomeTab.PERFORMANCE -> {
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                    .padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         // CPU and UI frame probes only run when explicitly tapped.
         ElevatedCard(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -217,6 +233,23 @@ internal fun HomeDashboard(
             }
         }
 
+                }
+            }
+            HomeTab.CONNECTION -> {
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                    .padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        ElevatedCard(onClick = onAdb, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                CardHeader(Icons.Rounded.SettingsInputAntenna, "ADB shell", adbTone(adb),
+                    if (verified) "UID 2000" else "Needs setup",
+                    subtitle = if (verified) "Connected · shell verified" else "ADB authorization needed")
+                Text(adb, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Connection details", style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary)
+            }
+        }
+
         // Read-only MCP connection details; changes happen on the MCP connection page.
         ElevatedCard(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -243,7 +276,9 @@ internal fun HomeDashboard(
             }
         }
 
-
+                }
+            }
+        }
     }
 }
 
@@ -252,8 +287,8 @@ private fun StatMetric(label: String, value: String, modifier: Modifier, tone: T
     val t = tone.colors()
     Surface(modifier = modifier, shape = MaterialTheme.shapes.large,
         color = t.container, contentColor = t.content) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 14.dp)) {
-            Text(value, style = MaterialTheme.typography.headlineSmall,
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+            Text(value, style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold, maxLines = 1)
             Text(label, style = MaterialTheme.typography.labelMedium)
         }
