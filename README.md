@@ -370,3 +370,65 @@ and copy details. **Export** uses Android's system document picker to save the
 filtered audit snapshot. **Clear** deletes the local journal without revoking
 the agents or clearing Android Logcat. No OAuth browser authorization forms,
 API keys, bearer tokens or HTTP headers are written to the audit journal.
+
+
+## CPU and graphics performance snapshots (on demand)
+
+The **Home → CPU & frame timing** card requires verified local ADB shell
+UID 2000. Nothing polls CPU or GPU in the background. Remote MCP agents can
+request one of the following read-only tools after installing the experimental
+APK and refreshing their MCP tool catalog:
+
+- **get_cpu_usage**: one short Android top process sample, listing PIDs,
+  process names, resident memory and CPU percent. Optional exact
+  package_name filter and limit 1–50. Multicore CPU can exceed 100%.
+- **get_frame_timing**: requires exact package_name. Reads Android gfxinfo
+  framestats and returns recent UI frame-count, p50/p95/p99/worst frame times,
+  slow-frame count, and (where available) GPU completion latency.
+  frame_budget_ms defaults to 16.67 (60 Hz reference); use 8.33 for
+  120 Hz. Allowed range is 5–50 ms.
+- **get_performance_snapshot**: combined CPU sample and optional
+  package-specific UI frame timing.
+
+These are **not** raw GPU hardware-utilization counters. gfxinfo may not
+capture video/SurfaceView or Vulkan/OpenGL rendering. The optional
+GPU-completion latency includes scheduling and must not be treated as GPU
+execution time. When UI frame stats are unavailable, the response is
+no_ui_framestats, not an invented 0% GPU load.
+
+Only fixed built-in commands are executed by the authenticated local ADB
+client; package names are strictly validated to prevent shell argument
+injection. There is no public arbitrary-command endpoint, no daemon running
+CPU/GPU probes, no persisted traces, and no file writes. One performance
+request at a time is accepted. Each shell command has a finite timeout and
+responses are bounded.
+
+
+## Portrait-first Logs, Filters and Storage tabs
+
+The **Logs** destination is optimized for a portrait phone with three internal
+tabs: **Logs** (dense, expandable log rows with search, refresh and overflow
+actions), **Filters** (application, level, time, crash/ANR, tag, PID and reset),
+and **Storage** (today's private cache, count, export, clearing actions and
+the explicit system-wide device Logcat clear). The Log list takes all
+remaining height; rows expand on tap for PID/UID and Copy.
+
+While the foreground MCP service is active, the app rotates its **private,
+in-memory** Logcat buffer at local midnight, resetting that day's counters
+and deduplication window. The daily task performs no shell commands. Each
+manual or authenticated MCP Logcat refresh accepts entries from the current
+local day only, even if Android's system-wide logd still contains earlier
+messages. The rolling cache remains capped at **2,000 entries**, with
+monotonic MCP cursors. Stopping the service stops the midnight task. There is
+no ongoing Logcat sampling: new messages are collected only when requested.
+
+**Daily rotation NEVER runs `logcat -c` or deletes Android's system buffers**.
+Clearing the actual device Logcat requires separate confirmation in the More
+menu. Export anything you wish to retain before the local midnight rollover;
+the app deliberately does not save previous days' captured logs.
+
+The **Home → Logcat (Today)** card also resets at local midnight: captured,
+shown, buffered, read-cycle and last-refresh counters refer to the current
+local day. Performance snapshots perform no background CPU/GPU polling;
+parsing of potentially large gfxinfo output is dispatched off the UI thread
+and only the latest 240 UI frame records are retained.

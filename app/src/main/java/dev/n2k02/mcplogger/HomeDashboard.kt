@@ -21,6 +21,11 @@ import androidx.compose.ui.unit.dp
 import dev.n2k02.mcplogger.core.BridgeClient
 import dev.n2k02.mcplogger.core.MonitorState
 import dev.n2k02.mcplogger.core.LogMonitorService
+import dev.n2k02.mcplogger.core.LogDayPolicy
+import dev.n2k02.mcplogger.core.LogViewPolicy
+import dev.n2k02.mcplogger.core.LogCaptureStats
+import dev.n2k02.mcplogger.core.PerformanceDiagnostics
+import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
 
@@ -39,10 +44,25 @@ internal fun HomeDashboard(
     val publicUrl by MonitorState.publicMcpUrl.collectAsState()
     val stats by MonitorState.captureStats.collectAsState()
     val buffered by MonitorState.logs.collectAsState()
+    val logFilter by MonitorState.logFilter.collectAsState()
+    val packageUids by MonitorState.packageUids.collectAsState()
+    val today = LogDayPolicy.dayStart(System.currentTimeMillis())
+    val currentStats = if (stats.dayStartMs == today) stats else LogCaptureStats(dayStartMs = today)
+    val todayBuffered = remember(buffered, today) {
+        buffered.count { it.epochMillis >= today }
+    }
+    val todayShown = remember(buffered, logFilter, packageUids, today) {
+        LogViewPolicy.select(buffered, logFilter, packageUids, System.currentTimeMillis())
+            .count { it.epochMillis >= today }
+    }
     val verified = adb.startsWith("UID 2000 verified")
     val context = LocalContext.current
     val clientToken = BridgeClient.clientTokenState(context).collectAsState().value.orEmpty()
     var copyHint by remember { mutableStateOf("") }
+    val perfScope = rememberCoroutineScope()
+    var perfPackage by remember { mutableStateOf("") }
+    var perfBusy by remember { mutableStateOf(false) }
+    var perfResult by remember { mutableStateOf("No performance snapshot yet.") }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Device diagnostics", style = MaterialTheme.typography.headlineSmall,
@@ -50,6 +70,50 @@ internal fun HomeDashboard(
         Text("ADB diagnostics and on-demand Android Logcat snapshots",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                CardHeader(Icons.Rounded.Terminal, "Logcat (Today)", Tone.IDLE,
+                    "Daily reset enabled",
+                    subtitle = "Today's local-day capture summary")
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    StatMetric("Captured today", currentStats.uniqueCaptured.toString(),
+                        Modifier.weight(1f), Tone.GOOD)
+                    StatMetric("Shown today", todayShown.toString(),
+                        Modifier.weight(1f), Tone.BUSY)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    StatMetric("Read cycles", currentStats.scanCycles.toString(),
+                        Modifier.weight(1f), Tone.IDLE)
+                    StatMetric("Buffered today", todayBuffered.toString(),
+                        Modifier.weight(1f), Tone.BUSY)
+                }
+                Text(if (currentStats.lastSuccessAtMillis == 0L) "No refresh today"
+                    else "Last refresh today: " +
+                        DateFormat.getTimeInstance(DateFormat.MEDIUM)
+                            .format(Date(currentStats.lastSuccessAtMillis)),
+                    style = MaterialTheme.typography.bodySmall)
+                Text("Private cache and counters reset at local midnight. " +
+                    "Android's system Logcat and MCP audit history are unchanged.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (currentStats.readFailures > 0L)
+                    Text("Read errors today: " + currentStats.readFailures,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error)
+                OutlinedButton(onClick = {
+                    LogMonitorService.resetHomeStatistics()
+                    copyHint = ""
+                }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Rounded.RestartAlt, null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Reset Home statistics")
+                }
+                Text("Resets today's Home counts only, not buffered logs or connection state.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
 
         ElevatedCard(onClick = onAdb, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -87,6 +151,72 @@ internal fun HomeDashboard(
             }
         }
 
+
+        // CPU and UI frame probes only run when explicitly tapped.
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                CardHeader(Icons.Rounded.Speed, "CPU & frame timing", Tone.IDLE,
+                    if (perfBusy) "Reading" else "On demand")
+                Text("One short CPU sample or recent View UI frames. No background sampling. " +
+                    "This does not measure hardware GPU utilization.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedTextField(
+                    value = perfPackage, onValueChange = { perfPackage = it.take(150) },
+                    label = { Text("Package (optional for CPU)") },
+                    placeholder = { Text("com.vrec.app") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth())
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(onClick = {
+                        perfBusy = true
+                        perfScope.launch {
+                            try {
+                                val result = PerformanceDiagnostics.cpu(perfPackage.trim(), 10)
+                                val processes = result.getJSONArray("processes")
+                                perfResult = if (processes.length() == 0)
+                                    "No matching running processes in this snapshot."
+                                else (0 until minOf(5, processes.length())).joinToString("\n") { i ->
+                                    val process = processes.getJSONObject(i)
+                                    process.getString("process") + " · " +
+                                        process.getDouble("cpu_percent") + "% CPU · " +
+                                        process.getString("resident_memory") + " RAM"
+                                }
+                            } catch (_: Exception) {
+                                perfResult = "CPU read unavailable. Check ADB and the package name."
+                            } finally {
+                                perfBusy = false
+                            }
+                        }
+                    }, enabled = verified && !perfBusy, modifier = Modifier.weight(1f)) {
+                        Text("CPU snapshot")
+                    }
+                    OutlinedButton(onClick = {
+                        perfBusy = true
+                        perfScope.launch {
+                            try {
+                                val result = PerformanceDiagnostics.frames(perfPackage.trim())
+                                perfResult = if (result.getString("status") != "ok")
+                                    "No View frame timing for this app; video/GPU paths may not be exposed."
+                                else result.getInt("sample_frames").toString() +
+                                    " UI frames · p95 " +
+                                    result.getDouble("frame_p95_ms") + " ms · slow " +
+                                    result.getInt("slow_frames") + " (60 Hz reference)"
+                            } catch (_: Exception) {
+                                perfResult = "Frame timing unavailable. Check ADB and package name."
+                            } finally {
+                                perfBusy = false
+                            }
+                        }
+                    }, enabled = verified && !perfBusy &&
+                        PerformanceDiagnostics.validPackage(perfPackage.trim()),
+                        modifier = Modifier.weight(1f)) {
+                        Text("Frame timing")
+                    }
+                }
+                Text(perfResult, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+
         // Read-only MCP connection details; changes happen on the MCP connection page.
         ElevatedCard(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -113,49 +243,7 @@ internal fun HomeDashboard(
             }
         }
 
-        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                CardHeader(Icons.Rounded.Insights, "Logcat activity",
-                    if (stats.readFailures > 0) Tone.BAD else Tone.BUSY,
-                    if (stats.readFailures > 0) "${stats.readFailures} errors" else null,
-                    subtitle = "This session")
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StatMetric("Lines scanned", stats.linesScanned.toString(), Modifier.weight(1f), Tone.IDLE)
-                    StatMetric("Unique captured", stats.uniqueCaptured.toString(), Modifier.weight(1f), Tone.GOOD)
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StatMetric("Buffered", buffered.size.toString(), Modifier.weight(1f), Tone.BUSY)
-                    StatMetric("Scan cycles", stats.scanCycles.toString(), Modifier.weight(1f), Tone.IDLE)
-                }
-                Text(if (stats.lastSuccessAtMillis == 0L) "No successful Logcat scan yet"
-                    else "Last scan: " + DateFormat.getTimeInstance(DateFormat.MEDIUM)
-                        .format(Date(stats.lastSuccessAtMillis)) +
-                        " · " + stats.lastBatchCaptured + " new events",
-                    style = MaterialTheme.typography.bodySmall)
-                if (stats.readFailures > 0) {
-                    Text("Read errors: " + stats.readFailures,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error)
-                }
-                Text("Scanned lines may repeat across snapshots; unique captured counts new events.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                OutlinedButton(
-                    onClick = {
-                        LogMonitorService.resetHomeStatistics()
-                        copyHint = ""
-                    },
-                    modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Rounded.RestartAlt, null)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Reset Home statistics")
-                }
-                Text("Resets request counts and prior read errors. Live ADB and MCP " +
-                    "connection status, saved keys, and existing buffered logs stay unchanged.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
+
     }
 }
 

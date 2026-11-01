@@ -10,14 +10,13 @@ class HomeMcpCardAndStatusUiTest {
         return listOf(File(p), File("../$p")).first { it.isFile }.readText()
     }
 
-    @Test fun homeMcpCardIsThirdAndReadOnlyWithCopy() {
+    @Test fun homeDailyLogcatCardPrecedesReadOnlyMcpConnectionDetails() {
         val home = code("HomeDashboard.kt")
-        val logcat = home.indexOf("\"Android Logcat\"")
+        val today = home.indexOf("\"Logcat (Today)\"")
         val mcp = home.indexOf("\"Public MCP\"")
-        val activity = home.indexOf("\"Logcat activity\"")
-        assertTrue(logcat in 0 until mcp)
-        assertTrue(mcp < activity)
-        val card = home.substring(mcp, activity)
+        assertTrue(today >= 0)
+        assertTrue(mcp > today)
+        val card = home.substring(mcp, home.indexOf("    }\n}\n\n@Composable\nprivate fun StatMetric"))
         assertTrue(card.contains("Copy public MCP URL"))
         assertTrue(card.contains("Copy MCP client access key"))
         assertFalse(card.contains("OutlinedTextField"))

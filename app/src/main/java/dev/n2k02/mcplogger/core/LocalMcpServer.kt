@@ -269,6 +269,20 @@ object LocalMcpServer {
                     },
                     appsReader = {
                         kotlinx.coroutines.runBlocking { LogMonitorService.refreshInstalledApps() }
+                    },
+                    performanceReader = { name, arguments ->
+                        // Authenticated requests only; no caller-defined commands.
+                        kotlinx.coroutines.runBlocking {
+                            val pkg = arguments.optString("package_name")
+                            val budget = arguments.optDouble("frame_budget_ms", 16.67)
+                            when (name) {
+                                "get_cpu_usage" -> PerformanceDiagnostics.cpu(
+                                    pkg, arguments.optInt("limit", 20))
+                                "get_frame_timing" -> PerformanceDiagnostics.frames(pkg, budget)
+                                "get_performance_snapshot" -> PerformanceDiagnostics.summary(pkg, budget)
+                                else -> throw IllegalArgumentException()
+                            }
+                        }
                     })
                 val status = if (result == null) "Accepted"
                     else if (result.has("error")) "Error" else "OK"

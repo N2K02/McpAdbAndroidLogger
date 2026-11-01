@@ -13,6 +13,7 @@ data class LogEvent(
     val raw: String
 )
 data class LogCaptureStats(
+    val dayStartMs: Long = 0L,
     val linesScanned: Long = 0,
     val uniqueCaptured: Long = 0,
     val scanCycles: Long = 0,
