@@ -186,7 +186,7 @@ jobs:
           script: bash .github/scripts/smoke-release-launch.sh
 
       - name: Upload signed APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.APP }}-${{ env.VERSION }}
           path: ${{ env.APP }}-${{ env.VERSION }}.apk
