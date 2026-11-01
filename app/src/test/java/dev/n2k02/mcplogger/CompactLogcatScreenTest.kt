@@ -94,6 +94,6 @@ class CompactLogcatScreenTest {
         assertTrue(screen.contains("Modifier.height(46.dp)"))
         assertTrue(screen.contains("LogSeverity.code(event.level)"))
         assertTrue(screen.contains("Text(detailedTime"))
-        assertTrue(screen.contains("Text(\"PID \" + event.pid + \"  ·  UID \" + event.uid"))
+        assertTrue(screen.contains("Text(\"PID \" + event.pid + \"  ·  TID \" + event.tid + \"  ·  UID \" + event.uid"))
     }
 }
