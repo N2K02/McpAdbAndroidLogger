@@ -32,6 +32,7 @@ import dev.n2k02.mcplogger.adb.AdbRecoveryLifecycle
 import dev.n2k02.mcplogger.core.BridgeClient
 import dev.n2k02.mcplogger.core.McpAgentAuditAccess
 import dev.n2k02.mcplogger.core.McpConnectionSetup
+import dev.n2k02.mcplogger.core.StableMcpRelay
 import dev.n2k02.mcplogger.core.LogMonitorService
 import dev.n2k02.mcplogger.core.MonitorState
 import dev.n2k02.updater.N2K02UpdatePage
@@ -401,6 +402,9 @@ private fun BridgePage(modifier: Modifier) {
     val publicUrl by MonitorState.publicMcpUrl.collectAsState()
     val clientToken = BridgeClient.clientTokenState(context).collectAsState().value.orEmpty()
     val agents by dev.n2k02.mcplogger.core.LocalMcpOAuth.connected.collectAsState()
+    var permanentUrl by remember { mutableStateOf(StableMcpRelay.savedUrl(context)) }
+    // Do not put the device secret in Compose saved state bundles.
+    var permanentKey by remember { mutableStateOf(StableMcpRelay.savedKey(context)) }
     var revokeAgent by remember { mutableStateOf<dev.n2k02.mcplogger.core.LocalMcpOAuth.ConnectedClient?>(null) }
     LaunchedEffect(clientToken, publicUrl) {
         dev.n2k02.mcplogger.core.LocalMcpOAuth.refreshState(context)
@@ -464,8 +468,11 @@ private fun BridgePage(modifier: Modifier) {
 
     if (rotating) AlertDialog(
         onDismissRequest = { rotating = false },
-        title = { Text("Rotate URL and access key?") },
-        text = { Text("A new public URL and a new MCP access key are created. The current ones stop working immediately, so update both in Claude and ChatGPT.") },
+        title = { Text(if (StableMcpRelay.publicMcpUrl(context) != null)
+            "Rotate underlying tunnel and access key?" else "Rotate URL and access key?") },
+        text = { Text(if (StableMcpRelay.publicMcpUrl(context) != null)
+            "The permanent relay URL stays the same, but existing OAuth clients and their access tokens will be revoked. The underlying Quick Tunnel is rotated."
+            else "A new public URL and a new MCP access key are created. Update the connector URL and reconnect.") },
         confirmButton = { TextButton(onClick = {
             rotating = false
             runCatching {
@@ -500,11 +507,41 @@ private fun BridgePage(modifier: Modifier) {
         }
         ElevatedCard(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        CardHeader(Icons.Rounded.Link, "Permanent relay (optional)", Tone.IDLE, null)
+        Text("GitHub Pages cannot serve live MCP. A deployed Cloudflare Worker can keep the ChatGPT URL unchanged when the embedded tunnel rotates.",
+            style = MaterialTheme.typography.bodySmall)
+        OutlinedTextField(value = permanentUrl, onValueChange = { permanentUrl = it },
+            label = { Text("Worker HTTPS URL ending in /mcp") },
+            singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(value = permanentKey, onValueChange = { permanentKey = it },
+            label = { Text("Worker device registration secret") },
+            singleLine = true, modifier = Modifier.fillMaxWidth(),
+            visualTransformation = PasswordVisualTransformation())
+        FilledTonalButton(onClick = {
+            if (StableMcpRelay.save(context, permanentUrl, permanentKey)) {
+                hint = if (permanentUrl.isBlank()) "Permanent relay cleared. Switching to Quick Tunnel."
+                    else "Permanent relay saved. Reconnecting tunnel…"
+                sendAction(LogMonitorService.TUNNEL_RESTART)
+            } else {
+                hint = "Enter a deployed *.workers.dev/mcp HTTPS URL and a matching 32+ character device secret."
+            }
+        }) {
+            Icon(Icons.Rounded.Save, null)
+            Spacer(Modifier.width(6.dp))
+            Text("Save and reconnect")
+        }
+        Text("This is a one-time Worker setup. The device automatically updates the Worker after restarts or new Quick Tunnel registrations.",
+            style = MaterialTheme.typography.bodySmall)
+        }
+        }
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         CardHeader(Icons.Rounded.Cloud, "Public MCP", tunnelTone(tunnel),
             when (tunnelTone(tunnel)) {
                 Tone.GOOD -> "Online"; Tone.BUSY -> "Connecting"
                 Tone.BAD -> "Offline"; Tone.IDLE -> "Stopped"
-            }, subtitle = "Quick Tunnel: $tunnel")
+            }, subtitle = if (StableMcpRelay.publicMcpUrl(context) == null)
+                "Quick Tunnel: $tunnel" else "Permanent relay: $tunnel")
         if (publicUrl.isBlank()) {
             Text("A public URL appears here once Cloudflare confirms the tunnel. It is saved and reused; it requires the phone to be online.",
                 style = MaterialTheme.typography.bodySmall)
@@ -558,7 +595,9 @@ private fun BridgePage(modifier: Modifier) {
             }
         }
         TextButton(onClick = { rotating = true }) { Text("Rotate URL and access key") }
-        Text("The URL and key are saved and stay the same across reconnects and restarts. Rotate only when you need new ones.",
+        Text(if (StableMcpRelay.publicMcpUrl(context) == null)
+            "Quick Tunnel URLs are saved but may expire. Configure a permanent relay above if the URL must not change."
+            else "The permanent Worker URL survives tunnel rotations and device restarts. Only the underlying tunnel and client key are rotated.",
             style = MaterialTheme.typography.bodySmall)
         if (hint.isNotEmpty()) Text(hint, style = MaterialTheme.typography.bodySmall)
         }
