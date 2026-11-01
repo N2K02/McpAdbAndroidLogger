@@ -217,7 +217,7 @@ class LocalMcpOAuthPolicyTest {
         val policy = LocalMcpOAuth.consentSecurityPolicy(callback)
         assertTrue(policy.contains("form-action 'self' https://chatgpt.com;"))
         assertFalse(policy.contains("form-action *"))
-        assertFalse(policy.contains("form-action 'self' https:"))
+        assertFalse(policy.contains("form-action 'self' https:;"))
         assertFalse(policy.contains(callback))
         assertTrue(policy.contains("default-src 'none'"))
         assertTrue(policy.contains("frame-ancestors 'none'"))
