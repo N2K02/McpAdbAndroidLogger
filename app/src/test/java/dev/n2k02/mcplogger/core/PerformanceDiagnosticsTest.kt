@@ -55,8 +55,8 @@ class PerformanceDiagnosticsTest {
         assertEquals(3, stats.getInt("sample_frames"))
         assertEquals(3, stats.getInt("slow_frames"))
         assertEquals(25.0, stats.getDouble("frame_p50_ms"), 0.01)
-        assertEquals(25.0, stats.getDouble("frame_p95_ms"), 0.01)
-        assertEquals(10.0, stats.getDouble("gpu_completion_latency_p95_ms"), 0.01)
+        assertEquals(40.0, stats.getDouble("frame_p95_ms"), 0.01)
+        assertEquals(17.0, stats.getDouble("gpu_completion_latency_p95_ms"), 0.01)
         assertFalse(stats.has("gpu_utilization_percent"))
         assertEquals("no_ui_framestats",
             PerformanceDiagnostics.parseFrames("No processes found.", "com.bcam.app")

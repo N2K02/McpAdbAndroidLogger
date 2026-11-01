@@ -8,6 +8,7 @@ import kotlinx.coroutines.sync.Mutex
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.round
+import kotlin.math.ceil
 
 /** Explicit bounded read-only shell performance snapshots; never background polling. */
 internal object PerformanceDiagnostics {
@@ -175,7 +176,7 @@ internal object PerformanceDiagnostics {
 
     private fun percentile(items: List<Double>, fraction: Double): Any =
         if (items.isEmpty()) JSONObject.NULL else
-            round1(items[((items.size - 1) * fraction).toInt()])
+            round1(items[(ceil(items.size * fraction).toInt() - 1).coerceIn(0, items.lastIndex)])
 
     private fun round1(value: Double): Double = round(value * 10.0) / 10.0
 }

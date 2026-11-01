@@ -404,14 +404,14 @@ request at a time is accepted. Each shell command has a finite timeout and
 responses are bounded.
 
 
-## Space-efficient Logcat viewer and daily retention
+## Portrait-first Logs, Filters and Storage tabs
 
-**Logs** uses a compact toolbar with counts, a refresh icon, and a **More**
-menu for Copy, Export, Reset filters, Clear captured logs, and the explicitly
-confirmed full-device Logcat clear. Search stays visible; app and severity
-filters fit in a single strip. The **Filters** chip expands time, crash/ANR,
-tag, and PID filters. Rows are dense by default and expand on tap for complete
-message, timestamps, PID/UID and a copy button.
+The **Logs** destination is optimized for a portrait phone with three internal
+tabs: **Logs** (dense, expandable log rows with search, refresh and overflow
+actions), **Filters** (application, level, time, crash/ANR, tag, PID and reset),
+and **Storage** (today's private cache, count, export, clearing actions and
+the explicit system-wide device Logcat clear). The Log list takes all
+remaining height; rows expand on tap for PID/UID and Copy.
 
 While the foreground MCP service is active, the app rotates its **private,
 in-memory** Logcat buffer at local midnight, resetting that day's counters
@@ -426,3 +426,9 @@ no ongoing Logcat sampling: new messages are collected only when requested.
 Clearing the actual device Logcat requires separate confirmation in the More
 menu. Export anything you wish to retain before the local midnight rollover;
 the app deliberately does not save previous days' captured logs.
+
+The **Home → Logcat (Today)** card also resets at local midnight: captured,
+shown, buffered, read-cycle and last-refresh counters refer to the current
+local day. Performance snapshots perform no background CPU/GPU polling;
+parsing of potentially large gfxinfo output is dispatched off the UI thread
+and only the latest 240 UI frame records are retained.
