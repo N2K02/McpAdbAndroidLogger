@@ -402,3 +402,27 @@ injection. There is no public arbitrary-command endpoint, no daemon running
 CPU/GPU probes, no persisted traces, and no file writes. One performance
 request at a time is accepted. Each shell command has a finite timeout and
 responses are bounded.
+
+
+## Space-efficient Logcat viewer and daily retention
+
+**Logs** uses a compact toolbar with counts, a refresh icon, and a **More**
+menu for Copy, Export, Reset filters, Clear captured logs, and the explicitly
+confirmed full-device Logcat clear. Search stays visible; app and severity
+filters fit in a single strip. The **Filters** chip expands time, crash/ANR,
+tag, and PID filters. Rows are dense by default and expand on tap for complete
+message, timestamps, PID/UID and a copy button.
+
+While the foreground MCP service is active, the app rotates its **private,
+in-memory** Logcat buffer at local midnight, resetting that day's counters
+and deduplication window. The daily task performs no shell commands. Each
+manual or authenticated MCP Logcat refresh accepts entries from the current
+local day only, even if Android's system-wide logd still contains earlier
+messages. The rolling cache remains capped at **2,000 entries**, with
+monotonic MCP cursors. Stopping the service stops the midnight task. There is
+no ongoing Logcat sampling: new messages are collected only when requested.
+
+**Daily rotation NEVER runs `logcat -c` or deletes Android's system buffers**.
+Clearing the actual device Logcat requires separate confirmation in the More
+menu. Export anything you wish to retain before the local midnight rollover;
+the app deliberately does not save previous days' captured logs.
