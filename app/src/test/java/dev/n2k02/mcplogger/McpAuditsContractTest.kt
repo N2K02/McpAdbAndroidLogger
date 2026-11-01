@@ -35,7 +35,7 @@ class McpAuditsContractTest {
         assertTrue(store.contains("[unauthenticated request; payload withheld]"))
         assertTrue(store.contains("lastDeniedAtMs"))
         assertTrue(oauth.contains("fun clientForToken(c: Context, token: String)"))
-        val section = server.substringAfter("val result = LocalMcpProtocol.execute(request, auditReader)")
+        val section = server.substringAfter("val result = LocalMcpProtocol.execute(request, auditReader,")
             .substringBefore("} catch (_: Exception)")
         assertTrue(section.contains("McpAuditStore.record"))
         assertTrue(section.contains("responseBody"))
