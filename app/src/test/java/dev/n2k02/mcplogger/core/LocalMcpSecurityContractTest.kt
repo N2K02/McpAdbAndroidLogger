@@ -12,7 +12,7 @@ class LocalMcpSecurityContractTest {
         assertTrue(src.contains("MessageDigest.isEqual"))
         assertTrue(src.contains("origin !in allowedOrigins"))
         assertTrue(src.contains("MAX_BODY"))
-        assertTrue(src.contains("Bearer "))
+        assertTrue(src.contains("bearerToken(authorization)"))
     }
 
     @Test fun bearerHeaderParsingSupportsCaseInsensitiveSchemeButRejectsInvalidHeaders() {
