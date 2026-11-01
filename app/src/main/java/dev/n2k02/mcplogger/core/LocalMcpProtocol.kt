@@ -114,7 +114,9 @@ internal object LocalMcpProtocol {
                 val level = args.optString("level").take(1)
                 if (name == "search_logs" && query.isBlank()) throw IllegalArgumentException()
                 val logs = McpLogQuery.select(
-                    events = LogMonitorService.snapshot(after, 1000),
+                    // Search the full bounded 2,000-entry capture buffer before filtering
+                    // so noisy unrelated apps cannot hide recent matching records.
+                    events = LogMonitorService.snapshot(after, 2000),
                     tool = name,
                     packageName = args.optString("package_name", ""),
                     packageUids = MonitorState.packageUids.value,
