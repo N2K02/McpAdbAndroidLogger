@@ -72,6 +72,25 @@ Initial pairing and permission approvals, Android 13+ Logcat availability, TCP/5
 The ADB setup page uses VRec-style guided wireless pairing, a live port/status display, automatic attempts on discovered TLS endpoints, an optional pairing-code Accessibility helper, and advanced manual port fallback. The system still requires the user to authorize the initial pairing; shell UID 2000 is always verified.
 
 
+## Permanent MCP URL (Cloudflare Worker)
+
+The embedded Cloudflare Quick Tunnel remains the Android transport, but an
+optional stable Cloudflare Worker + Durable Object now provides an address that
+**does not change** when the phone restarts, reconnects, or Quick Tunnel rotates.
+A deployed Worker is configured in **MCP connection → Permanent relay**; the
+app publishes each newly connected `trycloudflare.com` address to it using a
+separate private registration token. OAuth is still managed exclusively by the
+Android phone and the Worker stores no logs.
+
+**GitHub Pages cannot provide `/McpAdbAndroidLogger/mcp` as a functional
+endpoint** because it cannot run an HTTP/OAuth reverse proxy. The stable endpoint
+must be a real server-side Worker, for example
+`https://n2k02-mcp-adb-logger.<cloudflare-account>.workers.dev/mcp`.
+See [stable-relay/README.md](stable-relay/README.md) for the one-time Worker
+deployment and secret configuration. Cloudflare account access is unavoidable;
+there is no way to deploy a permanent URL from a GitHub Pages static repo alone.
+Never commit a registration secret to source control.
+
 ## Phone-hosted MCP (no separate server)
 
 Opening the app starts a read-only **local MCP server** at
