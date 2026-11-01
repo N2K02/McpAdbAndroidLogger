@@ -7,6 +7,7 @@
  */
 const MAX_REGISTER_BODY = 2048;
 const MAX_MCP_BODY = 131072;
+const MAX_ROUTE_AGE_MS = 240_000; // fail closed if the Android heartbeat stops
 const NO_CACHE = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
 
 export function validQuickTunnel(value) {
@@ -76,16 +77,21 @@ export class McpRoute {
       // Only the parent Worker calls this private method after token validation.
       const body = await request.json();
       if (!validQuickTunnel(body.origin)) return error(400, "Unsupported tunnel");
-      await this.ctx.storage.put("origin", body.origin);
+      await this.ctx.storage.put("origin", {
+        url: body.origin, expiresAt: Date.now() + MAX_ROUTE_AGE_MS,
+      });
       return new Response(JSON.stringify({ ok: true }), {
         headers: { ...NO_CACHE, "Content-Type": "application/json" },
       });
     }
 
     if (!allowedMcpPath(url.pathname)) return error(404, "Not found");
-    const origin = await this.ctx.storage.get("origin");
-    if (!validQuickTunnel(origin)) return error(503, "Android phone not registered");
-    const target = new URL(origin);
+    const route = await this.ctx.storage.get("origin");
+    if (!route || !validQuickTunnel(route.url) ||
+        !Number.isFinite(route.expiresAt) || Date.now() >= route.expiresAt) {
+      return error(503, "Android phone is offline or route expired");
+    }
+    const target = new URL(route.url);
     target.pathname = url.pathname;
     target.search = url.search;
 
