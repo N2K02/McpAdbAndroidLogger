@@ -15,6 +15,8 @@ internal object McpAuditStore {
     val entries = MutableStateFlow<List<McpAuditEntry>>(emptyList())
     private val lock = Any()
     private const val FILE = "mcp-audits.json"
+    // A full 160-entry journal can exceed 5 MB with redacted request/response previews.
+    private const val MAX_READ_CHARS = 8_000_000
     private var lastDeniedAtMs = 0L
     // Avoid rereading and reparsing the entire journal on every MCP request.
     private var loaded = false
@@ -23,7 +25,7 @@ internal object McpAuditStore {
     private fun read(c: Context): List<McpAuditEntry> = runCatching {
         val f = file(c)
         if (!f.baseFile.isFile) return@runCatching emptyList()
-        val data = f.openRead().bufferedReader().use { it.readText().take(5_000_000) }
+        val data = f.openRead().bufferedReader().use { it.readText().take(MAX_READ_CHARS) }
         val array = JSONArray(data)
         (0 until array.length()).mapNotNull { index ->
             runCatching { McpAuditEntry.fromJson(array.getJSONObject(index)) }.getOrNull()
@@ -54,7 +56,8 @@ internal object McpAuditStore {
     private fun pruneLocked(c: Context, nowMs: Long = System.currentTimeMillis()): List<McpAuditEntry> {
         val old = if (loaded) entries.value else read(c)
         val current = McpAuditPolicy.today(old, nowMs)
-        if (old.size != current.size) persist(c, current)
+        if (old.size != current.size || (current.isEmpty() && file(c).baseFile.isFile))
+            persist(c, current)
         entries.value = current
         loaded = true
         return current

@@ -98,6 +98,8 @@ class McpAuditPolicyTest {
         assertTrue(source.contains("synchronized(lock) { pruneLocked(c) }"))
         assertTrue(source.contains("pruneLocked(c) + entry"))
         assertTrue(source.contains("destination.delete()"))
+        assertTrue(source.contains("MAX_READ_CHARS = 8_000_000"))
+        assertTrue(source.contains("current.isEmpty() && file(c).baseFile.isFile"))
         val servicePath = "app/src/main/java/dev/n2k02/mcplogger/core/LogMonitorService.kt"
         val service = listOf(java.io.File(servicePath), java.io.File("../$servicePath"))
             .first { it.isFile }.readText()
