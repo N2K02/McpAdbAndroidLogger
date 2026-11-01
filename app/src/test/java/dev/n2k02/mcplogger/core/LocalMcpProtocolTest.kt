@@ -15,7 +15,7 @@ class LocalMcpProtocolTest {
         val reply = LocalMcpProtocol.execute(JSONObject(
             """{"jsonrpc":"2.0","method":"tools/list","id":2}"""))!!
         val list = reply.getJSONObject("result").getJSONArray("tools")
-        assertEquals(6, list.length())
+        assertEquals(9, list.length())
         for (i in 0 until list.length()) {
             val s = list.getJSONObject(i).getJSONArray("securitySchemes").getJSONObject(0)
             assertEquals("oauth2", s.getString("type"))
@@ -58,7 +58,7 @@ class LocalMcpProtocolTest {
         val list = LocalMcpProtocol.execute(JSONObject(
             """{"jsonrpc":"2.0","method":"tools/list","id":7}"""))!!
             .getJSONObject("result").getJSONArray("tools")
-        assertEquals(6, list.length())
+        assertEquals(9, list.length())
         assertFalse((0 until list.length()).any {
             list.getJSONObject(it).getString("name") == "get_mcp_audits"
         })
@@ -74,7 +74,7 @@ class LocalMcpProtocolTest {
         val tools = LocalMcpProtocol.execute(JSONObject(
             """{"jsonrpc":"2.0","method":"tools/list","id":1}"""), reader)!!
             .getJSONObject("result").getJSONArray("tools")
-        assertEquals(7, tools.length())
+        assertEquals(10, tools.length())
         val audit = (0 until tools.length()).map { tools.getJSONObject(it) }
             .single { it.getString("name") == "get_mcp_audits" }
         assertTrue(audit.getJSONObject("inputSchema").getJSONObject("properties")

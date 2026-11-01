@@ -7,7 +7,8 @@ import org.json.JSONObject
 internal object LocalMcpProtocol {
     const val VERSION = "2025-11-25"
     private val names = listOf("get_device_status", "list_installed_apps", "get_live_logs",
-        "search_logs", "get_crashes", "get_anrs")
+        "search_logs", "get_crashes", "get_anrs", "get_cpu_usage",
+        "get_frame_timing", "get_performance_snapshot")
 
     fun invalidJson() = error(JSONObject.NULL, -32700, "Parse error")
     private fun error(id: Any, code: Int, text: String) =
@@ -17,7 +18,8 @@ internal object LocalMcpProtocol {
     /** Optional local-only capability; null means the feature is disabled. */
     fun execute(req: JSONObject, auditReader: (() -> List<McpAuditEntry>)? = null,
                 logsReader: (() -> List<LogEvent>)? = null,
-                appsReader: (() -> List<String>)? = null): JSONObject? {
+                appsReader: (() -> List<String>)? = null,
+                performanceReader: ((String, JSONObject) -> JSONObject)? = null): JSONObject? {
         val id = req.opt("id") ?: JSONObject.NULL
         val method = req.optString("method")
         if (req.optString("jsonrpc") != "2.0" || method.isEmpty())
@@ -35,7 +37,7 @@ internal object LocalMcpProtocol {
                     val params = req.optJSONObject("params") ?: JSONObject()
                     val body = readTool(params.optString("name"),
                         params.optJSONObject("arguments") ?: JSONObject(), auditReader,
-                        logsReader, appsReader)
+                        logsReader, appsReader, performanceReader)
                     JSONObject().put("content", JSONArray().put(JSONObject().put("type", "text")
                         .put("text", body.toString()))).put("isError", false)
                 }
@@ -58,13 +60,16 @@ internal object LocalMcpProtocol {
             "Search a freshly fetched bounded Android Logcat snapshot; optionally filter by verified package_name",
             "Fetch recent Android crashes on demand; optionally filter by verified package_name",
             "Fetch recent Android ANRs on demand; optionally filter by verified package_name",
+            "Read one bounded top CPU process snapshot; optional exact package_name filter",
+            "Read recent UI frame timing and GPU completion latency (not GPU utilization) for one app",
+            "Read CPU plus optional app UI frame timing in a bounded on-demand request",
             "Read sanitized, paginated MCP audit history (requires local owner opt-in)"
         )
         return JSONArray().apply {
             toolNames.forEachIndexed { index, name ->
                 val fields = JSONObject().put("limit",
                     JSONObject().put("type", "integer").put("description",
-                        if (name == "get_mcp_audits") "1-25" else "1-500"))
+                        if (name == "get_mcp_audits") "1-25" else if (name == "get_cpu_usage") "1-50" else "1-500"))
                 if (name == "get_live_logs") {
                     fields.put("after_cursor", JSONObject().put("type", "integer"))
                     fields.put("level", JSONObject().put("type", "string"))
@@ -77,6 +82,14 @@ internal object LocalMcpProtocol {
                             "e.g. com.example.app. Matches the verified UID, not mentions in log text. " +
                             "Unknown or unavailable packages return no logs; omit for all packages."))
                 }
+                if (name in setOf("get_cpu_usage", "get_frame_timing", "get_performance_snapshot")) {
+                    fields.put("package_name", JSONObject().put("type", "string")
+                        .put("description", "Exact Android package, e.g. com.vrec.app. Required for frame timing."))
+                    if (name != "get_cpu_usage") {
+                        fields.put("frame_budget_ms", JSONObject().put("type", "number")
+                            .put("description", "Frame budget 5-50 ms; 16.67 is 60 Hz and 8.33 is 120 Hz."))
+                    }
+                }
                 if (name == "get_mcp_audits") {
                     fields.put("before_id", JSONObject().put("type", "string")
                         .put("description", "Optional cursor from next_before_id"))
@@ -86,6 +99,7 @@ internal object LocalMcpProtocol {
                 val schema = JSONObject().put("type", "object").put("properties", fields)
                     .put("additionalProperties", false)
                 if (name == "search_logs") schema.put("required", JSONArray().put("query"))
+                if (name == "get_frame_timing") schema.put("required", JSONArray().put("package_name"))
                 put(JSONObject().put("name", name).put("description", descriptions[index])
                     .put("inputSchema", schema)
                     .put("securitySchemes", JSONArray().put(
@@ -98,7 +112,8 @@ internal object LocalMcpProtocol {
     private fun readTool(name: String, args: JSONObject,
                          auditReader: (() -> List<McpAuditEntry>)?,
                          logsReader: (() -> List<LogEvent>)?,
-                         appsReader: (() -> List<String>)?): Any {
+                         appsReader: (() -> List<String>)?,
+                         performanceReader: ((String, JSONObject) -> JSONObject)?): Any {
         val limit = args.optInt("limit", 100).coerceIn(1, 500)
         return when (name) {
             "get_device_status" -> JSONObject().put("adb", MonitorState.adb.value)
@@ -112,6 +127,18 @@ internal object LocalMcpProtocol {
                     "MCP audit history access is disabled")
                 McpAuditPolicy.agentPage(reader(), args.optInt("limit", 20),
                     args.optString("before_id"), args.optBoolean("include_payloads", false))
+            }
+            "get_cpu_usage", "get_frame_timing", "get_performance_snapshot" -> {
+                val pkg = args.optString("package_name", "")
+                require((pkg.isBlank() && name != "get_frame_timing") ||
+                    PerformanceDiagnostics.validPackage(pkg))
+                val budget = args.optDouble("frame_budget_ms", 16.67)
+                if (name != "get_cpu_usage") require(budget.isFinite() && budget in 5.0..50.0)
+                val limitCpu = args.optInt("limit", 20).coerceIn(1, 50)
+                val safeArgs = JSONObject().put("package_name", pkg)
+                    .put("limit", limitCpu).put("frame_budget_ms", budget)
+                performanceReader?.invoke(name, safeArgs)
+                    ?: throw IllegalStateException("Performance diagnostics unavailable")
             }
             "get_live_logs", "search_logs", "get_crashes", "get_anrs" -> {
                 val after = args.optLong("after_cursor", 0).coerceAtLeast(0)
