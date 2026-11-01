@@ -26,7 +26,9 @@ class ProviderNeutralMcpInstructionsTest {
     @Test fun oauthRevokeClearsTokensCodesAndPendingApprovals() {
         val src = read("app/src/main/java/dev/n2k02/mcplogger/core/LocalMcpOAuth.kt")
         assertTrue(src.contains("for (name in listOf(\"pending\", \"codes\"))"))
-        assertTrue(src.contains("syncKey(it, c)"))
+        assertTrue(src.contains("reconcileState(s, digest(BridgeClient.clientToken(c)), issuer(), now)"))
+        assertTrue(src.contains("invalidatePending(s, if (keyChanged)"))
+        assertTrue(src.contains("if (name == \"pending\") retire(s, key, \"revoked\""))
         assertTrue(src.contains("token_endpoint_auth_methods_supported"))
         assertTrue(src.contains("code_challenge_methods_supported"))
     }

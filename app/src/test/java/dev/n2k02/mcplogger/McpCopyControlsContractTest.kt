@@ -27,6 +27,7 @@ class McpCopyControlsContractTest {
         val ui = source()
         assertTrue(ui.contains("enabled = publicUrl.isNotBlank()"))
         assertTrue(ui.contains("MonitorState.publicMcpUrl.collectAsState()"))
-        assertTrue(ui.contains("BridgeClient.saveClientToken(context, it)"))
+        assertTrue(ui.contains("onValueChange = {}, readOnly = true"))
+        assertFalse(ui.contains("BridgeClient.saveClientToken(context, it)"))
     }
 }
