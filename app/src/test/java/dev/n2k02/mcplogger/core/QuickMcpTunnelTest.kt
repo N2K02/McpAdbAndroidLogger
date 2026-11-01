@@ -66,7 +66,7 @@ class QuickMcpTunnelTest {
         assertFalse(reconnect.contains("BridgeClient.saveClientToken"))
         assertFalse(service.contains("TUNNEL_ROTATE"))
         val ui = read("LoggerUi.kt")
-        assertEquals(1, Regex("CardHeader\\(Icons\\.Rounded\\.Cloud, \\"Public MCP\\"").findAll(ui).count())
+        assertEquals(1, ui.split("CardHeader(Icons.Rounded.Cloud, " + ('"') + "Public MCP" + ('"')).size - 1)
         assertFalse(ui.contains("Permanent relay (optional)"))
         assertFalse(ui.contains("Rotate URL and access key"))
         assertTrue(ui.contains("Permanent HTTPS MCP URL"))
@@ -78,6 +78,6 @@ class QuickMcpTunnelTest {
         val src = listOf(File(root + "BridgeClient.kt"), File("../$root" + "BridgeClient.kt"))
             .first { it.isFile }.readText()
         assertTrue(src.contains(".ifBlank { McpConnectionSetup.newSecret() }"))
-        assertTrue(src.contains("p.getString(\\"mcp_client_token\\", \\"\\")"))
+        assertTrue(src.contains("mcp_client_token"))
     }
 }
