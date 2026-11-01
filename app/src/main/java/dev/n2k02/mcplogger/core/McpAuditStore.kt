@@ -16,6 +16,8 @@ internal object McpAuditStore {
     private val lock = Any()
     private const val FILE = "mcp-audits.json"
     private var lastDeniedAtMs = 0L
+    // Avoid rereading and reparsing the entire journal on every MCP request.
+    private var loaded = false
 
     private fun file(c: Context) = AtomicFile(File(c.noBackupFilesDir, FILE))
     private fun read(c: Context): List<McpAuditEntry> = runCatching {
@@ -50,10 +52,11 @@ internal object McpAuditStore {
 
     /** Prune previous-day entries on load, remote read, write and midnight tick. */
     private fun pruneLocked(c: Context, nowMs: Long = System.currentTimeMillis()): List<McpAuditEntry> {
-        val old = read(c)
+        val old = if (loaded) entries.value else read(c)
         val current = McpAuditPolicy.today(old, nowMs)
         if (old.size != current.size) persist(c, current)
         entries.value = current
+        loaded = true
         return current
     }
 
@@ -67,6 +70,7 @@ internal object McpAuditStore {
     fun clear(c: Context) = synchronized(lock) {
         entries.value = emptyList()
         file(c).delete()
+        loaded = true
     }
 
     fun record(c: Context, identity: Agent, request: String, response: String,

@@ -105,7 +105,11 @@ internal fun McpAuditsScreen(modifier: Modifier = Modifier) {
     Column(modifier.fillMaxSize()) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("MCP activity by AI agent", style = MaterialTheme.typography.titleMedium)
+            Text("MCP activity by AI agent · Today only",
+                style = MaterialTheme.typography.titleMedium)
+            Text("Audit journal resets at local midnight; older entries are automatically pruned.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("OAuth agent names are self-registered. Unverified client hints may be spoofed. " +
                 "Read-only MCP requests, redacted request parameters, and the response sent. " +
                 "Stored only on this phone. Up to 160 records are retained; large payload previews are truncated.",

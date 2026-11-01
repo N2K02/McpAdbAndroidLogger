@@ -580,9 +580,11 @@ private fun LogcatEntryCard(event: LogEvent, onCopy: () -> Unit) {
     var expanded by remember(event.id) { mutableStateOf(false) }
     val severity = remember(event.level) { LogSeverity.title(event.level) }
     val tone = when (event.level) {
-        "E", "F" -> MaterialTheme.colorScheme.error
-        "W" -> MaterialTheme.colorScheme.tertiary
-        "I" -> MaterialTheme.colorScheme.primary
+        "F" -> Color(0xFFFF6478)
+        "E" -> Color(0xFFFF8B73)
+        "W" -> Color(0xFFF6C45B)
+        "I" -> Color(0xFF6FD8A4)
+        "D" -> Color(0xFF80BEFF)
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     val timestamp = remember(event.epochMillis) {
@@ -636,7 +638,8 @@ private fun LogcatEntryCard(event: LogEvent, onCopy: () -> Unit) {
                     Spacer(Modifier.weight(1f))
                     Text(detailedTime, style = MaterialTheme.typography.labelMedium)
                     TextButton(onClick = onCopy) {
-                        Icon(Icons.Rounded.ContentCopy, null, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy log entry",
+                            modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
                         Text("Copy")
                     }
