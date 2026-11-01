@@ -140,6 +140,8 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
     var clearConfirmation by remember { mutableStateOf(false) }
     var deviceClearConfirmation by remember { mutableStateOf(false) }
     var timeExpanded by remember { mutableStateOf(false) }
+    var levelExpanded by remember { mutableStateOf(false) }
+    var actionMenu by remember { mutableStateOf(false) }
     var exportSnapshot by remember { mutableStateOf<List<LogEvent>>(emptyList()) }
     var feedback by remember { mutableStateOf("") }
 
@@ -225,167 +227,171 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
     }
 
     Column(modifier.fillMaxSize()) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.Terminal, null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(8.dp))
-                Text("Android Logcat snapshots", style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f))
-                Text(if (active) "● Reading" else "● Idle",
+        // The large application picker, filter chips, maintenance actions and
+        // export buttons are collapsed into two short rows by default.
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(filtered.size.toString() + " shown · " + logs.size + " today",
                     style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1)
+                Text(if (active) "● Reading" else "● Idle",
+                    style = MaterialTheme.typography.labelSmall,
                     color = if (active) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            OutlinedButton(
-                onClick = {
+                IconButton(onClick = {
                     ContextCompat.startForegroundService(context,
                         Intent(context, LogMonitorService::class.java)
                             .setAction(LogMonitorService.START))
-                },
-                enabled = !active && !deviceLogcatClearing && adbVerified,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Rounded.Refresh, null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(if (active) "Reading Android Logcat..." else "Refresh logs from Android")
-            }
-            OutlinedCard(onClick = { showPicker = true }, modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.fillMaxWidth().padding(10.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    AppIcon(filter.packageName)
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(if (filter.packageName.isBlank()) "All applications"
-                            else currentApp?.label ?: filter.packageName,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold, maxLines = 1)
-                        Text(if (filter.packageName.isBlank()) "Filter by installed app"
-                            else filter.packageName, style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }, enabled = !active && !deviceLogcatClearing && adbVerified,
+                    modifier = Modifier.size(42.dp)) {
+                    Icon(Icons.Rounded.Refresh, contentDescription = "Refresh logs from Android")
+                }
+                Box {
+                    IconButton(onClick = { actionMenu = true },
+                        modifier = Modifier.size(42.dp)) {
+                        Icon(Icons.Rounded.MoreVert, contentDescription = "Log actions")
                     }
-                    Icon(Icons.Rounded.ArrowDropDown, contentDescription = "Choose application")
+                    DropdownMenu(expanded = actionMenu, onDismissRequest = { actionMenu = false }) {
+                        DropdownMenuItem(text = { Text("Copy visible logs") },
+                            leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) },
+                            enabled = filtered.isNotEmpty(), onClick = {
+                                actionMenu = false
+                                copy("Filtered Android Logcat", filtered)
+                            })
+                        DropdownMenuItem(text = { Text("Export visible logs") },
+                            leadingIcon = { Icon(Icons.Rounded.SaveAlt, null) },
+                            enabled = filtered.isNotEmpty(), onClick = {
+                                actionMenu = false
+                                exportSnapshot = filtered.toList()
+                                exportLauncher.launch("Android-Logcat-" +
+                                    System.currentTimeMillis().toString() + ".txt")
+                            })
+                        DropdownMenuItem(text = { Text("Reset filters") },
+                            leadingIcon = { Icon(Icons.Rounded.RestartAlt, null) },
+                            onClick = {
+                                actionMenu = false
+                                update(LogViewPolicy.reset())
+                                feedback = "All filters reset"
+                            })
+                        DropdownMenuItem(text = { Text("Clear captured logs") },
+                            leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) },
+                            enabled = logs.isNotEmpty(), onClick = {
+                                actionMenu = false
+                                clearConfirmation = true
+                            })
+                        HorizontalDivider()
+                        DropdownMenuItem(text = { Text("Clear device Logcat (all buffers)") },
+                            leadingIcon = { Icon(Icons.Rounded.DeleteSweep, null) },
+                            enabled = adbVerified && !deviceLogcatClearing,
+                            onClick = {
+                                actionMenu = false
+                                deviceClearConfirmation = true
+                            })
+                    }
                 }
             }
-            OutlinedTextField(value = filter.search,
+
+            // Search remains permanently available. All other controls fit on
+            // one narrow filter strip instead of five rows of buttons.
+            OutlinedTextField(
+                value = filter.search,
                 onValueChange = { update(filter.copy(search = it)) },
-                label = { Text("Search logs, tags or PID") },
-                leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                singleLine = true, modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Search Logcat…", style = MaterialTheme.typography.bodySmall) },
+                leadingIcon = { Icon(Icons.Rounded.Search, null, modifier = Modifier.size(19.dp)) },
+                singleLine = true, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                 trailingIcon = {
-                    if (filter.search.isNotBlank()) {
+                    if (filter.search.isNotEmpty())
                         IconButton(onClick = { update(filter.copy(search = "")) }) {
                             Icon(Icons.Rounded.Close, contentDescription = "Clear search")
                         }
-                    }
                 })
+
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                listOf("All" to "V", "Debug +" to "D", "Info +" to "I",
-                    "Warn +" to "W", "Error +" to "E", "Fatal" to "F").forEach { (label, code) ->
-                    FilterChip(selected = filter.minLevel == code,
-                        onClick = { update(filter.copy(minLevel = code)) },
-                        label = { Text(label) })
-                }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = filter.crashesOnly,
-                    onClick = { update(filter.copy(crashesOnly = !filter.crashesOnly)) },
-                    label = { Text("Crashes / ANRs") },
-                    leadingIcon = { Icon(Icons.Rounded.BugReport, null,
-                        modifier = Modifier.size(16.dp)) })
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FilterChip(selected = filter.packageName.isNotBlank(),
+                    onClick = { showPicker = true },
+                    label = { Text(if (filter.packageName.isBlank()) "All apps" else
+                        currentApp?.label?.take(14) ?: filter.packageName.take(14)) },
+                    leadingIcon = { Icon(Icons.Rounded.Apps, null,
+                        modifier = Modifier.size(15.dp)) })
                 Box {
-                    TextButton(onClick = { timeExpanded = true }) {
-                        Text(when (filter.windowMinutes) {
-                            5 -> "5 min"; 15 -> "15 min"; 60 -> "1 hour"; else -> "Any time"
-                        })
-                        Icon(Icons.Rounded.ArrowDropDown, null)
-                    }
-                    DropdownMenu(expanded = timeExpanded, onDismissRequest = { timeExpanded = false }) {
-                        listOf(0 to "Any time", 5 to "Last 5 min", 15 to "Last 15 min",
-                            60 to "Last hour").forEach { (minutes, label) ->
+                    FilterChip(selected = filter.minLevel != "V",
+                        onClick = { levelExpanded = true },
+                        label = { Text(when (filter.minLevel) {
+                            "D" -> "Debug+"; "I" -> "Info+"; "W" -> "Warn+"
+                            "E" -> "Error+"; "F" -> "Fatal"; else -> "All levels"
+                        }) },
+                        trailingIcon = { Icon(Icons.Rounded.ArrowDropDown, null) })
+                    DropdownMenu(expanded = levelExpanded, onDismissRequest = { levelExpanded = false }) {
+                        listOf("V" to "All", "D" to "Debug +", "I" to "Info +",
+                            "W" to "Warning +", "E" to "Error +", "F" to "Fatal").forEach { (level, label) ->
                             DropdownMenuItem(text = { Text(label) }, onClick = {
-                                update(filter.copy(windowMinutes = minutes))
-                                timeExpanded = false
+                                update(filter.copy(minLevel = level))
+                                levelExpanded = false
                             })
                         }
                     }
                 }
-                IconButton(onClick = { advanced = !advanced }) {
-                    Icon(Icons.Rounded.Tune, contentDescription = "Advanced filters")
-                }
+                FilterChip(selected = advanced || filter.crashesOnly ||
+                    filter.windowMinutes != 0 || filter.tag.isNotEmpty() || filter.pid.isNotEmpty(),
+                    onClick = { advanced = !advanced },
+                    label = { Text("Filters") },
+                    leadingIcon = { Icon(Icons.Rounded.Tune, null, modifier = Modifier.size(15.dp)) },
+                    trailingIcon = {
+                        Icon(if (advanced) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null)
+                    })
             }
             if (advanced) {
-                OutlinedTextField(value = filter.tag,
-                    onValueChange = { update(filter.copy(tag = it)) },
-                    label = { Text("Tag contains") },
-                    singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = filter.pid,
-                    onValueChange = { update(filter.copy(pid = it.filter(Char::isDigit))) },
-                    label = { Text("Process ID") },
-                    singleLine = true, modifier = Modifier.fillMaxWidth())
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(filtered.size.toString() + " shown · " + logs.size + " buffered",
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.weight(1f))
-                TextButton(onClick = {
-                    update(LogViewPolicy.reset())
-                    feedback = "All filters reset"
-                }) {
-                    Icon(Icons.Rounded.RestartAlt, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Reset filters")
+                Column(Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        FilterChip(selected = filter.crashesOnly,
+                            onClick = { update(filter.copy(crashesOnly = !filter.crashesOnly)) },
+                            label = { Text("Crashes / ANRs") })
+                        Spacer(Modifier.width(6.dp))
+                        Box {
+                            TextButton(onClick = { timeExpanded = true }) {
+                                Text(when (filter.windowMinutes) {
+                                    5 -> "5 min"; 15 -> "15 min"; 60 -> "1 hour"; else -> "Any time"
+                                })
+                                Icon(Icons.Rounded.ArrowDropDown, null)
+                            }
+                            DropdownMenu(expanded = timeExpanded,
+                                onDismissRequest = { timeExpanded = false }) {
+                                listOf(0 to "Any time", 5 to "Last 5 min",
+                                    15 to "Last 15 min", 60 to "Last hour").forEach { (minutes, name) ->
+                                    DropdownMenuItem(text = { Text(name) }, onClick = {
+                                        update(filter.copy(windowMinutes = minutes))
+                                        timeExpanded = false
+                                    })
+                                }
+                            }
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedTextField(value = filter.tag,
+                            onValueChange = { update(filter.copy(tag = it)) },
+                            label = { Text("Tag") }, singleLine = true,
+                            modifier = Modifier.weight(1f))
+                        OutlinedTextField(value = filter.pid,
+                            onValueChange = { update(filter.copy(pid = it.filter(Char::isDigit))) },
+                            label = { Text("PID") }, singleLine = true,
+                            modifier = Modifier.weight(1f))
+                    }
                 }
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                OutlinedButton(onClick = { copy("Filtered Android Logcat", filtered) },
-                    enabled = filtered.isNotEmpty(), modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    Icon(Icons.Rounded.ContentCopy, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Copy")
-                }
-                OutlinedButton(onClick = { clearConfirmation = true },
-                    enabled = logs.isNotEmpty(), modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    Icon(Icons.Rounded.DeleteOutline, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Clear")
-                }
-                Button(onClick = {
-                    exportSnapshot = filtered.toList()
-                    exportLauncher.launch("Android-Logcat-" +
-                        System.currentTimeMillis().toString() + ".txt")
-                }, enabled = filtered.isNotEmpty(), modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    Icon(Icons.Rounded.SaveAlt, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Export")
-                }
+            if (feedback.isNotBlank() || deviceLogcatStatus.isNotBlank()) {
+                Text(feedback.ifBlank { deviceLogcatStatus },
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            OutlinedButton(
-                onClick = { deviceClearConfirmation = true },
-                enabled = adbVerified && !deviceLogcatClearing,
-                modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Rounded.DeleteSweep, null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(if (deviceLogcatClearing) "Clearing device Logcat..."
-                    else "Clear device Logcat (all buffers)")
-            }
-            Text("Clear removes collected app logs only. Clear device Logcat also " +
-                "erases Android's system buffers; neither clears MCP audit history.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (deviceLogcatStatus.isNotBlank())
-                Text(deviceLogcatStatus, style = MaterialTheme.typography.bodySmall)
-            if (feedback.isNotBlank()) Text(feedback,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            HorizontalDivider()
         }
+        HorizontalDivider()
 
         if (filtered.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
@@ -415,43 +421,47 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
 @Composable
 private fun LogcatEntryCard(event: LogEvent, onCopy: () -> Unit) {
     var expanded by remember(event.id) { mutableStateOf(false) }
-    val critical = event.level == "E" || event.level == "F"
-    val warning = event.level == "W"
-    val tone = when {
-        critical -> MaterialTheme.colorScheme.error
-        warning -> MaterialTheme.colorScheme.tertiary
+    val tone = when (event.level) {
+        "E", "F" -> MaterialTheme.colorScheme.error
+        "W" -> MaterialTheme.colorScheme.tertiary
         else -> MaterialTheme.colorScheme.primary
     }
     val timestamp = remember(event.epochMillis) {
-        SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault()).format(Date(event.epochMillis))
+        SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(event.epochMillis))
     }
-    OutlinedCard(onClick = { expanded = !expanded },
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 3.dp)) {
-        Column(Modifier.padding(horizontal = 11.dp, vertical = 9.dp),
-            verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(shape = MaterialTheme.shapes.small,
-                    color = tone.copy(alpha = 0.13f)) {
-                    Text(event.level, color = tone, fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
-                }
-                Spacer(Modifier.width(8.dp))
-                Text(event.tag, modifier = Modifier.weight(1f), maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.labelLarge)
-                IconButton(onClick = onCopy, modifier = Modifier.size(30.dp)) {
+    // Dense Logcat rows prioritize visible text over nested cards and buttons.
+    Column(Modifier.fillMaxWidth().clickable { expanded = !expanded }
+        .padding(horizontal = 10.dp, vertical = 5.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(timestamp, style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(event.level, color = tone, fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.labelMedium)
+            Text(SensitiveLogRedactor.redact(event.tag).take(70),
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                color = tone, modifier = Modifier.weight(1f))
+            if (expanded) {
+                IconButton(onClick = onCopy, modifier = Modifier.size(26.dp)) {
                     Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy log entry",
-                        modifier = Modifier.size(17.dp))
+                        modifier = Modifier.size(16.dp))
                 }
             }
-            Text(SensitiveLogRedactor.redact(event.message),
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = if (expanded) Int.MAX_VALUE else 2,
-                overflow = if (expanded) TextOverflow.Clip else TextOverflow.Ellipsis)
-            Text(timestamp + "  ·  PID " + event.pid + "  ·  UID " + event.uid,
+        }
+        Text(SensitiveLogRedactor.redact(event.message),
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = if (expanded) Int.MAX_VALUE else 2,
+            overflow = if (expanded) TextOverflow.Clip else TextOverflow.Ellipsis)
+        if (expanded) {
+            Text("PID " + event.pid + " · UID " + event.uid +
+                " · " + SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
+                    .format(Date(event.epochMillis)),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
+    HorizontalDivider(thickness = 0.5.dp,
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
 }
