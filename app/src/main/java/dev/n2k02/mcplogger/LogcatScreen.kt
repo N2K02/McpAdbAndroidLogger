@@ -320,7 +320,7 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                         style = MaterialTheme.typography.labelSmall,
                         modifier = Modifier.padding(horizontal = 12.dp))
                 HorizontalDivider()
-        if (filtered.isEmpty()) {
+                if (filtered.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -497,6 +497,8 @@ private fun LogcatEntryCard(event: LogEvent, onCopy: () -> Unit) {
     val timestamp = remember(event.epochMillis) {
         SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(event.epochMillis))
     }
+    val safeTag = remember(event.tag) { SensitiveLogRedactor.redact(event.tag).take(70) }
+    val safeMessage = remember(event.message) { SensitiveLogRedactor.redact(event.message) }
     // Dense Logcat rows prioritize visible text over nested cards and buttons.
     Column(Modifier.fillMaxWidth().clickable { expanded = !expanded }
         .padding(horizontal = 10.dp, vertical = 5.dp),
@@ -507,7 +509,7 @@ private fun LogcatEntryCard(event: LogEvent, onCopy: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(event.level, color = tone, fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.labelMedium)
-            Text(SensitiveLogRedactor.redact(event.tag).take(70),
+            Text(safeTag,
                 style = MaterialTheme.typography.labelMedium,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
                 color = tone, modifier = Modifier.weight(1f))
@@ -518,7 +520,7 @@ private fun LogcatEntryCard(event: LogEvent, onCopy: () -> Unit) {
                 }
             }
         }
-        Text(SensitiveLogRedactor.redact(event.message),
+        Text(safeMessage,
             style = MaterialTheme.typography.bodySmall,
             maxLines = if (expanded) Int.MAX_VALUE else 2,
             overflow = if (expanded) TextOverflow.Clip else TextOverflow.Ellipsis)
