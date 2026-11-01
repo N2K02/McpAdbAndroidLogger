@@ -411,7 +411,6 @@ private fun BridgePage(modifier: Modifier) {
         dev.n2k02.mcplogger.core.LocalMcpOAuth.refreshState(context)
     }
     var hint by remember { mutableStateOf("") }
-    val localUrl = dev.n2k02.mcplogger.core.LocalMcpServer.URL
     var resetOauth by remember { mutableStateOf(false) }
 
     fun copy(label: String, value: String, sensitive: Boolean = false) {
@@ -470,24 +469,6 @@ private fun BridgePage(modifier: Modifier) {
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ElevatedCard(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        CardHeader(Icons.Rounded.PhoneAndroid, "Phone-hosted MCP", localMcpTone(local),
-            if (localMcpTone(local) == Tone.GOOD) "Running" else local.ifBlank { "Stopped" },
-            subtitle = "Local server on this phone")
-        Text("Only read-only, redacted Logcat diagnostics are accessible with your private token.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-        OutlinedTextField(value = localUrl, onValueChange = {}, readOnly = true,
-            label = { Text("Local MCP URL (other apps on this phone)") },
-            singleLine = true, modifier = Modifier.fillMaxWidth(),
-            trailingIcon = {
-                IconButton(onClick = { copy("Local MCP URL", localUrl) }) {
-                    Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy local MCP URL")
-                }
-            })
-        }
-        }
-        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         val stableUrl = StableMcpRelay.publicMcpUrl(context)
         val publicStatus = when {
             stableUrl == null -> "Setup needed"
@@ -505,6 +486,8 @@ private fun BridgePage(modifier: Modifier) {
             })
         Text("One permanent URL for ChatGPT. The Android app automatically maintains the underlying tunnel after network changes and restarts.",
             style = MaterialTheme.typography.bodySmall)
+        Text("Phone-hosted server: $local", style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
         OutlinedTextField(
             value = if (editingPermanentUrl) permanentUrl else stableUrl.orEmpty(),
             onValueChange = { if (editingPermanentUrl) permanentUrl = it },
