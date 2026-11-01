@@ -13,7 +13,7 @@ class McpCopyControlsContractTest {
 
     @Test fun allUrlsAndKeysHaveInlineCopyButtons() {
         val ui = source()
-        for (label in listOf("Copy local MCP URL", "Copy public MCP URL",
+        for (label in listOf("Copy permanent MCP URL",
                 "Copy MCP client access key")) {
             assertTrue("Missing " + label, ui.contains("contentDescription = \"$label\""))
         }
@@ -25,9 +25,9 @@ class McpCopyControlsContractTest {
 
     @Test fun publicUrlIsOnlyCopyableWhenConnected() {
         val ui = source()
-        assertTrue(ui.contains("enabled = publicUrl.isNotBlank()"))
+        assertTrue(ui.contains("enabled = !stableUrl.isNullOrBlank()"))
         assertTrue(ui.contains("MonitorState.publicMcpUrl.collectAsState()"))
-        assertTrue(ui.contains("onValueChange = {}, readOnly = true"))
+        assertTrue(ui.contains("readOnly = !editingPermanentUrl"))
         assertFalse(ui.contains("BridgeClient.saveClientToken(context, it)"))
     }
 }
