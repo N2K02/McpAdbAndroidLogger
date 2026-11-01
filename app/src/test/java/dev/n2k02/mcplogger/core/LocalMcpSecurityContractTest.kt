@@ -27,12 +27,18 @@ class LocalMcpSecurityContractTest {
         assertEquals("", LocalMcpServer.bearerToken("Bearer " + token + "\n"))
     }
 
-    @Test fun quickTunnelDoesNotPublishUrlBeforeEdgeHandshake() {
+    @Test fun quickTunnelPublishesNewQuickUrlOnlyAfterEdgeHandshake() {
         val path = "app/src/main/java/dev/n2k02/mcplogger/core/QuickMcpTunnel.kt"
         val src = listOf(File(path), File("../$path")).firstOrNull { it.isFile }!!.readText()
         assertTrue(src.contains("Registered tunnel connection"))
-        assertTrue(src.contains("MonitorState.publicMcpUrl.value = \"\""))
-        assertTrue(src.contains("MonitorState.publicMcpUrl.value = \"https://\""))
+        // While connecting, only the optional permanent Worker URL may be displayed.
+        // A new unconfirmed Quick Tunnel hostname must not be exposed yet.
+        assertTrue(src.contains("MonitorState.publicMcpUrl.value = StableMcpRelay.publicMcpUrl(context).orEmpty()"))
+        assertTrue(src.contains("if (reg.confirmed) MonitorState.publicMcpUrl.value ="))
+        val connected = src.substringAfter("if (tracker.connected) {")
+            .substringBefore("} else if (tracker.rejected)")
+        assertTrue(connected.contains("MonitorState.publicMcpUrl.value = stable ?: reg.mcpUrl"))
         assertTrue(src.contains("process?.destroyForcibly()"))
+        assertTrue(src.contains("MonitorState.publicMcpUrl.value = \"\""))
     }
 }
