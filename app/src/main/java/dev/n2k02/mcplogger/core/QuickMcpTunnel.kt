@@ -124,7 +124,7 @@ object QuickMcpTunnel {
             stopped = false
         }
         MonitorState.tunnel.value = "Starting secure tunnel..."
-        MonitorState.publicMcpUrl.value = ""
+        MonitorState.publicMcpUrl.value = StableMcpRelay.publicMcpUrl(context).orEmpty()
         var backoff = 2_000L
         var failuresWithoutRegistration = 0
         try {
@@ -149,7 +149,8 @@ object QuickMcpTunnel {
                     }
                     // A URL already confirmed earlier is stable: keep showing it while
                     // cloudflared reconnects so the connector settings stay valid.
-                    if (reg.confirmed) MonitorState.publicMcpUrl.value = "https://" + reg.hostname + "/mcp"
+                    if (reg.confirmed) MonitorState.publicMcpUrl.value =
+                        StableMcpRelay.publicMcpUrl(context) ?: reg.mcpUrl
                     runOnce(context, binary, reg, tracker)
                 } catch (e: Exception) {
                     if (stopped) break
@@ -158,7 +159,8 @@ object QuickMcpTunnel {
                 if (tracker.rejected) {
                     // Cloudflare dropped the saved quick tunnel; issue a new URL.
                     forget(context)
-                    MonitorState.publicMcpUrl.value = ""
+                    MonitorState.publicMcpUrl.value =
+                        StableMcpRelay.publicMcpUrl(context).orEmpty()
                     MonitorState.tunnel.value = "Saved URL expired; requesting a new one..."
                     backoff = 2_000L
                     continue
@@ -246,8 +248,11 @@ object QuickMcpTunnel {
                         confirmed = true
                         save(context, reg.copy(confirmed = true))
                     }
-                    MonitorState.publicMcpUrl.value = "https://" + reg.hostname + "/mcp"
-                    MonitorState.tunnel.value = "Public MCP connected"
+                    val stable = StableMcpRelay.publicMcpUrl(context)
+                    val published = stable == null || StableMcpRelay.publish(context, reg.mcpUrl)
+                    MonitorState.publicMcpUrl.value = stable ?: reg.mcpUrl
+                    MonitorState.tunnel.value = if (published) "Public MCP connected"
+                        else "Stable relay unavailable"
                 } else if (tracker.rejected) {
                     running.destroyForcibly()
                     break
