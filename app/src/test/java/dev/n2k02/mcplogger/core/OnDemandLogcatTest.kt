@@ -75,6 +75,19 @@ class OnDemandLogcatTest {
         assertFalse(reply.toString().contains("ADB is offline"))
     }
 
+    @Test fun packageInventoryIsCachedForOrdinaryLogReadsButExplicitRefreshIsFresh() {
+        val p = PackageRefreshPolicy
+        assertTrue(p.shouldRefresh(1_000L, -1L, false, false))
+        assertFalse(p.shouldRefresh(60_000L, 1_000L, true, false))
+        assertTrue(p.shouldRefresh(121_000L, 1_000L, true, false))
+        assertTrue(p.shouldRefresh(60_000L, 1_000L, true, true))
+        assertTrue(p.shouldRefresh(500L, 1_000L, true, false))
+        val path = "app/src/main/java/dev/n2k02/mcplogger/core/LogMonitorService.kt"
+        val service = listOf(File(path), File("../$path")).first { it.isFile }.readText()
+        assertTrue(service.contains("refreshInstalledApps(force = false)"))
+        assertTrue(service.contains("packageListLock.withLock"))
+    }
+
     @Test fun noPollLoopAndAppRefreshUsesSingleBoundedDump() {
         val p = "app/src/main/java/dev/n2k02/mcplogger/core/LogMonitorService.kt"
         val service = listOf(File(p), File("../$p")).first { it.isFile }.readText()

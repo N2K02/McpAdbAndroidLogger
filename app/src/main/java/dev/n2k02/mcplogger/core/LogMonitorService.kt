@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
+import android.os.SystemClock
 import android.os.Build
 import dev.n2k02.mcplogger.MainActivity
 import dev.n2k02.mcplogger.R
@@ -41,6 +42,8 @@ class LogMonitorService : Service() {
         private val buffer = LogBuffer()
         private val resetGate = LogcatResetGate()
         private val readLock = Mutex()
+        private val packageListLock = Mutex()
+        private var lastPackagesRefreshedAtMs = -1L
         fun snapshot(after: Long = 0, limit: Int = 300) = buffer.snapshot(after, limit)
 
         /**
@@ -55,7 +58,9 @@ class LogMonitorService : Service() {
             MonitorState.active.value = true
             try {
                 check(AdbCoordinator.verified.value) { "ADB shell UID 2000 is not verified" }
-                refreshInstalledApps()
+                // Package identities rarely change; avoid invoking PackageManager for
+                // every remote MCP log query while keeping an explicit refresh path.
+                refreshInstalledApps(force = false)
                 val output = AdbTransport.exec(
                     "logcat -b main -b system -b crash -v uid -v epoch -d -t 2000",
                     timeoutMs = 12000
@@ -91,16 +96,25 @@ class LogMonitorService : Service() {
             }
         }
 
-        /** Package listings are also fetched only when an MCP or local reader asks. */
-        suspend fun refreshInstalledApps(): List<String> {
-            check(AdbCoordinator.verified.value) { "ADB shell UID 2000 is not verified" }
-            val output = AdbTransport.exec("pm list packages -3 -U",
-                timeoutMs = 12000).getOrThrow()
-            val known = PackageListParser.parse(output)
-            MonitorState.packageUids.value = known
-            MonitorState.packages.value = known.keys.sorted().take(500)
-            return MonitorState.packages.value
-        }
+        /** Explicit app-list requests force fresh data. Log snapshots reuse a
+         *  recent verified UID list to avoid repeated PackageManager shell work. */
+        suspend fun refreshInstalledApps(force: Boolean = true): List<String> =
+            packageListLock.withLock {
+                check(AdbCoordinator.verified.value) { "ADB shell UID 2000 is not verified" }
+                val now = SystemClock.elapsedRealtime()
+                if (!PackageRefreshPolicy.shouldRefresh(
+                        now, lastPackagesRefreshedAtMs,
+                        MonitorState.packageUids.value.isNotEmpty(), force)) {
+                    return@withLock MonitorState.packages.value
+                }
+                val output = AdbTransport.exec("pm list packages -3 -U",
+                    timeoutMs = 12000).getOrThrow()
+                val known = PackageListParser.parse(output)
+                MonitorState.packageUids.value = known
+                MonitorState.packages.value = known.keys.sorted().take(500)
+                lastPackagesRefreshedAtMs = SystemClock.elapsedRealtime()
+                MonitorState.packages.value
+            }
         /** Clear app-only cached Logcat records; retain Android system buffers. */
         fun clear() = resetGate.reset {
             buffer.clear()
