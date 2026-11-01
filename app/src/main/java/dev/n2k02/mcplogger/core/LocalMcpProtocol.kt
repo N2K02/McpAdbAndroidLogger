@@ -15,7 +15,9 @@ internal object LocalMcpProtocol {
             .put("error", JSONObject().put("code", code).put("message", text))
 
     /** Optional local-only capability; null means the feature is disabled. */
-    fun execute(req: JSONObject, auditReader: (() -> List<McpAuditEntry>)? = null): JSONObject? {
+    fun execute(req: JSONObject, auditReader: (() -> List<McpAuditEntry>)? = null,
+                logsReader: (() -> List<LogEvent>)? = null,
+                appsReader: (() -> List<String>)? = null): JSONObject? {
         val id = req.opt("id") ?: JSONObject.NULL
         val method = req.optString("method")
         if (req.optString("jsonrpc") != "2.0" || method.isEmpty())
@@ -32,7 +34,8 @@ internal object LocalMcpProtocol {
                 "tools/call" -> {
                     val params = req.optJSONObject("params") ?: JSONObject()
                     val body = readTool(params.optString("name"),
-                        params.optJSONObject("arguments") ?: JSONObject(), auditReader)
+                        params.optJSONObject("arguments") ?: JSONObject(), auditReader,
+                        logsReader, appsReader)
                     JSONObject().put("content", JSONArray().put(JSONObject().put("type", "text")
                         .put("text", body.toString()))).put("isError", false)
                 }
@@ -49,12 +52,12 @@ internal object LocalMcpProtocol {
     private fun toolList(includeAudits: Boolean): JSONArray {
         val toolNames = if (includeAudits) names + "get_mcp_audits" else names
         val descriptions = listOf(
-            "Read cached ADB shell status and monitoring state",
-            "List cached installed third-party apps",
-            "Read redacted recent log events using a cursor; optionally filter by exact installed package_name (UID verified)",
-            "Search recent redacted log events; optionally filter by exact installed package_name (UID verified)",
-            "Read recent Android crashes; optionally filter by exact installed package_name (UID verified)",
-            "Read recent Android ANR events; optionally filter by exact installed package_name (UID verified)",
+            "Read cached ADB shell status and whether a Logcat request is currently running",
+            "Fetch the installed third-party app list from Android on demand",
+            "Fetch one bounded Android Logcat snapshot on demand; return redacted events using a cursor and optional verified package_name",
+            "Search a freshly fetched bounded Android Logcat snapshot; optionally filter by verified package_name",
+            "Fetch recent Android crashes on demand; optionally filter by verified package_name",
+            "Fetch recent Android ANRs on demand; optionally filter by verified package_name",
             "Read sanitized, paginated MCP audit history (requires local owner opt-in)"
         )
         return JSONArray().apply {
@@ -93,7 +96,9 @@ internal object LocalMcpProtocol {
     }
 
     private fun readTool(name: String, args: JSONObject,
-                         auditReader: (() -> List<McpAuditEntry>)?): Any {
+                         auditReader: (() -> List<McpAuditEntry>)?,
+                         logsReader: (() -> List<LogEvent>)?,
+                         appsReader: (() -> List<String>)?): Any {
         val limit = args.optInt("limit", 100).coerceIn(1, 500)
         return when (name) {
             "get_device_status" -> JSONObject().put("adb", MonitorState.adb.value)
@@ -101,7 +106,7 @@ internal object LocalMcpProtocol {
                 .put("local_mcp", MonitorState.localMcp.value)
                 .put("package", MonitorState.selectedPackage.value)
                 .put("buffered_logs", MonitorState.logs.value.size)
-            "list_installed_apps" -> JSONArray(MonitorState.packages.value.take(limit))
+            "list_installed_apps" -> JSONArray((appsReader?.invoke() ?: MonitorState.packages.value).take(limit))
             "get_mcp_audits" -> {
                 val reader = auditReader ?: throw IllegalArgumentException(
                     "MCP audit history access is disabled")
@@ -113,10 +118,11 @@ internal object LocalMcpProtocol {
                 val query = args.optString("query").take(200)
                 val level = args.optString("level").take(1)
                 if (name == "search_logs" && query.isBlank()) throw IllegalArgumentException()
+                val events = logsReader?.invoke() ?: LogMonitorService.snapshot(0, 2000)
                 val logs = McpLogQuery.select(
-                    // Search the full bounded 2,000-entry capture buffer before filtering
-                    // so noisy unrelated apps cannot hide recent matching records.
-                    events = LogMonitorService.snapshot(after, 2000),
+                    // Scan the fresh bounded Android buffer before applying UID filters.
+                    // A cursor is assigned only for previously unseen entries.
+                    events = events.filter { it.id > after },
                     tool = name,
                     packageName = args.optString("package_name", ""),
                     packageUids = MonitorState.packageUids.value,
