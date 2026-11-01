@@ -337,7 +337,7 @@ internal object LocalMcpOAuth {
             }) return@synchronized failure("invalid_redirect_uri")
         val issue = authorizationRequestIssue(args, origin + "/mcp")
         if (issue != null) return@synchronized failure("invalid_request", description = issue)
-        prune(s,System.currentTimeMillis())
+        // current() already expires old state and persists it atomically.
         val pending = table(s,"pending")
         if (pending.length() >= 32) return@synchronized failure("too_many_requests",429)
         val ticket = nonce()
