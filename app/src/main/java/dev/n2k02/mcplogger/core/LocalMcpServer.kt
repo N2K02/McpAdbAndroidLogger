@@ -80,7 +80,8 @@ object LocalMcpServer {
             if (success) "OAuth step completed" else "OAuth step rejected" +
                 (if (code.isNotBlank()) ": " + code else ""),
             "OAuth", path.substringAfterLast('/'),
-            if (success) "OK" else "Denied", 0,
+            if (reply.auditCode == "duplicate_approval") "Accepted"
+                else if (success) "OK" else "Denied", 0,
             httpMethod = method, endpoint = path, httpStatus = reply.status,
             reason = detail.ifBlank {
                 if (success) "" else code.ifBlank { "OAuth request rejected" }
@@ -147,6 +148,12 @@ object LocalMcpServer {
                     val result = LocalMcpOAuth.metadata(path)
                     auditOAuth(context, method, path, origin, headers["user-agent"], result)
                     respond(output, result.status, result.body, result.type, result.headers)
+                    return
+                }
+                if (path == "/oauth/consent.js" && method == "GET") {
+                    // Same-origin consent enhancement, never logs credential contents.
+                    respond(output, 200, LocalMcpOAuth.CONSENT_SCRIPT,
+                        "application/javascript")
                     return
                 }
                 if (path == "/oauth/authorize" && method == "GET") {
@@ -322,7 +329,9 @@ object LocalMcpServer {
             "Content-Length: " + bytes.size + "\r\n" +
             "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n" +
             "Referrer-Policy: " + referrerPolicy(type) + "\r\n" +
-            "Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'\r\n" +
+            "Content-Security-Policy: default-src 'none'; " +
+            (if (type == "text/html") "script-src 'self'; " else "") +
+            "style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'\r\n" +
             safeHeaders + "Connection: close\r\n\r\n"
         output.write(header.toByteArray(StandardCharsets.UTF_8))
         output.write(bytes)

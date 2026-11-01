@@ -182,6 +182,17 @@ Phone-hosted OAuth remains available only while the connectedDevice foreground
 service and its public tunnel are running.
 
 
+## OAuth consent on Android browsers
+
+The approval page keeps keyboard input inside the browser: pasting the MCP
+access key automatically blurs the password field and focuses **Approve access**
+without submitting on its own. The button is disabled once submitted to avoid
+accidental duplicate POSTs. A second request using an already-approved ticket
+shows a friendly completion page; it never grants a second code. The first
+successful approval returns HTTP 302 to the registered OAuth callback. For
+connection verification, look for a subsequent POST /oauth/token with HTTP 200
+and an authenticated MCP initialize in the audit, not only the approval 302.
+
 ## Settings → MCP audits
 
 The **MCP audits** subpage captures MCP JSON-RPC requests processed by the

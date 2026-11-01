@@ -142,6 +142,32 @@ class LocalMcpOAuthPolicyTest {
         assertEquals(0, persisted.getJSONObject("pending").length())
     }
 
+    @Test fun completedApprovalShowsFriendlyResultWithoutReusingCode() {
+        val result = LocalMcpOAuth.completedApprovalReply()
+        assertEquals(200, result.status)
+        assertEquals("text/html", result.type)
+        assertEquals("duplicate_approval", result.auditCode)
+        assertTrue(result.auditReason.contains("Repeat approval ignored"))
+        assertFalse(result.headers.containsKey("Location"))
+        assertTrue(result.body.contains("Return to ChatGPT"))
+        assertFalse(result.body.contains("access_token"))
+        assertFalse(result.body.contains("code="))
+    }
+
+    @Test fun pasteFocusScriptPreventsRapidDoubleSubmitsWithoutAutoApproving() {
+        val js = LocalMcpOAuth.CONSENT_SCRIPT
+        assertTrue(js.contains("addEventListener('paste'"))
+        assertTrue(js.contains("addEventListener('input'"))
+        assertTrue(js.contains("insertFromPaste"))
+        assertTrue(js.contains("key.blur()"))
+        assertTrue(js.contains("button.focus("))
+        assertTrue(js.contains("addEventListener('submit'"))
+        assertTrue(js.contains("event.preventDefault()"))
+        assertTrue(js.contains("button.disabled = true"))
+        assertFalse(js.contains("form.submit()"))
+        assertFalse(js.contains("fetch("))
+    }
+
     @Test fun metadataSupportsDynamicRegistrationAndProtectedResource() {
         val previous = MonitorState.publicMcpUrl.value
         try {

@@ -288,6 +288,50 @@ internal object LocalMcpOAuth {
     private fun html(v: String): String = v.replace("&","&amp;").replace("<","&lt;")
         .replace(">","&gt;").replace("\"","&quot;").replace("'","&#39;")
 
+    /** Same-origin static JavaScript. No external libraries or inline scripts.
+     * Move focus only for an actual paste; never submit the private key automatically.
+     * Guard repeated clicks/Enter while the browser navigates the OAuth callback.
+     */
+    internal const val CONSENT_SCRIPT = """(function () {
+  'use strict';
+  const form = document.getElementById('approval-form');
+  const key = document.getElementById('access-key');
+  const button = document.getElementById('approve-button');
+  if (!form || !key || !button) return;
+  let submitted = false;
+  function focusApprove() {
+    if (!key.value.trim()) return;
+    key.blur();
+    try { button.focus({ preventScroll: true }); }
+    catch (_) { button.focus(); }
+  }
+  key.addEventListener('paste', function () {
+    setTimeout(focusApprove, 0);
+  });
+  key.addEventListener('input', function (event) {
+    if (event.inputType === 'insertFromPaste') focusApprove();
+  });
+  form.addEventListener('submit', function (event) {
+    if (submitted) { event.preventDefault(); return; }
+    if (!form.reportValidity()) { event.preventDefault(); return; }
+    submitted = true;
+    button.disabled = true;
+    button.textContent = 'Approving…';
+  });
+})();"""
+
+    private fun consentForm(ticket: String, heading: String, description: String,
+                            actionLabel: String): String =
+        """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MCP authorization</title><style>body{font-family:system-ui;background:#111827;color:#f9fafb;max-width:440px;margin:5vh auto;padding:24px}input,button{font-size:1rem;padding:12px;border-radius:8px;width:100%;box-sizing:border-box;margin-top:12px}button{background:#4f46e5;color:white;border:0}button:disabled{opacity:.65}p{line-height:1.5}</style><script src="/oauth/consent.js" defer></script></head><body><h2>$heading</h2><p>$description</p><form id="approval-form" method="post" action="/oauth/approve"><input type="hidden" name="ticket" value="$ticket"><input id="access-key" type="password" name="key" autocomplete="off" required aria-label="MCP access key"><button id="approve-button" type="submit">$actionLabel</button></form><p>Approval grants diagnostic reading, never shell commands.</p></body></html>"""
+
+    /** A successful consent is one-time, even if Chrome resends the POST.
+     * Never redirect twice or reissue an authorization code for a used ticket.
+     */
+    internal fun completedApprovalReply() = Reply(200,
+        """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MCP approval submitted</title></head><body><h2>Approval already submitted</h2><p>Your previous approval was accepted. Return to ChatGPT to finish connecting. If it did not connect, start a new connection from ChatGPT.</p><p>No new authorization code was issued.</p></body></html>""",
+        "text/html", auditCode = "duplicate_approval",
+        auditReason = "Repeat approval ignored; first submission already accepted")
+
     fun register(c: Context, obj: JSONObject): Reply = synchronized(lock) {
         if (issuer() == null) return@synchronized failure("temporarily_unavailable",503)
         val urls = obj.optJSONArray("redirect_uris")
@@ -349,8 +393,10 @@ internal object LocalMcpOAuth {
         save(c,s)
         val display = html(client.optString("name"))
         val domain = html(URI(callback).host.orEmpty())
-        val page = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MCP authorization</title><style>body{font-family:system-ui;background:#111827;color:#f9fafb;max-width:440px;margin:5vh auto;padding:24px}input,button{font-size:1rem;padding:12px;border-radius:8px;width:100%;box-sizing:border-box;margin-top:12px}button{background:#4f46e5;color:white;border:0}p{line-height:1.5}</style></head><body><h2>Authorize $display</h2><p>Requesting callback domain: <b>$domain</b></p><p>Grant this agent read-only access to Android diagnostic logs. Check the callback domain before approving. The agent does not receive your existing key.</p><form method="post" action="/oauth/approve"><input type="hidden" name="ticket" value="$ticket"><input type="password" name="key" autocomplete="off" required aria-label="MCP access key"><button type="submit">Approve access</button></form><p>Approval grants diagnostic reading, never shell commands.</p></body></html>"""
-        Reply(200,page,"text/html")
+        val page = consentForm(ticket, "Authorize $display",
+            "Requesting callback domain: <b>$domain</b>. Grant this agent read-only access to Android diagnostic logs. Check the callback domain before approving. The agent does not receive your existing key.",
+            "Approve access")
+        Reply(200, page, "text/html")
     }
     internal fun validApprovalTicket(value: String): Boolean =
         Regex("[A-Za-z0-9_-]{43,128}").matches(value)
@@ -373,7 +419,9 @@ internal object LocalMcpOAuth {
     }
 
     private fun retryForm(ticket: String, remaining: Int): String =
-        """<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Retry MCP approval</title></head><body><h2>Incorrect access key</h2><p>$remaining attempts remaining. Enter the current key shown in the Android app.</p><form method="post" action="/oauth/approve"><input type="hidden" name="ticket" value="$ticket"><input type="password" name="key" autocomplete="off" required><button type="submit">Try again</button></form></body></html>"""
+        consentForm(ticket, "Incorrect access key",
+            "$remaining attempts remaining. Enter the current key shown in the Android app.",
+            "Try again")
 
     fun approve(c: Context, form: Map<String,String>): Reply = synchronized(lock) {
         val rawTicket = form["ticket"].orEmpty()
@@ -384,6 +432,7 @@ internal object LocalMcpOAuth {
         val now = System.currentTimeMillis()
         val fingerprint = digest(rawTicket)
         val status = approvalStatus(s, fingerprint, now)
+        if (status == "used") return@synchronized completedApprovalReply()
         if (status != "valid") return@synchronized failure(
             if (status == "expired") "expired_request" else "invalid_request",
             description = approvalFailureReason(status))

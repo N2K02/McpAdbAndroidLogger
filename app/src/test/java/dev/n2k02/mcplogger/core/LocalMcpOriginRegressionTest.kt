@@ -18,6 +18,20 @@ class LocalMcpOriginRegressionTest {
         assertTrue(source().contains("referrerPolicy(type)"))
     }
 
+    @Test fun consentScriptIsSameOriginAndOnlyEnabledOnHtmlConsent() {
+        val server = source()
+        assertTrue(server.contains("path == \"/oauth/consent.js\" && method == \"GET\""))
+        assertTrue(server.contains("LocalMcpOAuth.CONSENT_SCRIPT"))
+        assertTrue(server.contains("\"application/javascript\""))
+        assertTrue(server.contains("if (type == \"text/html\") \"script-src 'self'; \""))
+        val oauthPath = "app/src/main/java/dev/n2k02/mcplogger/core/LocalMcpOAuth.kt"
+        val oauth = listOf(File(oauthPath), File("../$oauthPath")).first { it.isFile }.readText()
+        assertTrue(oauth.contains("src=\"/oauth/consent.js\" defer"))
+        assertTrue(oauth.contains("id=\"access-key\""))
+        assertTrue(oauth.contains("id=\"approve-button\""))
+        assertTrue(oauth.contains("id=\"approval-form\""))
+    }
+
     @Test fun untrustedOriginProtectionAndSameOriginOAuthFormRemainInPlace() {
         val server = source()
         assertTrue(server.contains("respond(output, 403, \"Untrusted Origin\")"))
