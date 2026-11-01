@@ -166,9 +166,11 @@ read logs from all captured packages. Android-system crash/ANR records may use
 system UIDs rather than the target app's UID and therefore may not appear in a
 package-scoped query; omit the filter to investigate such records.
 
-All filtering is read-only and runs over the existing bounded in-memory Logcat
-buffer. It does not change ADB capture, the phone's on-screen app filter,
-permissions, public MCP URL, registration token or client access key. Update
+All filtering is read-only: each MCP log query triggers one bounded Android Logcat
+snapshot, followed by filtering of the deduplicated 2,000-entry in-memory cache.
+This preserves cursor continuity and local review without continuous collection.
+It does not change the phone's on-screen app filter, permissions, public MCP URL,
+registration token or client access key. Update
 the experimental APK and reconnect/refresh MCP tools in your AI client for the
 new `package_name` schema to become visible.
 
