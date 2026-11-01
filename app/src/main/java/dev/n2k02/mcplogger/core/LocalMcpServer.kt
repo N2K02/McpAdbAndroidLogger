@@ -254,7 +254,14 @@ object LocalMcpServer {
                     return
                 }
                 val started = System.nanoTime()
-                val result = LocalMcpProtocol.execute(request)
+                // Capability is checked for every request, not just at OAuth login.
+                // A cached remote tool name cannot bypass a disabled permission.
+                val auditReader: (() -> List<McpAuditEntry>)? =
+                    if (McpAgentAuditAccess.enabled(context)) {
+                        { if (McpAgentAuditAccess.enabled(context))
+                            McpAuditStore.readForAgent(context) else emptyList() }
+                    } else null
+                val result = LocalMcpProtocol.execute(request, auditReader)
                 val status = if (result == null) "Accepted"
                     else if (result.has("error")) "Error" else "OK"
                 val responseBody = result?.toString().orEmpty()
@@ -262,9 +269,16 @@ object LocalMcpServer {
                 else respond(output, 200, responseBody, "application/json")
                 // Capture the same response payload prepared for and written to
                 // this authenticated MCP connection. No HTTP/OAuth headers saved.
+                // Prevent audit-history replies from recursively embedding themselves
+                // into the private journal or growing on each successive query.
+                val auditHistoryRead = request.optString("method") == "tools/call" &&
+                    request.optJSONObject("params")?.optString("name") == "get_mcp_audits"
+                val auditResponse = if (auditHistoryRead)
+                    "[MCP audit-history response omitted; read operation recorded]"
+                    else responseBody
                 McpAuditStore.record(context, agent,
                     String(data, StandardCharsets.UTF_8),
-                    responseBody, request.optString("method"),
+                    auditResponse, request.optString("method"),
                     if (request.optString("method") == "tools/call")
                         request.optJSONObject("params")?.optString("name").orEmpty()
                     else request.optString("method"),

@@ -14,7 +14,8 @@ internal object LocalMcpProtocol {
         JSONObject().put("jsonrpc", "2.0").put("id", id)
             .put("error", JSONObject().put("code", code).put("message", text))
 
-    fun execute(req: JSONObject): JSONObject? {
+    /** Optional local-only capability; null means the feature is disabled. */
+    fun execute(req: JSONObject, auditReader: (() -> List<McpAuditEntry>)? = null): JSONObject? {
         val id = req.opt("id") ?: JSONObject.NULL
         val method = req.optString("method")
         if (req.optString("jsonrpc") != "2.0" || method.isEmpty())
@@ -27,11 +28,11 @@ internal object LocalMcpProtocol {
                     .put("serverInfo", JSONObject().put("name", "MCP ADB Android Logger")
                         .put("version", "1.0"))
                 "ping" -> JSONObject()
-                "tools/list" -> JSONObject().put("tools", toolList())
+                "tools/list" -> JSONObject().put("tools", toolList(auditReader != null))
                 "tools/call" -> {
                     val params = req.optJSONObject("params") ?: JSONObject()
                     val body = readTool(params.optString("name"),
-                        params.optJSONObject("arguments") ?: JSONObject())
+                        params.optJSONObject("arguments") ?: JSONObject(), auditReader)
                     JSONObject().put("content", JSONArray().put(JSONObject().put("type", "text")
                         .put("text", body.toString()))).put("isError", false)
                 }
@@ -45,25 +46,34 @@ internal object LocalMcpProtocol {
         }
     }
 
-    private fun toolList(): JSONArray {
+    private fun toolList(includeAudits: Boolean): JSONArray {
+        val toolNames = if (includeAudits) names + "get_mcp_audits" else names
         val descriptions = listOf(
             "Read cached ADB shell status and monitoring state",
             "List cached installed third-party apps",
             "Read redacted recent log events using a cursor",
             "Search recent redacted log events",
             "Read recent Android crashes",
-            "Read recent Android ANR events"
+            "Read recent Android ANR events",
+            "Read sanitized, paginated MCP audit history (requires local owner opt-in)"
         )
         return JSONArray().apply {
-            names.forEachIndexed { index, name ->
+            toolNames.forEachIndexed { index, name ->
                 val fields = JSONObject().put("limit",
-                    JSONObject().put("type", "integer").put("description", "1-500"))
+                    JSONObject().put("type", "integer").put("description",
+                        if (name == "get_mcp_audits") "1-25" else "1-500"))
                 if (name == "get_live_logs") {
                     fields.put("after_cursor", JSONObject().put("type", "integer"))
                     fields.put("level", JSONObject().put("type", "string"))
                     fields.put("query", JSONObject().put("type", "string"))
                 }
                 if (name == "search_logs") fields.put("query", JSONObject().put("type", "string"))
+                if (name == "get_mcp_audits") {
+                    fields.put("before_id", JSONObject().put("type", "string")
+                        .put("description", "Optional cursor from next_before_id"))
+                    fields.put("include_payloads", JSONObject().put("type", "boolean")
+                        .put("description", "Show re-redacted request/response previews; default false"))
+                }
                 val schema = JSONObject().put("type", "object").put("properties", fields)
                     .put("additionalProperties", false)
                 if (name == "search_logs") schema.put("required", JSONArray().put("query"))
@@ -76,7 +86,8 @@ internal object LocalMcpProtocol {
         }
     }
 
-    private fun readTool(name: String, args: JSONObject): Any {
+    private fun readTool(name: String, args: JSONObject,
+                         auditReader: (() -> List<McpAuditEntry>)?): Any {
         val limit = args.optInt("limit", 100).coerceIn(1, 500)
         return when (name) {
             "get_device_status" -> JSONObject().put("adb", MonitorState.adb.value)
@@ -85,6 +96,12 @@ internal object LocalMcpProtocol {
                 .put("package", MonitorState.selectedPackage.value)
                 .put("buffered_logs", MonitorState.logs.value.size)
             "list_installed_apps" -> JSONArray(MonitorState.packages.value.take(limit))
+            "get_mcp_audits" -> {
+                val reader = auditReader ?: throw IllegalArgumentException(
+                    "MCP audit history access is disabled")
+                McpAuditPolicy.agentPage(reader(), args.optInt("limit", 20),
+                    args.optString("before_id"), args.optBoolean("include_payloads", false))
+            }
             "get_live_logs", "search_logs", "get_crashes", "get_anrs" -> {
                 val after = args.optLong("after_cursor", 0).coerceAtLeast(0)
                 val query = args.optString("query").take(200)

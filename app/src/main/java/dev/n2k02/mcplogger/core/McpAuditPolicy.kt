@@ -88,6 +88,46 @@ internal object McpAuditPolicy {
                 e.httpStatus.toString()).any { it.contains(filter.query.trim(), true) })
         }
 
+    /**
+     * Agent-facing subset of the local audit journal: newest first, bounded, and
+     * re-sanitized at read time. Response previews are optional to minimize
+     * cross-agent data exposure. Cursor references the oldest returned entry.
+     */
+    fun agentPage(entries: List<McpAuditEntry>, requestedLimit: Int = 20,
+                  beforeId: String = "", includePayloads: Boolean = false): JSONObject {
+        val prefix = if (beforeId.isBlank()) entries else {
+            val cursorIndex = entries.indexOfFirst { it.id == beforeId }
+            require(cursorIndex >= 0) { "Unknown or expired MCP audit cursor" }
+            entries.take(cursorIndex)
+        }
+        val page = prefix.takeLast(requestedLimit.coerceIn(1, 25)).asReversed()
+        val items = JSONArray()
+        page.forEach { e ->
+            val row = JSONObject()
+                .put("id", e.id)
+                .put("time", e.timestamp)
+                .put("agent", snapshot(e.agentName, 100).text)
+                .put("domain", snapshot(e.domain, 150).text)
+                .put("method", snapshot(e.method, 100).text)
+                .put("tool", snapshot(e.tool, 100).text)
+                .put("status", snapshot(e.status, 32).text)
+                .put("http_method", snapshot(e.httpMethod, 12).text)
+                .put("endpoint", snapshot(e.endpoint, 100).text)
+                .put("http_status", e.httpStatus)
+                .put("duration_ms", e.durationMs)
+                .put("reason", snapshot(e.reason, 160).text)
+            if (includePayloads) {
+                row.put("request", snapshot(e.request, 2500).text)
+                row.put("response", snapshot(e.response, 5000).text)
+            }
+            items.put(row)
+        }
+        return JSONObject().put("entries", items)
+            .put("next_before_id", if (prefix.size > page.size)
+                page.last().id else JSONObject.NULL)
+            .put("payloads_included", includePayloads)
+    }
+
     fun export(entries: List<McpAuditEntry>): String =
         entries.joinToString("\n\n") { e ->
             "Time: " + e.timestamp + " (" +

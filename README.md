@@ -237,6 +237,23 @@ A 302 approval by itself does not mean ChatGPT finished connecting.
 Do not rotate the public URL or access key during the OAuth flow. If the
 callback cannot reach ChatGPT, restart connection setup using the current URL.
 
+## Settings → Agent permissions: optional MCP audit history
+
+The Settings submenu **Agent permissions** has a **Read MCP audit history**
+switch. It is **OFF by default** for new and upgraded installations, and it
+can only be changed locally on the phone. When enabled, authenticated remote
+MCP agents can discover and use the read-only `get_mcp_audits` tool. When
+disabled, it is hidden from `tools/list` and calls are rejected, even with
+an old cached tool name. Regular Logcat tools remain available.
+
+Audit results are paged newest first (max 25/request) with a `before_id`
+cursor. The `include_payloads=true` option returns capped, re-redacted
+request/response previews; the default is false. All authenticated agents
+share this optional permission and may inspect other agents' prior activity.
+The tool never exposes raw OAuth credentials or HTTP headers. Its responses
+are not saved recursively in the audit journal. Refresh agent tools after
+changing the switch.
+
 ## Settings → MCP audits
 
 The **MCP audits** subpage captures MCP JSON-RPC requests processed by the

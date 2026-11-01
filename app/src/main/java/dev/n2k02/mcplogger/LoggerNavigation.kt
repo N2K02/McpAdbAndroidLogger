@@ -4,7 +4,7 @@ package dev.n2k02.mcplogger
 internal enum class Page(val title: String) {
     HOME("Home"), LOGS("Android Logcat"), SETTINGS("Settings"),
     ADB("ADB connection"), BRIDGE("MCP connection"), MCP_AUDITS("MCP audits"),
-    UPDATES("About & updates")
+    MCP_AGENT_ACCESS("Agent permissions"), UPDATES("About & updates")
 }
 
 /** One navigation policy for toolbar Back and Android system gesture. */

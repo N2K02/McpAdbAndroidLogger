@@ -30,6 +30,9 @@ internal object McpAuditStore {
 
     fun reload(c: Context) = synchronized(lock) { entries.value = read(c) }
 
+    /** Read a consistent snapshot; callers must first pass the local opt-in gate. */
+    fun readForAgent(c: Context): List<McpAuditEntry> = synchronized(lock) { read(c) }
+
     fun clear(c: Context) = synchronized(lock) {
         entries.value = emptyList()
         file(c).delete()

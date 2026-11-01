@@ -5,7 +5,7 @@ import org.junit.Test
 import java.io.File
 
 class LoggerNavigationTest {
-    private val settingsPages = listOf(Page.ADB, Page.BRIDGE, Page.MCP_AUDITS, Page.UPDATES)
+    private val settingsPages = listOf(Page.ADB, Page.BRIDGE, Page.MCP_AUDITS, Page.MCP_AGENT_ACCESS, Page.UPDATES)
 
     @Test fun settingsDetailsBackToSettingsThenHome() {
         for (destination in settingsPages) {

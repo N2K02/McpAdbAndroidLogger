@@ -35,7 +35,7 @@ class McpAuditsContractTest {
         assertTrue(store.contains("[unauthenticated request; payload withheld]"))
         assertTrue(store.contains("lastDeniedAtMs"))
         assertTrue(oauth.contains("fun clientForToken(c: Context, token: String)"))
-        val section = server.substringAfter("val result = LocalMcpProtocol.execute(request)")
+        val section = server.substringAfter("val result = LocalMcpProtocol.execute(request, auditReader)")
             .substringBefore("} catch (_: Exception)")
         assertTrue(section.contains("McpAuditStore.record"))
         assertTrue(section.contains("responseBody"))
@@ -62,6 +62,25 @@ class McpAuditsContractTest {
         assertTrue(ui.contains("onValueChange = {}, readOnly = true"))
         assertTrue(oauth.contains("AtomicFile(stateFile(c)).delete()"))
         assertFalse(ui.contains("onValueChange = { BridgeClient.saveClientToken(context, it) }"))
+    }
+
+    @Test fun agentAuditAccessIsOffByDefaultAndLocalSettingsOnly() {
+        val access = source(root + "core/McpAgentAuditAccess.kt")
+        val protocol = source(root + "core/LocalMcpProtocol.kt")
+        val server = source(root + "core/LocalMcpServer.kt")
+        val ui = source(root + "LoggerUi.kt")
+        val navigation = source(root + "LoggerNavigation.kt")
+        assertTrue(access.contains("getBoolean(READ_HISTORY, false)"))
+        assertTrue(access.contains("fun setEnabled(context: Context, allowed: Boolean)"))
+        assertTrue(ui.contains("SettingsRow(\"Agent permissions\""))
+        assertTrue(ui.contains("Page.MCP_AGENT_ACCESS -> AgentPermissionsPage"))
+        assertTrue(ui.contains("Switch(checked = enabled"))
+        assertTrue(navigation.contains("MCP_AGENT_ACCESS(\"Agent permissions\")"))
+        assertTrue(protocol.contains("toolList(auditReader != null)"))
+        assertTrue(protocol.contains("val reader = auditReader ?: throw IllegalArgumentException"))
+        assertTrue(server.contains("McpAgentAuditAccess.enabled(context)"))
+        assertTrue(server.contains("McpAuditStore.readForAgent(context)"))
+        assertTrue(server.contains("[MCP audit-history response omitted; read operation recorded]"))
     }
 
     @Test fun screenOffersAgentToolStatusTimeFiltersAndUserExport() {
