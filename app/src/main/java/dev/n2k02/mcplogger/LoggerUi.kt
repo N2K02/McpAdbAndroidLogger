@@ -511,7 +511,8 @@ private fun BridgePage(modifier: Modifier) {
                 visualTransformation = PasswordVisualTransformation())
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilledTonalButton(onClick = {
-                    if (StableMcpRelay.save(context, permanentUrl, permanentKey)) {
+                    if (permanentUrl.isNotBlank() && permanentKey.isNotBlank() &&
+                        StableMcpRelay.save(context, permanentUrl, permanentKey)) {
                         editingPermanentUrl = false
                         hint = "Permanent endpoint saved. Connecting automatically…"
                         sendAction(LogMonitorService.TUNNEL_RESTART)
