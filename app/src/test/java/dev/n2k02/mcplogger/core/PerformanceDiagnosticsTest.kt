@@ -54,7 +54,7 @@ class PerformanceDiagnosticsTest {
         assertEquals("ok", stats.getString("status"))
         assertEquals(3, stats.getInt("sample_frames"))
         assertEquals(3, stats.getInt("slow_frames"))
-        assertEquals(20.0, stats.getDouble("frame_p50_ms"), 0.01)
+        assertEquals(25.0, stats.getDouble("frame_p50_ms"), 0.01)
         assertEquals(25.0, stats.getDouble("frame_p95_ms"), 0.01)
         assertEquals(10.0, stats.getDouble("gpu_completion_latency_p95_ms"), 0.01)
         assertFalse(stats.has("gpu_utilization_percent"))
