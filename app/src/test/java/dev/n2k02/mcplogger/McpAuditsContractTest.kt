@@ -54,6 +54,16 @@ class McpAuditsContractTest {
         assertTrue(policy.contains("private val secretName"))
     }
 
+    @Test fun oauthRecoveryRequiresUserConfirmationAndKeyIsReadOnly() {
+        val ui = source(root + "LoggerUi.kt")
+        val oauth = source(root + "core/LocalMcpOAuth.kt")
+        assertTrue(ui.contains("Reset all OAuth authorizations?"))
+        assertTrue(ui.contains("resetAuthorizations(context)"))
+        assertTrue(ui.contains("onValueChange = {}, readOnly = true"))
+        assertTrue(oauth.contains("AtomicFile(stateFile(c)).delete()"))
+        assertFalse(ui.contains("onValueChange = { BridgeClient.saveClientToken(context, it) }"))
+    }
+
     @Test fun screenOffersAgentToolStatusTimeFiltersAndUserExport() {
         val screen = source(root + "McpAuditsScreen.kt")
         for (token in listOf("All agents", "All tools", "All results", "Any time",

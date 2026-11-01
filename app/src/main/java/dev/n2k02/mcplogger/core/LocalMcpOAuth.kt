@@ -66,6 +66,14 @@ internal object LocalMcpOAuth {
 
     private fun stateFile(c: Context) = File(c.noBackupFilesDir, FILE)
 
+    /** Explicit, local, user-confirmed recovery from corrupt OAuth state.
+     * Revokes all OAuth grants without rotating the public URL or shared key.
+     */
+    fun resetAuthorizations(c: Context) = synchronized(lock) {
+        AtomicFile(stateFile(c)).delete()
+        connected.value = emptyList()
+    }
+
     // Migrate the existing state JSON in place; never silently replace corrupt
     // or partially written authorization state with an empty database.
     private fun load(c: Context): JSONObject {

@@ -403,6 +403,7 @@ private fun BridgePage(modifier: Modifier) {
     var hint by remember { mutableStateOf("") }
     val localUrl = dev.n2k02.mcplogger.core.LocalMcpServer.URL
     var rotating by remember { mutableStateOf(false) }
+    var resetOauth by remember { mutableStateOf(false) }
 
     fun copy(label: String, value: String, sensitive: Boolean = false) {
         if (value.isBlank()) return
@@ -438,6 +439,22 @@ private fun BridgePage(modifier: Modifier) {
             }) { Text("Revoke") }
         },
         dismissButton = { TextButton(onClick = { revokeAgent = null }) { Text("Cancel") } },
+    )
+
+    if (resetOauth) AlertDialog(
+        onDismissRequest = { resetOauth = false },
+        title = { Text("Reset all OAuth authorizations?") },
+        text = { Text("Revokes all AI agent access tokens, clears pending approvals and repairs inaccessible OAuth state. Your public MCP URL and shared access key stay unchanged. Reconnect each agent afterward.") },
+        confirmButton = {
+            TextButton(onClick = {
+                resetOauth = false
+                runCatching {
+                    dev.n2k02.mcplogger.core.LocalMcpOAuth.resetAuthorizations(context)
+                    hint = "OAuth authorizations reset. Reconnect your AI agent."
+                }.onFailure { hint = "Could not reset OAuth state: " + it.javaClass.simpleName }
+            }) { Text("Reset OAuth") }
+        },
+        dismissButton = { TextButton(onClick = { resetOauth = false }) { Text("Cancel") } },
     )
 
     if (rotating) AlertDialog(
@@ -497,7 +514,8 @@ private fun BridgePage(modifier: Modifier) {
                 }
             })
         OutlinedTextField(value = clientToken,
-            onValueChange = { BridgeClient.saveClientToken(context, it) }, label = { Text("MCP client access key") }, singleLine = true,
+            onValueChange = {}, readOnly = true,
+            label = { Text("MCP client access key") }, singleLine = true,
             modifier = Modifier.fillMaxWidth(),
             visualTransformation = PasswordVisualTransformation(),
             trailingIcon = {
@@ -590,6 +608,12 @@ private fun BridgePage(modifier: Modifier) {
                 }
             }
         }
+        OutlinedButton(onClick = { resetOauth = true }, modifier = Modifier.fillMaxWidth()) {
+            Text("Reset OAuth authorizations")
+        }
+        Text("Use Reset only if OAuth approvals are stuck or storage is damaged. Existing OAuth clients must reconnect; the MCP URL and shared key remain intact.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text("No separate Docker gateway or continuous log upload is required. Logs stay on the phone and are returned only when an authenticated MCP tool is called.",
             style = MaterialTheme.typography.bodySmall)
         }
