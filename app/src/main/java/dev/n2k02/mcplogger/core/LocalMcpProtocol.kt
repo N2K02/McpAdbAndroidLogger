@@ -51,10 +51,10 @@ internal object LocalMcpProtocol {
         val descriptions = listOf(
             "Read cached ADB shell status and monitoring state",
             "List cached installed third-party apps",
-            "Read redacted recent log events using a cursor",
-            "Search recent redacted log events",
-            "Read recent Android crashes",
-            "Read recent Android ANR events",
+            "Read redacted recent log events using a cursor; optionally filter by exact installed package_name (UID verified)",
+            "Search recent redacted log events; optionally filter by exact installed package_name (UID verified)",
+            "Read recent Android crashes; optionally filter by exact installed package_name (UID verified)",
+            "Read recent Android ANR events; optionally filter by exact installed package_name (UID verified)",
             "Read sanitized, paginated MCP audit history (requires local owner opt-in)"
         )
         return JSONArray().apply {
@@ -68,6 +68,12 @@ internal object LocalMcpProtocol {
                     fields.put("query", JSONObject().put("type", "string"))
                 }
                 if (name == "search_logs") fields.put("query", JSONObject().put("type", "string"))
+                if (name in setOf("get_live_logs", "search_logs", "get_crashes", "get_anrs")) {
+                    fields.put("package_name", JSONObject().put("type", "string")
+                        .put("description", "Optional exact Android package name from list_installed_apps, " +
+                            "e.g. com.example.app. Matches the verified UID, not mentions in log text. " +
+                            "Unknown or unavailable packages return no logs; omit for all packages."))
+                }
                 if (name == "get_mcp_audits") {
                     fields.put("before_id", JSONObject().put("type", "string")
                         .put("description", "Optional cursor from next_before_id"))
@@ -107,18 +113,15 @@ internal object LocalMcpProtocol {
                 val query = args.optString("query").take(200)
                 val level = args.optString("level").take(1)
                 if (name == "search_logs" && query.isBlank()) throw IllegalArgumentException()
-                val logs = LogMonitorService.snapshot(after, 1000).filter { e ->
-                    val matches = when (name) {
-                        "get_crashes" -> e.message.contains("FATAL EXCEPTION", true) ||
-                            e.message.contains("Fatal signal", true) || e.tag.contains("crash", true)
-                        "get_anrs" -> e.message.contains("ANR in ", true) || e.tag.contains("am_anr", true)
-                        else -> true
-                    }
-                    matches && (name != "get_live_logs" || level.isEmpty() ||
-                        e.level.equals(level, true)) &&
-                        (query.isBlank() || e.tag.contains(query, true) ||
-                            e.message.contains(query, true))
-                }.takeLast(limit)
+                val logs = McpLogQuery.select(
+                    events = LogMonitorService.snapshot(after, 1000),
+                    tool = name,
+                    packageName = args.optString("package_name", ""),
+                    packageUids = MonitorState.packageUids.value,
+                    query = query,
+                    level = level,
+                    limit = limit,
+                )
                 JSONArray().apply {
                     logs.forEach { e ->
                         put(JSONObject().put("cursor", e.id).put("time", e.epochMillis)
