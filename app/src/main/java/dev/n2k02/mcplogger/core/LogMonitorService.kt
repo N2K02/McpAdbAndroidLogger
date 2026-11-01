@@ -42,6 +42,21 @@ class LogMonitorService : Service() {
         private val buffer = LogBuffer()
         private val resetGate = LogcatResetGate()
         private val readLock = Mutex()
+        private const val IDLE_CACHE_MILLIS = 5 * 60_000L
+        private val idleHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        private val idleCleanup = Runnable {
+            if (!MonitorState.active.value) {
+                resetGate.reset {
+                    buffer.clear(resetDedup = true)
+                    MonitorState.logs.value = emptyList()
+                }
+            }
+        }
+        private fun cancelIdleLogCleanup() = idleHandler.removeCallbacks(idleCleanup)
+        private fun scheduleIdleLogCleanup() {
+            cancelIdleLogCleanup()
+            idleHandler.postDelayed(idleCleanup, IDLE_CACHE_MILLIS)
+        }
         private var logDayStart = -1L
 
         /** Rotate only the private in-memory capture and stats, never Android's logd. */
@@ -75,9 +90,11 @@ class LogMonitorService : Service() {
          * cache preserves existing MCP cursors and the local Logs viewer, but is
          * never replenished in the background.
          */
-        suspend fun readOnDemand(): List<LogEvent> = readLock.withLock {
+        suspend fun readOnDemand(origin: LogReadOrigin = LogReadOrigin.MCP): List<LogEvent> = readLock.withLock {
+            cancelIdleLogCleanup()
             rotateDay(System.currentTimeMillis())
             val readGeneration = resetGate.generation()
+            MonitorState.logReadOrigin.value = origin
             MonitorState.active.value = true
             try {
                 check(AdbCoordinator.verified.value) { "ADB shell UID 2000 is not verified" }
@@ -121,6 +138,8 @@ class LogMonitorService : Service() {
                 throw error
             } finally {
                 MonitorState.active.value = false
+                MonitorState.logReadOrigin.value = null
+                scheduleIdleLogCleanup()
             }
         }
 
@@ -358,7 +377,7 @@ class LogMonitorService : Service() {
             .putBoolean("manual_quit", false).apply()
         job = scope.launch {
             try {
-                readOnDemand()
+                readOnDemand(LogReadOrigin.MANUAL)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (_: Exception) {

@@ -8,6 +8,7 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -21,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.n2k02.mcplogger.core.McpAuditEntry
@@ -252,6 +254,24 @@ private fun McpAuditMetric(title: String, number: String, modifier: Modifier) {
     }
 }
 
+/** Formatting is display-only; stored redacted payloads and exports stay unchanged. */
+@Composable
+private fun AuditJsonPreview(raw: String) {
+    val pretty = remember(raw) { AuditJsonFormatter.pretty(raw) }
+    Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+        SelectionContainer {
+            Box(Modifier.heightIn(max = 300.dp)
+                .verticalScroll(rememberScrollState())
+                .horizontalScroll(rememberScrollState())
+                .padding(10.dp)) {
+                Text(pretty, style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace, softWrap = false)
+            }
+        }
+    }
+}
+
 @Composable
 private fun McpAuditRow(entry: McpAuditEntry, onCopy: (String) -> Unit) {
     var expanded by remember(entry.id) { mutableStateOf(false) }
@@ -307,12 +327,11 @@ private fun McpAuditRow(entry: McpAuditEntry, onCopy: (String) -> Unit) {
                 Text("Request · redacted" +
                     if (entry.requestTruncated) " · truncated" else "",
                     style = MaterialTheme.typography.labelMedium)
-                Text(entry.request, style = MaterialTheme.typography.bodySmall)
+                AuditJsonPreview(entry.request)
                 Text("Response sent · redacted" +
                     if (entry.responseTruncated) " · truncated" else "",
                     style = MaterialTheme.typography.labelMedium)
-                Text(entry.response.ifBlank { "(empty response)" },
-                    style = MaterialTheme.typography.bodySmall)
+                AuditJsonPreview(entry.response.ifBlank { "(empty response)" })
                 TextButton(onClick = {
                     onCopy(McpAuditPolicy.export(listOf(entry)))
                 }) {

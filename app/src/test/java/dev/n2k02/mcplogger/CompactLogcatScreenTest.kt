@@ -42,7 +42,7 @@ class CompactLogcatScreenTest {
         assertFalse(logs.contains("Clear device Logcat (all buffers)"))
         assertTrue(filters.contains("Crashes / ANRs"))
         assertTrue(filters.contains("AppIcon(filter.packageName)"))
-        assertTrue(filters.contains("filter.minLevel"))
+        assertTrue(filters.contains("LogViewPolicy.levelSummary(filter)"))
         assertTrue(filters.contains("filter.windowMinutes"))
         assertTrue(filters.contains("filter.tag"))
         assertTrue(filters.contains("filter.pid"))
@@ -87,7 +87,7 @@ class CompactLogcatScreenTest {
     @Test fun quickLogcatFiltersStayVisibleWithoutEnteringFiltersTab() {
         val screen = code("LogcatScreen.kt")
         assertTrue(screen.contains("FilterChip(selected = filter.packageName.isNotBlank()"))
-        assertTrue(screen.contains("FilterChip(selected = filter.minLevel != \"V\""))
+        assertTrue(screen.contains("FilterChip(selected = filter.selectedLevels.isNotEmpty()"))
         assertTrue(screen.contains("FilterChip(selected = filter.windowMinutes != 0"))
         assertTrue(screen.contains("FilterChip(selected = filter.crashesOnly"))
         assertTrue(screen.contains("BasicTextField(value = filter.search"))

@@ -18,7 +18,8 @@ object LogFoxParser {
             level = m.groupValues[5],
             tag = m.groupValues[6],
             message = m.groupValues[7],
-            raw = input
+            raw = input,
+            tid = m.groupValues[4]
         )
     }
     fun isCrash(log: LogEvent): Boolean = log.tag.contains("crash", true) ||

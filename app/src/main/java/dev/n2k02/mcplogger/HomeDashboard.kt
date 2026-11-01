@@ -18,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -27,6 +28,7 @@ import dev.n2k02.mcplogger.core.MonitorState
 import dev.n2k02.mcplogger.core.LogMonitorService
 import dev.n2k02.mcplogger.core.LogDayPolicy
 import dev.n2k02.mcplogger.core.LogCaptureStats
+import dev.n2k02.mcplogger.core.LogReadOrigin
 import dev.n2k02.mcplogger.core.PerformanceDiagnostics
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -47,6 +49,7 @@ internal fun HomeDashboard(
     onMcp: () -> Unit,
 ) {
     val active by MonitorState.active.collectAsState()
+    val readOrigin by MonitorState.logReadOrigin.collectAsState()
     val adb by MonitorState.adb.collectAsState()
     val tunnel by MonitorState.tunnel.collectAsState()
     val publicUrl by MonitorState.publicMcpUrl.collectAsState()
@@ -104,8 +107,10 @@ internal fun HomeDashboard(
                     .padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CardHeader(Icons.Rounded.Terminal, "Logcat (Today)", Tone.IDLE,
-                            "Daily reset enabled", subtitle = "Today's local-day capture")
+                        CardHeader(Icons.Rounded.Terminal, "Logcat (Today)",
+                            if (active) Tone.BUSY else Tone.IDLE,
+                            if (active) "Reading" else "Daily reset enabled",
+                            subtitle = "Today's local-day capture")
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             StatMetric("Captured today", currentStats.uniqueCaptured.toString(),
                                 Modifier.weight(1f), Tone.GOOD)
@@ -121,20 +126,6 @@ internal fun HomeDashboard(
                                         .format(Date(currentStats.lastSuccessAtMillis)),
                                 Modifier.weight(1f), Tone.IDLE)
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = onStart, enabled = !active && verified,
-                                modifier = Modifier.weight(1f)) {
-                                Icon(Icons.Rounded.Refresh, null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Refresh")
-                            }
-                            OutlinedButton(onClick = onStop, enabled = active,
-                                modifier = Modifier.weight(1f)) {
-                                Icon(Icons.Rounded.Stop, null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Cancel")
-                            }
-                        }
                         if (currentStats.readFailures > 0L)
                             Text("Read errors today: " + currentStats.readFailures,
                                 color = MaterialTheme.colorScheme.error,
@@ -149,48 +140,25 @@ internal fun HomeDashboard(
                         }
                     }
                 }
-                OutlinedCard(onClick = { selectHomeTab(HomeTab.CONNECTION) },
-                    modifier = Modifier.fillMaxWidth()) {
-                    Row(Modifier.fillMaxWidth().padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.SettingsInputAntenna, null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(10.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("ADB status", style = MaterialTheme.typography.titleSmall)
-                            Text(if (verified) "Connected · UID 2000" else "Authorization needed", style = MaterialTheme.typography.bodySmall,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        Icon(Icons.Rounded.ChevronRight, contentDescription = "Open ADB status")
-                    }
-                }
-                OutlinedCard(onClick = { selectHomeTab(HomeTab.CONNECTION) },
-                    modifier = Modifier.fillMaxWidth()) {
-                    Row(Modifier.fillMaxWidth().padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Cloud, null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(10.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("MCP connection", style = MaterialTheme.typography.titleSmall)
-                            Text(tunnel, style = MaterialTheme.typography.bodySmall,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        Icon(Icons.Rounded.ChevronRight, contentDescription = "Open MCP connection")
-                    }
-                }
-                OutlinedCard(onClick = { selectHomeTab(HomeTab.PERFORMANCE) },
-                    modifier = Modifier.fillMaxWidth()) {
-                    Row(Modifier.fillMaxWidth().padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Speed, null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(10.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("Performance tools", style = MaterialTheme.typography.titleSmall)
-                            Text("CPU processes and UI frame timing · on demand", style = MaterialTheme.typography.bodySmall,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        Icon(Icons.Rounded.ChevronRight, contentDescription = "Open Performance tools")
-                    }
-                }
+                val lastReadSubtitle = if (currentStats.lastSuccessAtMillis == 0L)
+                    "No read yet · refresh from Logs"
+                else "Last read " + DateFormat.getTimeInstance(DateFormat.SHORT)
+                    .format(Date(currentStats.lastSuccessAtMillis)) +
+                    " · +" + currentStats.lastBatchCaptured + " new"
+                HomeStatusCard(Icons.Rounded.Terminal, "On-demand logs", lastReadSubtitle,
+                    HomeBadgePolicy.logs(active, todayBuffered > 0),
+                    onClick = onStart)
+                HomeStatusCard(Icons.Rounded.SettingsInputAntenna, "ADB status",
+                    if (verified) "Connected · UID 2000" else "Authorization needed",
+                    HomeBadgePolicy.adb(verified, active),
+                    onClick = { selectHomeTab(HomeTab.CONNECTION) })
+                HomeStatusCard(Icons.Rounded.Cloud, "MCP connection", tunnel,
+                    HomeBadgePolicy.mcp(tunnel, active && readOrigin == LogReadOrigin.MCP),
+                    onClick = { selectHomeTab(HomeTab.CONNECTION) })
+                HomeStatusCard(Icons.Rounded.Speed, "Performance tools",
+                    "CPU processes and UI frame timing · on demand",
+                    HomeBadgePolicy.performance(perfBusy),
+                    onClick = { selectHomeTab(HomeTab.PERFORMANCE) })
                 }
             }
             HomeTab.PERFORMANCE -> {
@@ -316,10 +284,38 @@ private fun StatMetric(label: String, value: String, modifier: Modifier, tone: T
     val t = tone.colors()
     Surface(modifier = modifier, shape = MaterialTheme.shapes.large,
         color = t.container, contentColor = t.content) {
-        Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+        Column(Modifier.fillMaxWidth().heightIn(min = 64.dp)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally) {
             Text(value, style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold, maxLines = 1)
-            Text(label, style = MaterialTheme.typography.labelMedium)
+                fontWeight = FontWeight.Bold, maxLines = 1, textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth())
+            Text(label, style = MaterialTheme.typography.labelMedium,
+                textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+        }
+    }
+}
+
+/** Compact clickable navigation row with a state-derived status pill. */
+@Composable
+private fun HomeStatusCard(icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String, subtitle: String, badge: HomeBadge, onClick: () -> Unit) {
+    OutlinedCard(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(21.dp))
+            Spacer(Modifier.width(9.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleSmall)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Spacer(Modifier.width(5.dp))
+            StatusBadge(badge.label, badge.tone)
+            Icon(Icons.Rounded.ChevronRight, contentDescription = "Open " + title,
+                modifier = Modifier.size(16.dp))
         }
     }
 }

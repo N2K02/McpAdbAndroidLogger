@@ -10,7 +10,8 @@ data class LogEvent(
     val level: String,
     val tag: String,
     val message: String,
-    val raw: String
+    val raw: String,
+    val tid: String = ""
 )
 data class LogCaptureStats(
     val dayStartMs: Long = 0L,
@@ -22,8 +23,11 @@ data class LogCaptureStats(
     val readFailures: Long = 0,
 )
 
+enum class LogReadOrigin { MANUAL, MCP }
+
 object MonitorState {
     val active = MutableStateFlow(false)
+    val logReadOrigin = MutableStateFlow<LogReadOrigin?>(null)
     val adb = MutableStateFlow("Not connected")
     val gateway = MutableStateFlow("Disconnected")
     val localMcp = MutableStateFlow("Stopped")
@@ -43,6 +47,7 @@ object MonitorState {
     }
     fun quit() {
         active.value = false
+        logReadOrigin.value = null
         adb.value = "Stopped"
         gateway.value = "Stopped"
     }

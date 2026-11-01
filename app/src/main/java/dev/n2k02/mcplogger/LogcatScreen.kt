@@ -360,23 +360,12 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                         leadingIcon = { Icon(Icons.Rounded.Apps, null,
                             modifier = Modifier.size(16.dp)) })
                     Box {
-                        FilterChip(selected = filter.minLevel != "V",
+                        FilterChip(selected = filter.selectedLevels.isNotEmpty(),
                             onClick = { quickLevelExpanded = true },
-                            label = { Text("Level: " + when (filter.minLevel) {
-                                "D" -> "Debug+"; "I" -> "Info+"; "W" -> "Warn+"
-                                "E" -> "Error+"; "F" -> "Fatal"; else -> "All"
-                            }) },
+                            label = { Text("Level: " + LogViewPolicy.levelSummary(filter)) },
                             trailingIcon = { Icon(Icons.Rounded.ArrowDropDown, null) })
-                        DropdownMenu(expanded = quickLevelExpanded,
-                            onDismissRequest = { quickLevelExpanded = false }) {
-                            listOf("V" to "All", "D" to "Debug +", "I" to "Info +",
-                                "W" to "Warning +", "E" to "Error +", "F" to "Fatal")
-                                .forEach { (code, label) ->
-                                    DropdownMenuItem(text = { Text(label) }, onClick = {
-                                        update(filter.copy(minLevel = code))
-                                        quickLevelExpanded = false
-                                    })
-                                }
+                        LevelMultiSelectMenu(quickLevelExpanded, filter, ::update) {
+                            quickLevelExpanded = false
                         }
                     }
                     Box {
@@ -450,26 +439,15 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                             Icon(Icons.Rounded.ArrowDropDown, contentDescription = "Choose application")
                         }
                     }
-                    Text("Minimum severity", style = MaterialTheme.typography.labelMedium)
+                    Text("Log levels", style = MaterialTheme.typography.labelMedium)
                     Box {
                         OutlinedButton(onClick = { levelExpanded = true },
                             modifier = Modifier.fillMaxWidth()) {
-                            Text(when (filter.minLevel) {
-                                "D" -> "Debug +"; "I" -> "Info +"; "W" -> "Warn +"
-                                "E" -> "Error +"; "F" -> "Fatal"; else -> "All levels"
-                            })
+                            Text("Level: " + LogViewPolicy.levelSummary(filter))
                             Icon(Icons.Rounded.ArrowDropDown, null)
                         }
-                        DropdownMenu(expanded = levelExpanded,
-                            onDismissRequest = { levelExpanded = false }) {
-                            listOf("V" to "All", "D" to "Debug +", "I" to "Info +",
-                                "W" to "Warning +", "E" to "Error +", "F" to "Fatal")
-                                .forEach { (code, title) ->
-                                    DropdownMenuItem(text = { Text(title) }, onClick = {
-                                        update(filter.copy(minLevel = code))
-                                        levelExpanded = false
-                                    })
-                                }
+                        LevelMultiSelectMenu(levelExpanded, filter, ::update) {
+                            levelExpanded = false
                         }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -575,6 +553,29 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
     }
 }
 
+/** Multi-select priorities; tapping a level keeps the menu open. */
+@Composable
+private fun LevelMultiSelectMenu(expanded: Boolean, filter: LogViewFilter,
+    onChange: (LogViewFilter) -> Unit, onDismiss: () -> Unit) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        DropdownMenuItem(text = { Text("All levels") },
+            leadingIcon = {
+                Checkbox(checked = filter.selectedLevels.isEmpty(), onCheckedChange = null)
+            },
+            onClick = { onChange(filter.copy(selectedLevels = emptySet())) })
+        HorizontalDivider()
+        LogViewPolicy.levelOptions.forEach { (code, label) ->
+            DropdownMenuItem(text = { Text(label) },
+                leadingIcon = {
+                    Checkbox(checked = code in filter.selectedLevels, onCheckedChange = null)
+                },
+                onClick = { onChange(LogViewPolicy.toggleLevel(filter, code)) })
+        }
+        HorizontalDivider()
+        DropdownMenuItem(text = { Text("Done") }, onClick = onDismiss)
+    }
+}
+
 @Composable
 private fun LogcatEntryCard(event: LogEvent, onCopy: () -> Unit) {
     var expanded by remember(event.id) { mutableStateOf(false) }
@@ -595,43 +596,44 @@ private fun LogcatEntryCard(event: LogEvent, onCopy: () -> Unit) {
     }
     val safeTag = remember(event.tag) { SensitiveLogRedactor.redact(event.tag).take(120) }
     val safeMessage = remember(event.message) { SensitiveLogRedactor.redact(event.message) }
+    val safeRaw = remember(event.raw) { SensitiveLogRedactor.redact(event.raw) }
     val collapsedMessage = remember(safeMessage) {
         safeMessage.replace('\n', ' ').replace('\r', ' ').trim()
     }
     // A single-line summary is always tap-to-expand, with a chevron on every row.
     Row(Modifier.fillMaxWidth()
         .clickable { expanded = !expanded }
-        .heightIn(min = 44.dp)
-        .padding(horizontal = 8.dp, vertical = 4.dp),
+        .heightIn(min = 34.dp)
+        .padding(horizontal = 7.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+        horizontalArrangement = Arrangement.spacedBy(5.dp)) {
         Surface(shape = RoundedCornerShape(6.dp),
             color = tone.copy(alpha = 0.17f)) {
             Text(LogSeverity.code(event.level), color = tone,
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp))
+                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp))
         }
         Text(timestamp, style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
         Text(safeTag, style = MaterialTheme.typography.labelSmall,
             color = tone, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(0.37f))
+            modifier = Modifier.weight(0.30f))
         Text(collapsedMessage, style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface, maxLines = 1,
-            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(0.63f))
+            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(0.70f))
         Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
             contentDescription = if (expanded) "Collapse log details" else "Expand log details",
-            modifier = Modifier.size(18.dp),
+            modifier = Modifier.size(16.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     if (expanded) {
         Surface(modifier = Modifier.fillMaxWidth()
-            .padding(start = 8.dp, end = 8.dp, bottom = 6.dp),
+            .padding(start = 8.dp, end = 8.dp, bottom = 3.dp),
             shape = RoundedCornerShape(12.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
             border = BorderStroke(1.dp, tone.copy(alpha = 0.4f))) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(severity, color = tone, fontWeight = FontWeight.SemiBold,
                         style = MaterialTheme.typography.labelLarge)
@@ -645,12 +647,17 @@ private fun LogcatEntryCard(event: LogEvent, onCopy: () -> Unit) {
                     }
                 }
                 Text("Tag: " + safeTag, style = MaterialTheme.typography.labelMedium)
-                Text("PID " + event.pid + "  ·  UID " + event.uid,
+                Text("PID " + event.pid + "  ·  TID " + event.tid + "  ·  UID " + event.uid,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 HorizontalDivider()
+                Text("Full message", style = MaterialTheme.typography.labelMedium)
                 SelectionContainer {
                     Text(safeMessage, style = MaterialTheme.typography.bodySmall)
+                }
+                Text("Raw Logcat line · redacted", style = MaterialTheme.typography.labelMedium)
+                SelectionContainer {
+                    Text(safeRaw, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
