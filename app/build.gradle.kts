@@ -50,7 +50,7 @@ dependencies {
     implementation("org.bouncycastle:bcpkix-jdk15to18:1.81")
     implementation("org.conscrypt:conscrypt-android:2.7.0")
     testImplementation("junit:junit:4.13.2")
-    testImplementation("org.json:json:20240303")
+    testImplementation("org.json:json:20260814")
 }
 val verifySharedLibraries = tasks.register("verifySharedLibraries") {
     doLast {
