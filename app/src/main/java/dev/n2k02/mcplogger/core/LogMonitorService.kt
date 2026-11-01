@@ -306,6 +306,7 @@ class LogMonitorService : Service() {
         dailyPruneJob = scope.launch {
             while (isActive) {
                 readLock.withLock { rotateDay(System.currentTimeMillis()) }
+                runCatching { McpAuditStore.prune(applicationContext) }
                 val now = System.currentTimeMillis()
                 delay((LogDayPolicy.nextMidnight(now) - now + 1000L).coerceAtLeast(1000L))
             }

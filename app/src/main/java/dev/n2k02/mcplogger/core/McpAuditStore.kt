@@ -28,10 +28,41 @@ internal object McpAuditStore {
         }.takeLast(McpAuditPolicy.KEEP)
     }.getOrDefault(emptyList())
 
-    fun reload(c: Context) = synchronized(lock) { entries.value = read(c) }
 
-    /** Read a consistent snapshot; callers must first pass the local opt-in gate. */
-    fun readForAgent(c: Context): List<McpAuditEntry> = synchronized(lock) { read(c) }
+    /** Persist an atomic, bounded snapshot; empty means no previous-day journal. */
+    private fun persist(c: Context, all: List<McpAuditEntry>) {
+        val destination = file(c)
+        if (all.isEmpty()) {
+            destination.delete()
+            return
+        }
+        val json = JSONArray()
+        all.forEach { json.put(it.toJson()) }
+        val stream = destination.startWrite()
+        try {
+            stream.write(json.toString().toByteArray(Charsets.UTF_8))
+            destination.finishWrite(stream)
+        } catch (error: Exception) {
+            destination.failWrite(stream)
+            throw error
+        }
+    }
+
+    /** Prune previous-day entries on load, remote read, write and midnight tick. */
+    private fun pruneLocked(c: Context, nowMs: Long = System.currentTimeMillis()): List<McpAuditEntry> {
+        val old = read(c)
+        val current = McpAuditPolicy.today(old, nowMs)
+        if (old.size != current.size) persist(c, current)
+        entries.value = current
+        return current
+    }
+
+    fun prune(c: Context) = synchronized(lock) { pruneLocked(c); Unit }
+    fun reload(c: Context) = prune(c)
+
+    /** Read a consistent today-only snapshot after the local opt-in gate. */
+    fun readForAgent(c: Context): List<McpAuditEntry> =
+        synchronized(lock) { pruneLocked(c) }
 
     fun clear(c: Context) = synchronized(lock) {
         entries.value = emptyList()
@@ -59,18 +90,9 @@ internal object McpAuditStore {
                     McpAuditPolicy.snapshot(endpoint, 100).text,
                     httpStatus.coerceIn(0, 599),
                     McpAuditPolicy.snapshot(reason, 160).text)
-                val all = (read(c) + entry).takeLast(McpAuditPolicy.KEEP)
-                val json = JSONArray()
-                all.forEach { json.put(it.toJson()) }
-                val outputFile = file(c)
-                val stream = outputFile.startWrite()
-                try {
-                    stream.write(json.toString().toByteArray(Charsets.UTF_8))
-                    outputFile.finishWrite(stream)
-                } catch (e: Exception) {
-                    outputFile.failWrite(stream)
-                    throw e
-                }
+                val all = McpAuditPolicy.today(
+                    pruneLocked(c) + entry, System.currentTimeMillis())
+                persist(c, all)
                 entries.value = all
             }
             Unit
