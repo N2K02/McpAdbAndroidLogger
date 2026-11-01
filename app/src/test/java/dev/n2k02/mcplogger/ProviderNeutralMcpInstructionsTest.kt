@@ -12,7 +12,7 @@ class ProviderNeutralMcpInstructionsTest {
             .substringAfter("private fun BridgePage(").substringBefore("private fun LogsPage(")
         assertTrue(src.contains("Connect your AI client"))
         assertTrue(src.contains("Claude, ChatGPT and any compatible MCP agent"))
-        assertTrue(src.contains("1. Keep the MCP server and public tunnel running"))
+        assertTrue(src.contains("1. Once the permanent endpoint shows Online"))
         assertTrue(src.contains("2. In your AI agent's custom MCP connector"))
         assertTrue(src.contains("3. The agent opens this phone-hosted authorization page"))
         assertTrue(src.contains("4. Enter the existing MCP client access key"))
