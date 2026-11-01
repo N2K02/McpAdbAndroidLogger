@@ -23,6 +23,11 @@ internal object LogDayPolicy {
 
     fun recentToday(events: List<LogEvent>, nowMs: Long): List<LogEvent> {
         val from = dayStart(nowMs)
-        return events.filter { it.epochMillis >= from && it.epochMillis <= nowMs + 60_000L }
+        val until = nextMidnight(nowMs)
+        // A modest device-clock skew must not import entries from tomorrow.
+        return events.filter {
+            it.epochMillis >= from && it.epochMillis < until &&
+                it.epochMillis <= nowMs + 60_000L
+        }
     }
 }
