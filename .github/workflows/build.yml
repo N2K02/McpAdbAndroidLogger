@@ -1,0 +1,242 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. 1.1; blank increments previous tag."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP: McpAdbAndroidLogger
+
+jobs:
+  build:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Test MCP gateway
+        run: |
+          python -m pip install -r gateway/requirements.txt
+          python -m pytest -q gateway/tests
+
+      - name: Verify public stable version lookup
+        run: bash .github/scripts/test-public-version.sh
+
+      - name: Configure version and release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED: ${{ github.event.inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          local_last=$(git tag -l 'v[0-9]*' | sed -nE 's/^v([0-9]+[.][0-9])$/\1/p' | sort -V | tail -1 || true)
+          public_last=$(bash .github/scripts/latest-public-version.sh mcpadbandroidlogger)
+          latest=$(printf '%s\n%s\n' "$local_last" "${public_last#v}" | sed '/^$/d' | sort -V | tail -1)
+          if [ -n "$REQUESTED" ]; then
+            echo "$REQUESTED" | grep -Eq '^[0-9]+[.][0-9]$' || exit 1
+            version="$REQUESTED"
+          elif [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            version="${latest:-1.0}"
+          elif [ -z "$latest" ]; then
+            version="1.0"
+          else
+            number=$(( ${latest%.*} * 10 + ${latest#*.} + 1 ))
+            version="$((number / 10)).$((number % 10))"
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$((100000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+          suffix=""
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then suffix="-experimental.$GITHUB_RUN_NUMBER"; fi
+          echo "VERSION_SUFFIX=$suffix" >> "$GITHUB_ENV"
+          {
+            echo "## $APP $version"
+            echo
+            echo "### What's new"
+            git log -20 --no-merges --pretty='- %s'
+            echo
+            echo "### Install"
+            echo "Install the signed APK from this release. Android will verify its signer."
+          } > release-notes.md
+
+      - name: Verify and bundle Cloudflare Quick Tunnel for Android ARM64
+        run: bash .github/scripts/prepare-cloudflared.sh
+
+      - name: Install SDK 37.2 and build Android debug
+        env:
+          N2K02_PACKAGES_TOKEN: ${{ secrets.N2K02_PACKAGES_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          yes | "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.2"
+          chmod +x gradlew
+          ./gradlew --no-daemon :app:verifySharedLibraries :app:testDebugUnitTest :app:lintDebug :app:assembleDebug             -PappVersion="$VERSION" -PappVersionCode="$VERSION_CODE" -PappVersionSuffix="$VERSION_SUFFIX"
+
+      - name: Build and sign release APK (both stable and experimental)
+        env:
+          N2K02_PACKAGES_TOKEN: ${{ secrets.N2K02_PACKAGES_TOKEN }}
+          SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
+          SIGNING_KEYSTORE_ENC_BASE64: ${{ secrets.SIGNING_KEYSTORE_ENC_BASE64 }}
+          ANDROID_SIGNING_KEYSTORE_B64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_B64 }}
+          ANDROID_SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+          ANDROID_SIGNING_ALIAS: ${{ secrets.ANDROID_SIGNING_ALIAS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Same minified release variant and same signing identity for both channels.
+          ./gradlew --no-daemon :app:assembleRelease \
+            -PappVersion="$VERSION" -PappVersionCode="$VERSION_CODE" -PappVersionSuffix="$VERSION_SUFFIX"
+          K="$RUNNER_TEMP/apk-signing"
+          umask 077
+          mkdir -p "$K"
+          trap 'rm -rf "$K"' EXIT
+          KEYSTORE=""
+          STOREPASS=""
+          ALIAS=""
+          if [ -s signing/keys.tar.enc ]; then
+            : "${SIGNING_PASSPHRASE:?SIGNING_PASSPHRASE required for signing/keys.tar.enc}"
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 \
+              -in signing/keys.tar.enc -pass env:SIGNING_PASSPHRASE | tar -xf - -C "$K"
+            if [ -s "$K/release.p12" ] && [ -s "$K/release.pass" ]; then
+              KEYSTORE="$K/release.p12"
+              STOREPASS=$(cat "$K/release.pass")
+              ALIAS=release
+            elif [ -s "$K/old.keystore" ]; then
+              KEYSTORE="$K/old.keystore"
+              STOREPASS=android
+              ALIAS=androiddebugkey
+            else
+              echo "::error::Signing bundle contains no usable keystore"
+              exit 1
+            fi
+          elif [ -n "$SIGNING_KEYSTORE_ENC_BASE64" ]; then
+            : "${SIGNING_PASSPHRASE:?SIGNING_PASSPHRASE required for encrypted keystore}"
+            printf '%s' "$SIGNING_KEYSTORE_ENC_BASE64" | base64 --decode | \
+              openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 \
+                -pass env:SIGNING_PASSPHRASE -out "$K/release.keystore"
+            KEYSTORE="$K/release.keystore"
+            STOREPASS="${ANDROID_SIGNING_STORE_PASSWORD:-android}"
+            ALIAS="${ANDROID_SIGNING_ALIAS:-androiddebugkey}"
+          elif [ -n "$ANDROID_SIGNING_KEYSTORE_B64" ]; then
+            printf '%s' "$ANDROID_SIGNING_KEYSTORE_B64" | base64 --decode > "$K/release.keystore"
+            KEYSTORE="$K/release.keystore"
+            : "${ANDROID_SIGNING_STORE_PASSWORD:?ANDROID_SIGNING_STORE_PASSWORD required}"
+            : "${ANDROID_SIGNING_ALIAS:?ANDROID_SIGNING_ALIAS required}"
+            STOREPASS="$ANDROID_SIGNING_STORE_PASSWORD"
+            ALIAS="$ANDROID_SIGNING_ALIAS"
+          else
+            echo "::error::No signing keystore found; configure the standard N2K02 signing secrets"
+            exit 1
+          fi
+          test -s "$KEYSTORE"
+          export SIGNING_STORE_PASS="$STOREPASS"
+          export SIGNING_KEY_PASS="${ANDROID_SIGNING_KEY_PASSWORD:-$STOREPASS}"
+          unset STOREPASS
+          BT=$(ls -d "${ANDROID_HOME:-$ANDROID_SDK_ROOT}"/build-tools/* | sort -V | tail -1)
+          "$BT/apksigner" sign \
+            --ks "$KEYSTORE" --ks-pass env:SIGNING_STORE_PASS \
+            --ks-key-alias "$ALIAS" --key-pass env:SIGNING_KEY_PASS \
+            --out "$APP-$VERSION.apk" app/build/outputs/apk/release/app-release-unsigned.apk
+          "$BT/apksigner" verify --print-certs "$APP-$VERSION.apk" | grep -E "Signer.*(DN|SHA-256 digest)"
+          test -s "$APP-$VERSION.apk"
+      - name: Enable emulator virtualization
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Smoke-test signed minified APK on Android (cold-launch x3)
+        uses: reactivecircus/android-emulator-runner@v2
+        timeout-minutes: 20
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: bash .github/scripts/smoke-release-launch.sh
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP }}-${{ env.VERSION }}
+          path: ${{ env.APP }}-${{ env.VERSION }}.apk
+          if-no-files-found: error
+
+      - name: Publish stable or PR experimental release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            tag="experimental-pr-$PR_NUMBER-run-$GITHUB_RUN_NUMBER"
+            title="$APP experimental · PR #$PR_NUMBER · run $GITHUB_RUN_NUMBER"
+            target="$PR_HEAD_SHA"
+            extra=(--prerelease --latest=false)
+          else
+            tag="v$VERSION"
+            title="$APP $VERSION"
+            target="$GITHUB_SHA"
+            extra=(--latest)
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+              gh release upload "$tag" "$APP-$VERSION.apk" --clobber
+            else
+              echo "::error::Stable release tag already exists"
+              exit 1
+            fi
+          else
+            gh release create "$tag" "$APP-$VERSION.apk" --target "$target"               --title "$title" --notes-file release-notes.md "${extra[@]}"
+          fi
+
+      - name: Check distribution configuration
+        id: distribution
+        env:
+          DIST_TOKEN: ${{ secrets.ANDROID_DISTRIBUTION_TOKEN }}
+        run: |
+          if [ -n "$DIST_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::ANDROID_DISTRIBUTION_TOKEN not set: signed APK remains available from the source release"
+          fi
+
+      - name: Publish public update channel
+        if: steps.distribution.outputs.enabled == 'true'
+        env:
+          ANDROID_DISTRIBUTION_TOKEN: ${{ secrets.ANDROID_DISTRIBUTION_TOKEN }}
+          GH_TOKEN: ${{ secrets.ANDROID_DISTRIBUTION_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: bash .github/scripts/publish-distribution.sh
