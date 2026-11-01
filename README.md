@@ -193,6 +193,38 @@ successful approval returns HTTP 302 to the registered OAuth callback. For
 connection verification, look for a subsequent POST /oauth/token with HTTP 200
 and an authenticated MCP initialize in the audit, not only the approval 302.
 
+## MCP OAuth compatibility references and verification
+
+This phone-hosted server follows the OAuth authorization-code + PKCE flow and
+publishes RFC 9728 protected-resource metadata, RFC 8414 authorization-server
+metadata and a DCR registration endpoint. Follow the official references:
+
+- MCP SDK end-to-end OAuth story:
+  https://github.com/modelcontextprotocol/python-sdk/tree/main/examples/stories/oauth
+- MCP SDK authentication server/client example:
+  https://github.com/modelcontextprotocol/python-sdk/tree/main/examples/servers/simple-auth
+- ChatGPT remote MCP authentication:
+  https://developers.openai.com/plugins/build/auth
+- MCP authorization specification:
+  https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization
+
+Connect ChatGPT using the **public HTTPS /mcp URL**, OAuth with **dynamic
+client registration (DCR)** and S256 PKCE. This version does not yet support
+Client ID Metadata Documents (CIMD); never advertise CIMD until fetching and
+verifying remote metadata can be done safely with SSRF protection. Clients
+using the DCR registration endpoint remain compatible.
+
+The MCP audit sequence should show: initial 401 challenge; discovery (200);
+DCR registration (201); authorization page (200); approval (302);
+**POST /oauth/token (200)**; **POST /mcp initialize (200)**; tools/list (200).
+If token exchange fails, the audit Reason now distinguishes unknown/replayed
+codes, a mismatched redirect URI, PKCE verifier failure, changed resource,
+and revoked or expired refresh grants **without exposing secret values**.
+A 302 approval by itself does not mean ChatGPT finished connecting.
+
+Do not rotate the public URL or access key during the OAuth flow. If the
+callback cannot reach ChatGPT, restart connection setup using the current URL.
+
 ## Settings → MCP audits
 
 The **MCP audits** subpage captures MCP JSON-RPC requests processed by the

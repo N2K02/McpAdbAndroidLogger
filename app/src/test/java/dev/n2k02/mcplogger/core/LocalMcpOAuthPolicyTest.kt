@@ -168,6 +168,50 @@ class LocalMcpOAuthPolicyTest {
         assertFalse(js.contains("fetch("))
     }
 
+    private fun codeForTest(verifier: String): JSONObject {
+        val challenge = Base64.getUrlEncoder().withoutPadding().encodeToString(
+            MessageDigest.getInstance("SHA-256").digest(
+                verifier.toByteArray(StandardCharsets.US_ASCII)))
+        return JSONObject().put("client", "chatgpt-dcr-client")
+            .put("redirect", "https://chatgpt.com/connector_platform_oauth_redirect")
+            .put("aud", "https://phone.example/mcp")
+            .put("challenge", challenge).put("expiry", 50_000L)
+    }
+
+    @Test fun codeExchangeValidatesChatgptCallbackPkceAndAudience() {
+        val verifier = "test-verifier-with-sufficient-entropy-1234567890"
+        val code = codeForTest(verifier)
+        fun issue(client: String = "chatgpt-dcr-client",
+                  redirect: String = "https://chatgpt.com/connector_platform_oauth_redirect",
+                  audience: String = "https://phone.example/mcp",
+                  v: String = verifier, now: Long = 100L) =
+            LocalMcpOAuth.codeExchangeIssue(code, client, redirect, audience, v, now)
+        assertNull(issue())
+        assertTrue(issue(client = "other").orEmpty().contains("different OAuth client"))
+        assertTrue(issue(redirect = "https://chatgpt.com/connector/oauth/old")
+            .orEmpty().contains("redirect_uri"))
+        assertTrue(issue(audience = "https://different.example/mcp")
+            .orEmpty().contains("different MCP resource"))
+        assertTrue(issue(v = "wrong-verifier-with-valid-length-1234567890")
+            .orEmpty().contains("PKCE"))
+        assertTrue(issue(now = 50_000L).orEmpty().contains("expired"))
+    }
+
+    @Test fun refreshRejectsRotatedClientAudienceExpiredAndWrongTokenKind() {
+        val refresh = JSONObject().put("kind", "refresh").put("client", "chatgpt")
+            .put("aud", "https://phone.example/mcp").put("expiry", 900L)
+        fun issue(client: String = "chatgpt", audience: String = "https://phone.example/mcp",
+                  now: Long = 100L) =
+            LocalMcpOAuth.refreshIssue(refresh, client, audience, now)
+        assertNull(issue())
+        assertTrue(issue(client = "other").orEmpty().contains("another client"))
+        assertTrue(issue(audience = "https://other.example/mcp")
+            .orEmpty().contains("audience"))
+        assertTrue(issue(now = 901L).orEmpty().contains("expired"))
+        refresh.put("kind", "access")
+        assertTrue(issue().orEmpty().contains("Not a refresh"))
+    }
+
     @Test fun metadataSupportsDynamicRegistrationAndProtectedResource() {
         val previous = MonitorState.publicMcpUrl.value
         try {

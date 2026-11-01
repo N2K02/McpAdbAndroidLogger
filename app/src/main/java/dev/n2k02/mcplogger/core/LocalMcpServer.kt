@@ -88,6 +88,17 @@ object LocalMcpServer {
             })
     }
 
+    /** HTTP authorization schemes are case-insensitive (RFC 7235).
+     * Reject malformed credentials without ever persisting their raw contents.
+     */
+    internal fun bearerToken(header: String): String {
+        val separator = header.indexOf(' ')
+        if (separator < 1 || !header.substring(0,separator).equals("Bearer", true))
+            return ""
+        val token = header.substring(separator + 1)
+        return if (token.length in 20..256 && token.none { it.isWhitespace() }) token else ""
+    }
+
     /** Storage failures must not result in a silent dropped HTTP connection. */
     private fun safeOAuth(block: () -> LocalMcpOAuth.Reply): LocalMcpOAuth.Reply =
         try {
@@ -192,8 +203,7 @@ object LocalMcpServer {
                     return
                 }
                 val authorization = headers["authorization"].orEmpty()
-                val actual = if (authorization.startsWith("Bearer "))
-                    authorization.removePrefix("Bearer ") else ""
+                val actual = bearerToken(authorization)
                 val expected = BridgeClient.clientToken(context)
                 val legacy = expected.isNotBlank() && MessageDigest.isEqual(
                     actual.toByteArray(StandardCharsets.UTF_8),
@@ -214,7 +224,8 @@ object LocalMcpServer {
                         McpAuditStore.Agent(it.id, it.name, it.domain)
                     } ?: McpAuditStore.Agent("unknown-oauth", "Unknown OAuth agent", "Expired or revoked")
                 if (method != "POST" || path != "/mcp") {
-                    respond(output, 405, "Use Streamable HTTP POST")
+                    respond(output, 405, "Use Streamable HTTP POST",
+                        extra = mapOf("Allow" to "POST"))
                     McpAuditStore.record(context, agent, "[request body not read]",
                         "HTTP 405 Method Not Allowed", "MCP", "", "Error", 0,
                         httpMethod = method, endpoint = path, httpStatus = 405,

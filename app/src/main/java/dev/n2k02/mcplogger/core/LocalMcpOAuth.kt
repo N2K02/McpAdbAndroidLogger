@@ -475,6 +475,34 @@ internal object LocalMcpOAuth {
             parameters["state"] = record.getString("state")
         redirect(withParams(record.getString("redirect"), parameters))
     }
+    /** Validate the saved authorization code without storing or logging raw codes.
+     * A failed verifier still consumes the code, preventing replay.
+     */
+    internal fun codeExchangeIssue(record: JSONObject, client: String, redirect: String,
+                                   audience: String, verifier: String, now: Long): String? =
+        when {
+            record.optString("client") != client ->
+                "Authorization code belongs to a different OAuth client"
+            record.optString("redirect") != redirect ->
+                "Token redirect_uri differs from the original authorization request"
+            record.optString("aud") != audience ->
+                "Authorization code was issued for a different MCP resource"
+            record.optLong("expiry") <= now ->
+                "Authorization code expired; restart the ChatGPT connection"
+            !pkceMatches(verifier, record.optString("challenge")) ->
+                "PKCE code_verifier did not match the authorization challenge"
+            else -> null
+        }
+
+    internal fun refreshIssue(record: JSONObject, client: String,
+                              audience: String, now: Long): String? = when {
+        record.optString("kind") != "refresh" -> "Not a refresh token"
+        record.optString("client") != client -> "Refresh token belongs to another client"
+        record.optString("aud") != audience -> "Refresh token MCP audience changed"
+        record.optLong("expiry") <= now -> "Refresh token expired; reconnect the agent"
+        else -> null
+    }
+
     private fun issue(s: JSONObject, client: String, audience: String, scopes: String): Reply {
         val now = System.currentTimeMillis()
         val access = nonce()
@@ -495,26 +523,28 @@ internal object LocalMcpOAuth {
         val s = current(c)
         val id = form["client_id"].orEmpty()
         if (table(s,"clients").optJSONObject(id) == null)
-            return@synchronized failure("invalid_client",401)
-        val audience = resource() ?: return@synchronized failure("temporarily_unavailable",503)
+            return@synchronized failure("invalid_client",401,
+                "OAuth client not registered; reconnect and use dynamic client registration")
+        val audience = resource() ?: return@synchronized failure("temporarily_unavailable",503,
+            "Public MCP tunnel unavailable; retry token exchange when connected")
         if (form["resource"] != null && form["resource"] != audience)
-            return@synchronized failure("invalid_target")
+            return@synchronized failure("invalid_target", description =
+                "Requested token resource does not match the public MCP endpoint")
         when (form["grant_type"]) {
             "authorization_code" -> {
                 val key = digest(form["code"].orEmpty())
                 val codes = table(s,"codes")
                 val record = codes.optJSONObject(key)
-                    ?: return@synchronized failure("invalid_grant")
+                    ?: return@synchronized failure("invalid_grant", description =
+                        "Authorization code missing, expired or already exchanged; reconnect")
                 if (table(s, "tokens").length() > 254)
                     return@synchronized failure("token_capacity_reached", 429)
                 // One-time code remains consumed even if PKCE verification fails.
                 codes.remove(key); save(c,s)
-                if (record.optString("client") != id ||
-                    record.optString("redirect") != form["redirect_uri"] ||
-                    record.optString("aud") != audience ||
-                    record.optLong("expiry") <= System.currentTimeMillis() ||
-                    !pkceMatches(form["code_verifier"].orEmpty(),record.optString("challenge")))
-                    return@synchronized failure("invalid_grant")
+                val issue = codeExchangeIssue(record, id, form["redirect_uri"].orEmpty(),
+                    audience, form["code_verifier"].orEmpty(), System.currentTimeMillis())
+                if (issue != null)
+                    return@synchronized failure("invalid_grant", description = issue)
                 val response = issue(s,id,audience,record.optString("scope",SCOPE))
                 save(c,s); updateConnected(s)
                 response
@@ -523,16 +553,15 @@ internal object LocalMcpOAuth {
                 val key = digest(form["refresh_token"].orEmpty())
                 val tokens = table(s,"tokens")
                 val record = tokens.optJSONObject(key)
-                    ?: return@synchronized failure("invalid_grant")
+                    ?: return@synchronized failure("invalid_grant", description =
+                        "Refresh token missing, expired or already rotated; reconnect")
                 if (tokens.length() > 254)
                     return@synchronized failure("token_capacity_reached", 429)
                 tokens.remove(key)
                 save(c,s)
-                if (record.optString("kind") != "refresh" ||
-                    record.optString("client") != id ||
-                    record.optString("aud") != audience ||
-                    record.optLong("expiry") <= System.currentTimeMillis())
-                    return@synchronized failure("invalid_grant")
+                val issue = refreshIssue(record, id, audience, System.currentTimeMillis())
+                if (issue != null)
+                    return@synchronized failure("invalid_grant", description = issue)
                 val response = issue(s,id,audience,record.optString("scope",SCOPE))
                 save(c,s); updateConnected(s)
                 response
