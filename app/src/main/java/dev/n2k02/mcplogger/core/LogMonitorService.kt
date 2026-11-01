@@ -88,11 +88,12 @@ class LogMonitorService : Service() {
                     timeoutMs = 12000
                 ).getOrThrow()
                 val scannedAt = System.currentTimeMillis()
-                val rolledOver = rotateDay(scannedAt)
                 val parsed = LogDayPolicy.recentToday(
                     output.lineSequence().mapNotNull(LogFoxParser::parse).toList(), scannedAt)
-                val accepted = resetGate.applyIfCurrent(
-                    if (rolledOver) resetGate.generation() else readGeneration) {
+                // Serialize manual Clear with the midnight rollover: an in-flight
+                // read must never repopulate entries the user explicitly cleared.
+                val accepted = resetGate.applyIfCurrent(readGeneration) {
+                    rotateDay(scannedAt)
                     val newEntries = buffer.add(parsed, null, null)
                     MonitorState.logs.value = buffer.snapshot(0, 2000)
                     val previous = MonitorState.captureStats.value
