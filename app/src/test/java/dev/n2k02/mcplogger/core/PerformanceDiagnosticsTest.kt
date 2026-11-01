@@ -110,7 +110,7 @@ class PerformanceDiagnosticsTest {
             File("app/src/main/java/dev/n2k02/mcplogger/core/PerformanceDiagnostics.kt"),
             File("../app/src/main/java/dev/n2k02/mcplogger/core/PerformanceDiagnostics.kt")
         ).first { it.isFile }.readText()
-        assertTrue(src.contains("top -b -n 1 -m 200 -o PID,%CPU,RES,NAME"))
+        assertTrue(src.contains("top -b -n 1 -m 200 -o PID,%CPU,RES,NAME -s 2"))
         assertTrue(src.contains("dumpsys gfxinfo "))
         assertTrue(src.contains("validatePackage(packageName, true)"))
         assertTrue(src.contains("lock.tryLock()"))

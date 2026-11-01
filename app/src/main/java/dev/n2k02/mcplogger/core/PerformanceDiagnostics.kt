@@ -15,7 +15,8 @@ internal object PerformanceDiagnostics {
     private val lock = Mutex()
     private val packagePattern = Regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+")
     private val whitespace = Regex("\\s+")
-    private const val CPU_COMMAND = "top -b -n 1 -m 200 -o PID,%CPU,RES,NAME"
+    // -s 2 sorts the explicitly selected %CPU column, not the default 9th column.
+    private const val CPU_COMMAND = "top -b -n 1 -m 200 -o PID,%CPU,RES,NAME -s 2"
     private const val TIMEOUT_MS = 12_000L
 
     fun validPackage(name: String): Boolean =
