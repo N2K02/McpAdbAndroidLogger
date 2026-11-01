@@ -48,17 +48,36 @@ class QuickMcpTunnelTest {
         assertNull(QuickMcpTunnel.Registration.fromJson(bad))
     }
 
-    @Test fun urlIsPersistedAndRotationForgetsItAndKey() {
+    @Test fun restartRetainsTheSameUrlAndMcpClientKey() {
         val root = "app/src/main/java/dev/n2k02/mcplogger/"
         fun read(p: String) = listOf(File(root + p), File("../$root$p")).first { it.isFile }.readText()
         val tunnel = read("core/QuickMcpTunnel.kt")
         assertTrue(tunnel.contains("noBackupFilesDir"))
-        assertFalse(tunnel.contains("credentials?.delete()"))
+        assertTrue(tunnel.contains("if (reg.confirmed) MonitorState.publicMcpUrl.value ="))
+        assertTrue(tunnel.contains("StableMcpRelay.publicMcpUrl(context).orEmpty()"))
+        assertTrue(tunnel.contains("MonitorState.publicMcpUrl.value = stable.orEmpty()"))
+        assertFalse(tunnel.contains("MonitorState.publicMcpUrl.value = stable ?: reg.mcpUrl"))
         val service = read("core/LogMonitorService.kt")
-        val rotate = service.substringAfter("TUNNEL_RESTART, TUNNEL_ROTATE -> {")
+        val reconnect = service.substringAfter("TUNNEL_RESTART -> {")
             .substringBefore("LOCAL_START, START -> {")
-        assertTrue(rotate.contains("QuickMcpTunnel.forget(applicationContext)"))
-        assertTrue(rotate.contains("BridgeClient.saveClientToken"))
-        assertTrue(read("LoggerUi.kt").contains("Rotate URL and access key"))
+        assertTrue(reconnect.contains("QuickMcpTunnel.stop()"))
+        assertTrue(reconnect.contains("QuickMcpTunnel.start(applicationContext)"))
+        assertFalse(reconnect.contains("QuickMcpTunnel.forget"))
+        assertFalse(reconnect.contains("BridgeClient.saveClientToken"))
+        assertFalse(service.contains("TUNNEL_ROTATE"))
+        val ui = read("LoggerUi.kt")
+        assertEquals(1, Regex("CardHeader\\(Icons\\.Rounded\\.Cloud, \\"Public MCP\\"").findAll(ui).count())
+        assertFalse(ui.contains("Permanent relay (optional)"))
+        assertFalse(ui.contains("Rotate URL and access key"))
+        assertTrue(ui.contains("Permanent HTTPS MCP URL"))
+        assertTrue(ui.contains("MCP client access key"))
+    }
+
+    @Test fun firstInitializationRetainsPersistedClientToken() {
+        val root = "app/src/main/java/dev/n2k02/mcplogger/core/"
+        val src = listOf(File(root + "BridgeClient.kt"), File("../$root" + "BridgeClient.kt"))
+            .first { it.isFile }.readText()
+        assertTrue(src.contains(".ifBlank { McpConnectionSetup.newSecret() }"))
+        assertTrue(src.contains("p.getString(\\"mcp_client_token\\", \\"\\")"))
     }
 }
