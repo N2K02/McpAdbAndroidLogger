@@ -78,11 +78,8 @@ class McpLogQueryTest {
     }
 
     @Test fun malformedNamesAndUnsupportedMethodsAreRejected() {
-        for (value in listOf("com.example.target; rm -rf /", "a".repeat(256),
-                "com.example.target\n")) {
-            // Surrounding whitespace is intentionally allowed: embedded spaces/control
-            // characters are not.
-            if (value.endsWith("\n")) continue
+        for (value in listOf("com.example.target;rm", "a".repeat(256),
+                "com.example.target\\ncom.example.other", "com.example.target/bad")) {
             assertThrows(IllegalArgumentException::class.java) {
                 McpLogQuery.select(events, "get_live_logs", value, packages)
             }
