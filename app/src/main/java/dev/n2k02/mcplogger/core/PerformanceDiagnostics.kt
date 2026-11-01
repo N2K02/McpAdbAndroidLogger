@@ -2,6 +2,8 @@ package dev.n2k02.mcplogger.core
 
 import dev.n2k02.mcplogger.adb.AdbCoordinator
 import dev.n2k02.mcplogger.adb.AdbTransport
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import org.json.JSONArray
 import org.json.JSONObject
@@ -61,9 +63,11 @@ internal object PerformanceDiagnostics {
 
     private suspend fun readCpu(packageName: String, limit: Int): JSONObject {
         val output = AdbTransport.exec(CPU_COMMAND, timeoutMs = TIMEOUT_MS).getOrThrow()
-        return parseCpu(output, packageName, limit)
-            .put("taken_at", System.currentTimeMillis())
-            .put("source", "Android toybox top, single bounded sample")
+        return withContext(Dispatchers.Default) {
+            parseCpu(output, packageName, limit)
+                .put("taken_at", System.currentTimeMillis())
+                .put("source", "Android toybox top, single bounded sample")
+        }
     }
 
     private suspend fun readFrames(packageName: String, budget: Double): JSONObject {
@@ -72,9 +76,11 @@ internal object PerformanceDiagnostics {
             "dumpsys gfxinfo " + packageName + " framestats",
             timeoutMs = TIMEOUT_MS
         ).getOrThrow()
-        return parseFrames(output, packageName, budget)
-            .put("taken_at", System.currentTimeMillis())
-            .put("source", "Android dumpsys gfxinfo framestats")
+        return withContext(Dispatchers.Default) {
+            parseFrames(output, packageName, budget)
+                .put("taken_at", System.currentTimeMillis())
+                .put("source", "Android dumpsys gfxinfo framestats")
+        }
     }
 
     /** Percent may exceed 100 on multicore; neither name nor arguments are user-provided. */
@@ -113,7 +119,8 @@ internal object PerformanceDiagnostics {
     internal fun parseFrames(text: String, packageName: String, budgetMs: Double = 16.67): JSONObject {
         validateBudget(budgetMs)
         var columns: Map<String, Int>? = null
-        val samples = ArrayList<Pair<Double, Double?>>()
+        // Keep only the recent 240 frame records; dumpsys can contain many thousands.
+        val samples = ArrayDeque<Pair<Double, Double?>>()
         for (line in text.lineSequence()) {
             val trimmed = line.trim()
             if (trimmed.startsWith("Flags,") && trimmed.contains("IntendedVsync") &&
@@ -139,9 +146,10 @@ internal object PerformanceDiagnostics {
             val submit = number("SwapBuffers")
             val latency = if (gpu != null && submit != null && gpu > submit &&
                 gpu - submit <= 10_000_000_000L) (gpu - submit) / 1_000_000.0 else null
-            samples += delta / 1_000_000.0 to latency
+            if (samples.size >= 240) samples.removeFirst()
+            samples.addLast(delta / 1_000_000.0 to latency)
         }
-        val recent = samples.takeLast(240)
+        val recent = samples.toList()
         val times = recent.map { it.first }.sorted()
         val gpuTimes = recent.mapNotNull { it.second }.sorted()
         val slower = times.count { it > budgetMs }
