@@ -432,3 +432,27 @@ shown, buffered, read-cycle and last-refresh counters refer to the current
 local day. Performance snapshots perform no background CPU/GPU polling;
 parsing of potentially large gfxinfo output is dispatched off the UI thread
 and only the latest 240 UI frame records are retained.
+
+
+## Portrait Logcat and MCP audit retention
+
+The portrait-first Home screen uses **Overview / Performance / Connection** tabs,
+retaining the global **Home / Logs / Settings / Quit** navigation. Overview
+shows compact daily captured/buffered/read-cycle/last-refresh metrics and
+quick access to connection status. Only the Performance tab starts manual
+CPU or UI frame probes; no CPU/GPU background sampler is enabled.
+
+The Logs tab includes compact in-place App, Level, Time and Crashes/ANRs
+filters. Every line shows a prominent color-coded severity indicator and a
+chevron. Tap any line to expand its full, redacted message, severity name,
+tag, millisecond timestamp and PID/UID; Copy remains protected by redaction.
+More detailed filter options are in Filters; cache controls are in Storage.
+
+**MCP audits are also current-day only.** The app-private atomic audit journal
+keeps a maximum of 160 sanitized entries for the local calendar day. Older
+entries are permanently pruned at midnight while MCP Logger runs, on restart
+or opening the audit page, on an MCP audit query and on each new audit write.
+The midnight task performs no shell commands. In-memory reuse avoids
+re-reading the audit JSON file for each request. Export needed audit
+history before the local midnight cutoff. This does not clear Android
+Logcat, stored exports or revoke MCP agent authorization.
