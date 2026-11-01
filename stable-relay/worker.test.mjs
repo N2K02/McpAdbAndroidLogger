@@ -58,6 +58,22 @@ test("authenticated registration maps a new quick tunnel without changing the st
       body: JSON.stringify({ mcpUrl: "https://" + host + "/mcp" }),
     }), env);
     assert.equal(r.status, 200);
-    assert.equal(data.get("origin"), "https://" + host + "/mcp");
+    assert.equal(data.get("origin").url, "https://" + host + "/mcp");
+    assert.ok(data.get("origin").expiresAt > Date.now());
   }
+});
+
+test("expired registration fails closed before contacting prior tunnel", async () => {
+  const storage = new Map([["origin", {
+    url: "https://old.trycloudflare.com/mcp", expiresAt: Date.now() - 1,
+  }]]);
+  const obj = new McpRoute({ storage: {
+    get: async key => storage.get(key),
+    put: async (key, value) => storage.set(key, value),
+  } });
+  const r = await obj.fetch(new Request("https://static.workers.dev/mcp", {
+    method: "POST", headers: { Authorization: "Bearer " + "y".repeat(64) },
+    body: '{"jsonrpc":"2.0","method":"initialize","id":1}',
+  }));
+  assert.equal(r.status, 503);
 });
