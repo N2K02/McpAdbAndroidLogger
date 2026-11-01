@@ -12,8 +12,8 @@ class McpAndAdbWorkflowContractTest {
     @Test fun localMcpIsDirectAndNoLongerUploadsToGateway() {
         val ui = source("app/src/main/java/dev/n2k02/mcplogger/LoggerUi.kt")
             .substringAfter("private fun BridgePage(").substringBefore("private fun LogsPage(")
-        assertTrue(ui.contains("Phone-hosted MCP"))
-        assertTrue(ui.contains("Copy public MCP URL"))
+        assertTrue(ui.contains("Phone-hosted server:"))
+        assertTrue(ui.contains("Copy permanent MCP URL"))
         assertFalse(ui.contains("Enable log upload"))
         assertFalse(ui.contains("Save MCP connection"))
         val service = source("app/src/main/java/dev/n2k02/mcplogger/core/LogMonitorService.kt")
