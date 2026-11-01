@@ -153,7 +153,7 @@ object QuickMcpTunnel {
                     // A URL already confirmed earlier is stable: keep showing it while
                     // cloudflared reconnects so the connector settings stay valid.
                     if (reg.confirmed) MonitorState.publicMcpUrl.value =
-                        StableMcpRelay.publicMcpUrl(context) ?: reg.mcpUrl
+                        StableMcpRelay.publicMcpUrl(context).orEmpty()
                     runOnce(context, binary, reg, tracker)
                 } catch (e: Exception) {
                     if (stopped) break
@@ -253,10 +253,15 @@ object QuickMcpTunnel {
                         save(context, reg.copy(confirmed = true))
                     }
                     val stable = StableMcpRelay.publicMcpUrl(context)
-                    val published = stable == null || StableMcpRelay.publish(context, reg.mcpUrl)
-                    MonitorState.publicMcpUrl.value = stable ?: reg.mcpUrl
-                    MonitorState.tunnel.value = if (published) "Public MCP connected"
-                        else "Stable relay unavailable"
+                    val published = stable != null && StableMcpRelay.publish(context, reg.mcpUrl)
+                    // Do not expose a rotating Quick Tunnel URL as a second public
+                    // endpoint. OAuth always uses the single configured Worker issuer.
+                    MonitorState.publicMcpUrl.value = stable.orEmpty()
+                    MonitorState.tunnel.value = when {
+                        stable == null -> "Permanent endpoint not configured"
+                        published -> "Public MCP connected"
+                        else -> "Stable relay unavailable"
+                    }
                 } else if (tracker.rejected) {
                     edgeConnected = false
                     running.destroyForcibly()
