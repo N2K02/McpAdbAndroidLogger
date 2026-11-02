@@ -13,6 +13,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.security.PrivateKey
+import java.security.KeyFactory
+import java.security.spec.PKCS8EncodedKeySpec
 import java.security.cert.Certificate
 import java.util.concurrent.TimeUnit
 
@@ -27,6 +29,11 @@ import java.util.concurrent.TimeUnit
 private class JemAdbConnectionManager(context: Context) : AbsAdbConnectionManager() {
 
     private val identity = AdbIdentity.getOrCreate(context)
+    // libadb's connection close destroys its key. Always provide a fresh
+    // per-connection key object, not the persisted cached identity object.
+    private val sessionKey: PrivateKey = KeyFactory.getInstance("RSA")
+        .generatePrivate(PKCS8EncodedKeySpec(
+            requireNotNull(identity.privateKey.encoded) { "ADB RSA key is not exportable" }))
 
     init {
         setApi(Build.VERSION.SDK_INT)
@@ -36,7 +43,7 @@ private class JemAdbConnectionManager(context: Context) : AbsAdbConnectionManage
         setTimeout(10, TimeUnit.SECONDS)
     }
 
-    override fun getPrivateKey(): PrivateKey = identity.privateKey
+    override fun getPrivateKey(): PrivateKey = sessionKey
 
     override fun getCertificate(): Certificate = identity.certificate
 
@@ -374,13 +381,8 @@ object AdbTransport {
         }
     }
 
-    suspend fun disconnect() = withContext(Dispatchers.IO) {
-        runCatching { shell?.close() }
-        shell = null
-        runCatching { manager?.disconnect() }
-        lastKnownConnected = false
-        Unit
-    }
+    /** Disconnect and retire the manager, including its disposable session key. */
+    suspend fun disconnect() = close()
 
     /**
      * Release the transport and in-memory manager, but preserve our ADB identity.

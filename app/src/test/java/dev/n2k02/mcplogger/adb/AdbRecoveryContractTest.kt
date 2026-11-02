@@ -27,6 +27,11 @@ class AdbRecoveryContractTest {
         assertTrue(coordinator.contains("existingUid == \"2000\""))
         val adb = code("AdbTransport.kt")
         assertTrue(adb.contains("oldManager?.disconnect()"))
+        assertTrue(adb.contains("private val sessionKey: PrivateKey"))
+        assertTrue(adb.contains("PKCS8EncodedKeySpec("))
+        assertTrue(adb.contains("getPrivateKey(): PrivateKey = sessionKey"))
+        assertFalse(adb.contains("getPrivateKey(): PrivateKey = identity.privateKey"))
+        assertTrue(adb.contains("suspend fun disconnect() = close()"))
         assertFalse(adb.contains("manager?.close()"))
         assertFalse(adb.contains("mgr.close()"))
     }
