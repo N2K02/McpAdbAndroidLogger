@@ -171,10 +171,7 @@ private fun HomePage(modifier: Modifier, onLogs: () -> Unit,
 private fun AdbPage(modifier: Modifier) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val status by MonitorState.adb.collectAsState()
-    val discovery by AdbCoordinator.discoveryState.collectAsState()
     val verified by AdbCoordinator.verified.collectAsState()
-    val authorizationRequired by AdbCoordinator.manualRetryRequired.collectAsState()
     val autoCodeEnabled = dev.n2k02.mcplogger.adb.PairingAccessibilityService.enabled(context)
     var autoPair by remember { mutableStateOf(AdbRecoverySettings.autoPair(context)) }
     var watchdog by remember { mutableStateOf(AdbRecoverySettings.watchdog(context)) }
@@ -183,11 +180,6 @@ private fun AdbPage(modifier: Modifier) {
     var tcp by remember { mutableStateOf(AdbRecoverySettings.tcpMode(context)) }
     var note by remember { mutableStateOf("") }
     var working by remember { mutableStateOf(false) }
-    var expanded by rememberSaveable { mutableStateOf(false) }
-    var manualPorts by rememberSaveable { mutableStateOf(false) }
-    var pairPort by rememberSaveable { mutableStateOf("") }
-    var connectPort by rememberSaveable { mutableStateOf("") }
-    var code by remember { mutableStateOf("") }
     val tcpOpen by AdbCoordinator.tcpPortOpen.collectAsState()
 
     @Composable
@@ -218,12 +210,14 @@ private fun AdbPage(modifier: Modifier) {
                     autoPair = it
                     AdbRecoverySettings.setAutoPair(context, it)
                 }
-                if (autoPair && !autoCodeEnabled && !verified) {
+                if (autoPair && !autoCodeEnabled) {
+                    Text("Accessibility is needed for automatic pairing. Manual pairing is on Home.",
+                        style = MaterialTheme.typography.bodySmall)
                     TextButton(onClick = {
                         runCatching {
                             context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                         }.onFailure { note = "Cannot open Accessibility settings" }
-                    }) { Text("Enable pairing Accessibility helper") }
+                    }) { Text("Enable Accessibility") }
                 }
                 HorizontalDivider()
                 PreferenceRow("Connection watchdog",
@@ -233,7 +227,7 @@ private fun AdbPage(modifier: Modifier) {
                     AdbRecoveryLifecycle.configureWatchdog(context, it)
                 }
                 PreferenceRow("Start on boot",
-                    "Try to restore the connection after restarting and unlocking.",
+                    "Try to restore the helper after restarting and unlocking.",
                     boot) {
                     boot = it
                     AdbRecoverySettings.setStartOnBoot(context, it)
@@ -306,90 +300,6 @@ private fun AdbPage(modifier: Modifier) {
             }
         }
 
-        // VRec keeps pairing on Home; logger keeps an accessible manual
-        // pairing panel here because its Home is a diagnostics-only dashboard.
-        if (!verified) {
-            ElevatedCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Connect Android ADB", style = MaterialTheme.typography.titleMedium)
-                    Text(if (authorizationRequired)
-                        "Android needs manual authorization. Tap Retry below."
-                    else discovery.status, style = MaterialTheme.typography.bodySmall)
-                    Button(onClick = {
-                        runCatching {
-                            context.startActivity(
-                                Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
-                        }.onFailure { note = "Cannot open Developer options" }
-                    }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Open Android Developer options")
-                    }
-                    Text("Enable Wireless debugging, then choose 'Pair device with pairing code'. " +
-                        "If Accessibility is enabled, the code can be read automatically.",
-                        style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = { expanded = !expanded }) {
-                        Text(if (expanded) "Hide pairing controls" else "Pair manually")
-                    }
-                    if (expanded || discovery.pairingPort != null) {
-                        OutlinedTextField(code, { code = it.filter(Char::isDigit).take(6) },
-                            label = { Text("Six-digit pairing code") },
-                            singleLine = true, modifier = Modifier.fillMaxWidth(),
-                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                                keyboardType = androidx.compose.ui.text.input.KeyboardType.NumberPassword))
-                        Button(onClick = {
-                            working = true
-                            scope.launch {
-                                try {
-                                    val port = pairPort.toIntOrNull() ?: discovery.pairingPort
-                                    if (port == null) note = "Open Android pairing dialog to discover its port."
-                                    else {
-                                        val result = AdbCoordinator.pair(context, port, code)
-                                        code = ""
-                                        note = if (result.isSuccess) {
-                                            val connected = AdbCoordinator.connect(context,
-                                                userInitiated = true)
-                                            if (connected.isSuccess) "UID 2000 verified."
-                                            else "Paired; open Wireless debugging and retry."
-                                        } else "Pairing was rejected; enter the current Android code."
-                                    }
-                                } finally { working = false }
-                            }
-                        }, enabled = code.length == 6 && !working,
-                            modifier = Modifier.fillMaxWidth()) { Text("Pair and connect ADB") }
-                    }
-                    OutlinedButton(onClick = {
-                        working = true
-                        scope.launch {
-                            try {
-                                val result = AdbCoordinator.connect(context,
-                                    connectPort.toIntOrNull(), userInitiated = true)
-                                note = if (result.isSuccess) "UID 2000 verified."
-                                    else "ADB unavailable: " +
-                                        (result.exceptionOrNull()?.message ?: "retry pairing")
-                            } finally { working = false }
-                        }
-                    }, enabled = !working, modifier = Modifier.fillMaxWidth()) {
-                        Text("Reconnect / verify ADB")
-                    }
-                    TextButton(onClick = { manualPorts = !manualPorts }) {
-                        Text(if (manualPorts) "Hide advanced port controls"
-                            else "Advanced: manual ports")
-                    }
-                    if (manualPorts) {
-                        OutlinedTextField(pairPort,
-                            { pairPort = it.filter(Char::isDigit).take(5) },
-                            label = { Text("Pairing port (optional)") }, singleLine = true)
-                        OutlinedTextField(connectPort,
-                            { connectPort = it.filter(Char::isDigit).take(5) },
-                            label = { Text("Connection port (optional)") }, singleLine = true)
-                    }
-                }
-            }
-        } else {
-            Text("ADB: UID 2000 verified · " + status,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
         if (note.isNotBlank()) Text(note, style = MaterialTheme.typography.bodySmall)
     }
 }
