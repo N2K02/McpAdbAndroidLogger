@@ -42,6 +42,22 @@ class LogMonitorService : Service() {
         private val buffer = LogBuffer()
         private val resetGate = LogcatResetGate()
         private val readLock = Mutex()
+        private const val IDLE_CACHE_MILLIS = 5 * 60_000L
+        private val idleHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        private val idleCleanup = Runnable {
+            if (!MonitorState.active.value) {
+                resetGate.reset {
+                    buffer.clear(resetDedup = true)
+                    MonitorState.logs.value = emptyList()
+                    MonitorState.recentLogRequest.value = null
+                }
+            }
+        }
+        private fun cancelIdleLogCleanup() = idleHandler.removeCallbacks(idleCleanup)
+        private fun scheduleIdleLogCleanup() {
+            cancelIdleLogCleanup()
+            idleHandler.postDelayed(idleCleanup, IDLE_CACHE_MILLIS)
+        }
         private var logDayStart = -1L
 
         /** Rotate only the private in-memory capture and stats, never Android's logd. */
@@ -52,6 +68,7 @@ class LogMonitorService : Service() {
                 resetGate.reset {
                     buffer.clear(resetDedup = true)
                     MonitorState.logs.value = emptyList()
+                    MonitorState.recentLogRequest.value = null
                     MonitorState.captureStats.value = LogCaptureStats(dayStartMs = today)
                     MonitorState.logcatMaintenanceStatus.value = "Daily cache rotated; previous-day entries pruned"
                 }
@@ -59,6 +76,7 @@ class LogMonitorService : Service() {
                 // App process may recreate its foreground service without restarting.
                 buffer.clear(resetDedup = true)
                 MonitorState.logs.value = emptyList()
+                MonitorState.recentLogRequest.value = null
                 MonitorState.captureStats.value = LogCaptureStats(dayStartMs = today)
             }
             logDayStart = today
@@ -75,9 +93,11 @@ class LogMonitorService : Service() {
          * cache preserves existing MCP cursors and the local Logs viewer, but is
          * never replenished in the background.
          */
-        suspend fun readOnDemand(): List<LogEvent> = readLock.withLock {
+        suspend fun readOnDemand(origin: LogReadOrigin = LogReadOrigin.MCP): List<LogEvent> = readLock.withLock {
+            cancelIdleLogCleanup()
             rotateDay(System.currentTimeMillis())
             val readGeneration = resetGate.generation()
+            MonitorState.logReadOrigin.value = origin
             MonitorState.active.value = true
             try {
                 check(AdbCoordinator.verified.value) { "ADB shell UID 2000 is not verified" }
@@ -107,7 +127,17 @@ class LogMonitorService : Service() {
                     )
                 }
                 // Never return entries that a concurrent Clear discarded.
-                if (accepted) buffer.snapshot(0, 2000) else emptyList()
+                if (accepted) {
+                    if (origin == LogReadOrigin.MANUAL) {
+                        MonitorState.recentLogRequest.value = RecentLogRequest(
+                            origin = LogReadOrigin.MANUAL,
+                            tool = "Manual refresh",
+                            atMillis = System.currentTimeMillis(),
+                            filter = MonitorState.logFilter.value
+                        )
+                    }
+                    buffer.snapshot(0, 2000)
+                } else emptyList()
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -121,6 +151,8 @@ class LogMonitorService : Service() {
                 throw error
             } finally {
                 MonitorState.active.value = false
+                MonitorState.logReadOrigin.value = null
+                scheduleIdleLogCleanup()
             }
         }
 
@@ -147,6 +179,7 @@ class LogMonitorService : Service() {
         fun clear() = resetGate.reset {
             buffer.clear()
             MonitorState.logs.value = emptyList()
+            MonitorState.recentLogRequest.value = null
         }
         /** Home metrics only; ADB and tunnel status always remain truthful. */
         fun resetHomeStatistics() = resetGate.reset {
@@ -358,7 +391,7 @@ class LogMonitorService : Service() {
             .putBoolean("manual_quit", false).apply()
         job = scope.launch {
             try {
-                readOnDemand()
+                readOnDemand(LogReadOrigin.MANUAL)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (_: Exception) {

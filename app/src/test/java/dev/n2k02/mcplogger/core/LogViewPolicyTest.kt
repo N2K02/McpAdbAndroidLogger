@@ -29,11 +29,24 @@ class LogViewPolicyTest {
 
     @Test fun severityAndCrashesAreCombinable() {
         assertEquals(listOf(2L,4L), LogViewPolicy.select(logs,
-            LogViewFilter(minLevel="E"), uids, 600000).map { it.id })
+            LogViewFilter(selectedLevels=setOf("E", "F")), uids, 600000).map { it.id })
         assertEquals(listOf(2L,4L), LogViewPolicy.select(logs,
             LogViewFilter(crashesOnly=true), uids, 600000).map { it.id })
         assertEquals(listOf(2L), LogViewPolicy.select(logs,
             LogViewFilter(crashesOnly=true, search="EXCEPTION"), uids, 600000).map { it.id })
+    }
+
+    @Test fun severityMultiSelectAndAllWorkWithOtherFilters() {
+        val onlyErrors = LogViewFilter(selectedLevels = setOf("E"))
+        assertEquals(listOf(2L), LogViewPolicy.select(logs, onlyErrors, uids, 600000).map { it.id })
+        val both = LogViewPolicy.toggleLevel(onlyErrors, "F")
+        assertEquals(setOf("E", "F"), both.selectedLevels)
+        assertEquals(listOf(2L, 4L), LogViewPolicy.select(logs, both, uids, 600000).map { it.id })
+        assertEquals("2 selected", LogViewPolicy.levelSummary(both))
+        val none = LogViewPolicy.toggleLevel(LogViewPolicy.toggleLevel(both, "E"), "F")
+        assertTrue(none.selectedLevels.isEmpty())
+        assertEquals(4, LogViewPolicy.select(logs, none, uids, 600000).size)
+        assertEquals(none, LogViewPolicy.toggleLevel(none, "unknown"))
     }
 
     @Test fun tagPidSearchAndTimeCombine() {
@@ -42,6 +55,18 @@ class LogViewPolicyTest {
             uids, 600000).map { it.id })
         assertTrue(LogViewPolicy.select(logs, LogViewFilter(windowMinutes=5),
             uids, 1000000).isEmpty())
+    }
+
+    @Test fun badgeCountsAdvancedFiltersNotSearch() {
+        assertEquals(0, LogViewPolicy.activeFilterCount(LogViewFilter()))
+        assertEquals(0, LogViewPolicy.activeFilterCount(LogViewFilter(search = "error")))
+        assertEquals(1, LogViewPolicy.activeFilterCount(
+            LogViewFilter(selectedLevels = setOf("E", "W"))))
+        val all = LogViewFilter(packageName = "app.a", search = "hello",
+            selectedLevels = setOf("E", "F"), windowMinutes = 15,
+            crashesOnly = true, tag = "AndroidRuntime", pid = "123")
+        assertEquals(6, LogViewPolicy.activeFilterCount(all))
+        assertEquals(0, LogViewPolicy.activeFilterCount(LogViewPolicy.reset()))
     }
 
     @Test fun resetClearsAllFilters() {

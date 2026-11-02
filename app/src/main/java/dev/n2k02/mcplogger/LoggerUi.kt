@@ -42,7 +42,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LoggerApp(onStart: () -> Unit, onStop: () -> Unit, onQuit: () -> Unit) {
+fun LoggerApp(onQuit: () -> Unit) {
     var page by rememberSaveable { mutableStateOf(Page.HOME) }
     var subpageParent by rememberSaveable { mutableStateOf(Page.SETTINGS) }
     fun navigateTo(destination: Page) {
@@ -115,7 +115,8 @@ fun LoggerApp(onStart: () -> Unit, onStop: () -> Unit, onQuit: () -> Unit) {
         }
     ) { padding ->
         when (page) {
-            Page.HOME -> HomePage(Modifier.padding(padding), onStart, onStop,
+            Page.HOME -> HomePage(Modifier.padding(padding),
+                onLogs = { navigateTo(Page.LOGS) },
                 onAdb = { navigateTo(Page.ADB) }, onMcp = { navigateTo(Page.BRIDGE) })
             Page.SETTINGS -> Column(Modifier.padding(padding).verticalScroll(rememberScrollState())) {
                 SettingsRow("ADB connection", "Pair, authorize and recover shell UID 2000",
@@ -161,9 +162,9 @@ private fun SettingsRow(title: String, subtitle: String,
 }
 
 @Composable
-private fun HomePage(modifier: Modifier, onStart: () -> Unit, onStop: () -> Unit,
+private fun HomePage(modifier: Modifier, onLogs: () -> Unit,
     onAdb: () -> Unit, onMcp: () -> Unit) {
-    HomeDashboard(modifier, onStart, onStop, onAdb, onMcp)
+    HomeDashboard(modifier, onLogs, onAdb, onMcp)
 }
 
 @Composable

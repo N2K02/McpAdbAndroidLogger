@@ -70,4 +70,29 @@ class HomeAndLogcatUiContractTest {
         assertFalse(manifest.contains("android.permission.QUERY_ALL_PACKAGES"))
         assertTrue(manifest.contains("android.intent.category.LAUNCHER"))
     }
+    @Test fun logcatTabsSwipeAndTapLikeHome() {
+        val home = code("HomeDashboard.kt")
+        val logcat = code("LogcatScreen.kt")
+        for (token in listOf("rememberPagerState(", "HorizontalPager(state = pagerState",
+                "snapshotFlow { pagerState.settledPage }", "animateScrollToPage(",
+                "TabRow(selectedTabIndex = pagerState.currentPage)")) {
+            assertTrue("Home missing " + token, home.contains(token))
+            assertTrue("Logcat missing " + token, logcat.contains(token))
+        }
+        assertTrue(logcat.contains("pageCount = { LogcatTab.entries.size }"))
+        assertTrue(logcat.contains("when (LogcatTab.entries[page])"))
+        assertTrue(logcat.contains("onClick = { selectLogcatTab(destination) }"))
+        assertTrue(logcat.contains("selectLogcatTab(LogcatTab.FILTERS)"))
+        assertTrue(logcat.contains("selectLogcatTab(LogcatTab.STORAGE)"))
+        assertTrue(logcat.contains("selectLogcatTab(LogcatTab.LOGS)"))
+        assertTrue(logcat.contains("BackHandler(enabled = HomeTabHistory.canGoBack(tabHistory))"))
+        assertTrue(logcat.contains("HomeTabHistory.visit(tabHistory, page"))
+        assertTrue(logcat.contains("scope.launch { pagerState.scrollToPage(prior.last()) }"))
+        assertTrue(logcat.contains("LazyColumn(Modifier.fillMaxWidth().weight(1f)"))
+        assertTrue(logcat.contains("LogcatTab.LOGS -> {"))
+        assertTrue(logcat.contains("Column(Modifier.fillMaxSize())"))
+        assertTrue(logcat.contains("MonitorState.logFilter.collectAsState()"))
+        assertFalse(logcat.contains("when (tab)"))
+    }
+
 }

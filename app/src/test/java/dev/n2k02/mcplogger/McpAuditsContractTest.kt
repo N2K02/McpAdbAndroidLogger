@@ -85,10 +85,30 @@ class McpAuditsContractTest {
 
     @Test fun screenOffersAgentToolStatusTimeFiltersAndUserExport() {
         val screen = source(root + "McpAuditsScreen.kt")
-        for (token in listOf("All agents", "All tools", "All results", "Any time",
+        for (token in listOf(
+                "All agents", "All tools", "All results", "Any time",
                 "McpAuditPolicy.select", "CreateDocument(\"text/plain\")",
-                "Tap to inspect request and response", "Copy details", "Clear history",
-                "Export", "RoundedCornerShape(50)", "HTTP: ",
-                "Reason: ", "Unknown agent")) assertTrue("Missing " + token, screen.contains(token))
+                "Copy details", "Clear history", "Export matching audits",
+                "RoundedCornerShape(50)", "HTTP: ", "Reason: ", "Unknown agent"
+        )) assertTrue("Missing " + token, screen.contains(token))
+    }
+
+    @Test fun compactAuditLayoutKeepsFiltersAndActionsAccessible() {
+        val screen = source(root + "McpAuditsScreen.kt")
+        // No wide scrolling row that clips the fourth filter offscreen.
+        assertFalse(screen.contains("Row(Modifier.horizontalScroll"))
+        for (token in listOf(
+                "Modifier.weight(1f)", "maxLines = 1",
+                "overflow = TextOverflow.Ellipsis", "RoundedCornerShape(18.dp)",
+                "Icons.Rounded.MoreVert", "contentDescription = \"Audit actions\"",
+                "Reset filters", "Export matching audits", "Clear audit history",
+                "About MCP audits", "showAuditInfo", "confirmClear = true",
+                "snapshot = visible.toList()", "McpAuditPolicy.export(copyOfRows)",
+                "AuditJsonPreview(entry.request)", "AuditJsonPreview(entry.response"
+        )) assertTrue("Missing " + token, screen.contains(token))
+        assertFalse(screen.contains("MCP activity by AI agent · Today only"))
+        assertFalse(screen.contains("Tap to inspect request and response"))
+        assertFalse(screen.contains("Text(\"Reset\")"))
+        assertFalse(screen.contains("Text(\"Export\")"))
     }
 }

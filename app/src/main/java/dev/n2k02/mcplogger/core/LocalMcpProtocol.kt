@@ -35,9 +35,14 @@ internal object LocalMcpProtocol {
                 "tools/list" -> JSONObject().put("tools", toolList(auditReader != null))
                 "tools/call" -> {
                     val params = req.optJSONObject("params") ?: JSONObject()
-                    val body = readTool(params.optString("name"),
-                        params.optJSONObject("arguments") ?: JSONObject(), auditReader,
-                        logsReader, appsReader, performanceReader)
+                    val name = params.optString("name")
+                    MonitorState.beginMcpTool(name)
+                    val body = try {
+                        readTool(name, params.optJSONObject("arguments") ?: JSONObject(),
+                            auditReader, logsReader, appsReader, performanceReader)
+                    } finally {
+                        MonitorState.endMcpTool(name)
+                    }
                     JSONObject().put("content", JSONArray().put(JSONObject().put("type", "text")
                         .put("text", body.toString()))).put("isError", false)
                 }
@@ -156,6 +161,26 @@ internal object LocalMcpProtocol {
                     query = query,
                     level = level,
                     limit = limit,
+                )
+                // Mirror the most recent successful MCP request in the Logs screen.
+                // Store IDs rather than copying log messages, and preserve the tool's
+                // returned limit / cursor selection until the user edits UI filters.
+                val nextFilter = LogViewFilter(
+                    packageName = args.optString("package_name", "").trim(),
+                    search = query,
+                    selectedLevels = if (name == "get_live_logs" &&
+                        level.uppercase() in setOf("V", "D", "I", "W", "E", "F"))
+                        setOf(level.uppercase()) else emptySet(),
+                    crashesOnly = name == "get_crashes" || name == "get_anrs",
+                )
+                MonitorState.logFilter.value = nextFilter
+                MonitorState.selectedPackage.value = nextFilter.packageName
+                MonitorState.recentLogRequest.value = RecentLogRequest(
+                    origin = LogReadOrigin.MCP,
+                    tool = name,
+                    atMillis = System.currentTimeMillis(),
+                    filter = nextFilter,
+                    entryIds = logs.mapTo(mutableSetOf()) { it.id }
                 )
                 JSONArray().apply {
                     logs.forEach { e ->
