@@ -48,7 +48,7 @@ dependencies {
     implementation("com.github.MuntashirAkon:libadb-android:3.1.1")
     implementation("org.bouncycastle:bcprov-jdk15to18:1.86")
     implementation("org.bouncycastle:bcpkix-jdk15to18:1.86")
-    implementation("org.conscrypt:conscrypt-android:2.7.0")
+    implementation("org.conscrypt:conscrypt-android:2.8.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20260814")
 }
