@@ -2,6 +2,31 @@
 
 This is the **current recommended connection method**. The phone hosts the MCP/OAuth server and runs a private outbound Cloudflare Quick Tunnel. A Worker fronts it with **one permanent public HTTPS URL**; it is **not** a static Cloudflare Pages site or the GitHub Pages website. No PC, Docker, or Termux is needed on the phone. The Android server must remain running for the remote URL to work.
 
+## Cloudflare Git builds: production and preview parity
+
+Use a **single Worker** named `mcpadbandroidlogger`, built from this
+`stable-relay/` directory. In **Settings → Builds**, configure the Git production
+branch as `main`, root directory `stable-relay`, no build command, and
+production deploy command `npx wrangler deploy`.
+
+Enable **Worker Previews** for experimental branches, with the same root
+directory and preview command `npx wrangler preview`. An explicit `previews`
+block and the separate `MCP_ROUTE` Durable Object binding are provided in
+`wrangler.toml`. Preview storage is separate from production. Experimental
+pushes must **never** run `wrangler deploy` against production.
+
+If GitHub shows a failing `Workers Builds` check, inspect the matching build
+under Cloudflare **Workers → Builds → Build logs**. A `wrangler preview`
+"missing previews block" error means the build is using the wrong config
+file or an outdated commit. Fix the **root directory** and confirm
+`wrangler.toml` includes `previews = { }` and
+`[[previews.durable_objects.bindings]]`.
+
+Preview environments do **not** inherit runtime `DEVICE_TOKEN` secrets; do not
+copy a production registration secret into a public preview. A preview may
+correctly respond `503 Stable relay is not provisioned` until a distinct
+test-only registration secret is configured.
+
 ## A. Deploy the Worker (once, using the Cloudflare dashboard)
 
 1. Open [Cloudflare dashboard](https://dash.cloudflare.com/) → **Workers & Pages** → **Create** → **Worker** and connect the GitHub repository `N2K02/McpAdbAndroidLogger`. **Do not create a Pages/static-assets project**.

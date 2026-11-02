@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import relay, { allowedMcpPath, validQuickTunnel, McpRoute } from "./worker.mjs";
 
 test("only valid Cloudflare quick tunnel endpoints can be registered", () => {
@@ -76,4 +77,16 @@ test("expired registration fails closed before contacting prior tunnel", async (
     body: '{"jsonrpc":"2.0","method":"initialize","id":1}',
   }));
   assert.equal(r.status, 503);
+});
+
+test("Cloudflare Workers preview config isolates Durable Object storage", () => {
+  const config = readFileSync(new URL("./wrangler.toml", import.meta.url), "utf8");
+  assert.match(config, /^name = "mcpadbandroidlogger"$/m);
+  assert.match(config, /^main = "worker.mjs"$/m);
+  assert.match(config, /^previews = \{ \}$/m);
+  assert.match(config, /^\[\[durable_objects.bindings\]\]$/m);
+  assert.match(config, /^\[\[previews.durable_objects.bindings\]\]$/m);
+  assert.equal((config.match(/name = "MCP_ROUTE"/g) || []).length, 2);
+  assert.equal((config.match(/class_name = "McpRoute"/g) || []).length, 2);
+  assert.doesNotMatch(config, /DEVICE_TOKEN\s*=/);
 });
