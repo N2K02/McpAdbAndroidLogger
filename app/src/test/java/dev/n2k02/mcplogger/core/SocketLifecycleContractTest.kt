@@ -17,6 +17,8 @@ class SocketLifecycleContractTest {
         assertTrue(s.contains("clients.release(client)"))
         assertTrue(s.contains("clients.stop()"))
         assertTrue(s.contains("runCatching { client.close() }"))
+        assertTrue(s.contains("workers?.shutdownNow()"))
+        assertTrue(s.contains("val workerPool = newWorkers().also { workers = it }"))
     }
 
     @Test fun quitAwaitsAdbCloseBeforeServiceDestroy() {

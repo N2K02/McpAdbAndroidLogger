@@ -12,6 +12,7 @@ import java.util.concurrent.RejectedExecutionException
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.concurrent.Executors
+import java.util.concurrent.ExecutorService
 import org.json.JSONObject
 
 /** Loopback-only authenticated local MCP endpoint. Owned by LogMonitorService. */
@@ -21,9 +22,10 @@ object LocalMcpServer {
     private const val MAX_BODY = 131072
     private val allowedOrigins = setOf("https://claude.ai", "https://chatgpt.com",
         "https://chat.openai.com")
-    private val workers = Executors.newFixedThreadPool(4) { task ->
+    private fun newWorkers(): ExecutorService = Executors.newFixedThreadPool(4) { task ->
         Thread(task, "mcp-local-client").apply { isDaemon = true }
     }
+    private var workers: ExecutorService? = null
     @Volatile private var listener: ServerSocket? = null
     @Volatile private var active = false
     private val lock = Any()
@@ -33,6 +35,8 @@ object LocalMcpServer {
         if (active && listener?.isClosed == false) return@synchronized true
         active = false
         clients.stop()
+        workers?.shutdownNow()
+        workers = null
         runCatching { listener?.close() }
         listener = null
         BridgeClient.initialize(context.applicationContext)
@@ -40,6 +44,7 @@ object LocalMcpServer {
             val socket = ServerSocket(PORT, 8, InetAddress.getByName("127.0.0.1"))
             socket.soTimeout = 1500
             listener = socket
+            val workerPool = newWorkers().also { workers = it }
             val generation = clients.begin()
             active = true
             MonitorState.localMcp.value = "Local server running"
@@ -49,7 +54,7 @@ object LocalMcpServer {
                         val client = socket.accept()
                         if (!clients.register(generation, client)) continue
                         try {
-                            workers.execute {
+                            workerPool.execute {
                                 try {
                                     if (clients.isCurrent(generation))
                                         handle(client, context.applicationContext)
@@ -76,6 +81,8 @@ object LocalMcpServer {
         } catch (_: Exception) {
             active = false
             clients.stop()
+            workers?.shutdownNow()
+            workers = null
             runCatching { listener?.close() }
             listener = null
             MonitorState.localMcp.value = "Port unavailable"
@@ -86,6 +93,9 @@ object LocalMcpServer {
     fun stop() = synchronized(lock) {
         active = false
         clients.stop()
+        // Interrupt active handlers and discard queued work on Stop/Quit.
+        workers?.shutdownNow()
+        workers = null
         runCatching { listener?.close() }
         listener = null
         MonitorState.localMcp.value = "Stopped"
