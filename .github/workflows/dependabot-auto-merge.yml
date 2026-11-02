@@ -1,0 +1,35 @@
+name: Auto-merge green Dependabot PRs
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+  check_suite:
+    types: [completed]
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+  statuses: read
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const prs = await github.paginate(github.rest.pulls.list, {owner, repo, state: 'open', per_page: 100});
+            for (const pr of prs) {
+              if (pr.user.login !== 'dependabot[bot]' || pr.draft || pr.base.ref !== 'main') continue;
+              const sha = pr.head.sha;
+              const checks = await github.paginate(github.rest.checks.listForRef, {owner, repo, ref: sha, per_page: 100}, r => r.data.check_runs);
+              const statuses = await github.rest.repos.getCombinedStatusForRef({owner, repo, ref: sha});
+              if (!checks.length && !statuses.data.statuses.length) continue;
+              if (checks.some(c => c.status !== 'completed' || !['success','neutral','skipped'].includes(c.conclusion))) continue;
+              if (statuses.data.state === 'pending' || statuses.data.state === 'failure' || statuses.data.state === 'error') continue;
+              try {
+                await github.rest.pulls.merge({owner, repo, pull_number: pr.number, sha, merge_method: 'squash'});
+                core.info('Merged Dependabot PR #' + pr.number);
+                try { await github.rest.git.deleteRef({owner, repo, ref: 'heads/' + pr.head.ref}); } catch (e) { core.warning('Branch cleanup: ' + e.message); }
+              } catch (e) { core.warning('PR #' + pr.number + ' not mergeable: ' + e.message); }
+            }
