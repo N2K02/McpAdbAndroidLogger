@@ -3,6 +3,9 @@ main = "worker.mjs"
 compatibility_date = "2026-10-15"
 workers_dev = true
 
+# Explicit Worker Previews; production and experimental branches stay isolated.
+[previews]
+
 [[durable_objects.bindings]]
 name = "MCP_ROUTE"
 class_name = "McpRoute"
@@ -10,3 +13,8 @@ class_name = "McpRoute"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["McpRoute"]
+
+# Previews have separate Durable Object storage; this binding is NOT inherited.
+[[previews.durable_objects.bindings]]
+name = "MCP_ROUTE"
+class_name = "McpRoute"

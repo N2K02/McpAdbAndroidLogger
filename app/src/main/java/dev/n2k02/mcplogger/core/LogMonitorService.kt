@@ -23,6 +23,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -193,10 +195,13 @@ class LogMonitorService : Service() {
     private var tunnelJob: Job? = null
     private var relayHeartbeatJob: Job? = null
     private var dailyPruneJob: Job? = null
+    private var quitJob: Job? = null
     private var foreground = false
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Never restart monitoring or the MCP listener while Quit is closing ADB.
+        if (quitJob?.isActive == true) return START_NOT_STICKY
         // Android may restart a sticky foreground service without the original Intent.
         when (intent?.action ?: LOCAL_START) {
             CLEAR_DEVICE_LOGCAT -> {
@@ -244,6 +249,7 @@ class LogMonitorService : Service() {
                 return START_STICKY
             }
             QUIT -> {
+                if (quitJob?.isActive == true) return START_NOT_STICKY
                 dailyPruneJob?.cancel()
                 dailyPruneJob = null
                 stopCapture()
@@ -258,11 +264,20 @@ class LogMonitorService : Service() {
                     .putBoolean("manual_quit", true).apply()
                 AdbRecoverySettings.setManuallyQuit(applicationContext, true)
                 AdbRecoveryLifecycle.shutdown(applicationContext)
-                scope.launch { AdbCoordinator.quit() }
                 MonitorState.quit()
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                foreground = false
-                stopSelf()
+                // Keep the Service alive until ADB socket teardown completes:
+                // stopSelf triggers onDestroy, which cancels the Service scope.
+                quitJob = scope.launch {
+                    try {
+                        withContext(NonCancellable) { AdbCoordinator.quit() }
+                    } finally {
+                        withContext(NonCancellable + Dispatchers.Main.immediate) {
+                            stopForeground(STOP_FOREGROUND_REMOVE)
+                            foreground = false
+                            stopSelf()
+                        }
+                    }
+                }
                 return START_NOT_STICKY
             }
             STOP -> {
@@ -294,9 +309,12 @@ class LogMonitorService : Service() {
                     .putBoolean("mcp_server_enabled", true).apply()
                 ensureForeground()
                 LocalMcpServer.start(applicationContext)
+                val previousTunnel = tunnelJob
                 QuickMcpTunnel.stop()
-                tunnelJob?.cancel()
+                previousTunnel?.cancel()
                 tunnelJob = scope.launch {
+                    // The old supervisor must release its child process first.
+                    previousTunnel?.join()
                     delay(1200)
                     QuickMcpTunnel.start(applicationContext)
                 }
@@ -409,6 +427,7 @@ class LogMonitorService : Service() {
         stopCapture()
         QuickMcpTunnel.stop()
         tunnelJob?.cancel()
+        relayHeartbeatJob?.cancel()
         LocalMcpServer.stop()
         if (foreground) stopForeground(STOP_FOREGROUND_REMOVE)
         scope.cancel()

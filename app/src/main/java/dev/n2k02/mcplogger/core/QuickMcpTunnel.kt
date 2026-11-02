@@ -10,6 +10,7 @@ import java.net.HttpURLConnection
 import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.URL
+import java.util.concurrent.TimeUnit
 
 /**
  * Cloudflare Quick Tunnel for Android ARM64. Phone stays behind NAT; cloudflared
@@ -117,8 +118,8 @@ object QuickMcpTunnel {
      * or loses all connections, reusing the saved registration each time.
      */
     suspend fun start(context: Context) = withContext(Dispatchers.IO) {
-        // A just-stopped supervisor may still be unwinding; let it finish first.
-        repeat(30) { if (starting && stopped) delay(100) }
+        // A stopped supervisor must finish closing its process before restart.
+        while (starting && stopped) delay(100)
         synchronized(lock) {
             if (starting || process?.isAlive == true) return@withContext
             starting = true
@@ -238,10 +239,11 @@ object QuickMcpTunnel {
             if (stopped) running.destroyForcibly()
             else process = running
         }
-        if (stopped) return
-        MonitorState.tunnel.value = "Connecting to Cloudflare..."
-        var confirmed = reg.confirmed
-        running.inputStream.bufferedReader().use { reader ->
+        try {
+            if (stopped) return
+            MonitorState.tunnel.value = "Connecting to Cloudflare..."
+            var confirmed = reg.confirmed
+            running.inputStream.bufferedReader().use { reader ->
             while (!stopped) {
                 val line = reader.readLine() ?: break
                 // No tokens or logs are forwarded into status text.
@@ -271,11 +273,17 @@ object QuickMcpTunnel {
                     MonitorState.tunnel.value = "Tunnel is reconnecting"
                 }
             }
-        }
-        edgeConnected = false
-        synchronized(lock) {
-            running.destroyForcibly()
-            if (process === running) process = null
+            }
+        } finally {
+            // Exceptions during publication or reading must not leak cloudflared.
+            edgeConnected = false
+            runCatching { running.destroyForcibly() }
+            runCatching { running.waitFor(2, TimeUnit.SECONDS) }
+            runCatching { running.outputStream.close() }
+            runCatching { running.errorStream.close() }
+            synchronized(lock) {
+                if (process === running) process = null
+            }
         }
     }
 

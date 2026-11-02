@@ -18,6 +18,38 @@ class AdbRecoveryContractTest {
         assertTrue(s.contains("AdbCoordinator.manualRetryRequired.value"))
         assertTrue(s.contains("AdbRecoverySettings.restoreWirelessAfterReboot(app)"))
     }
+    @Test fun healthyConnectionIsReusedAndDisconnectDoesNotDestroyIdentity() {
+        val coordinator = code("AdbCoordinator.kt")
+        val healthy = coordinator.indexOf("if (verified.value && AdbTransport.lastKnownConnected)")
+        val firstReconnect = coordinator.indexOf("AdbTransport.close()")
+        assertTrue(healthy >= 0)
+        assertTrue(firstReconnect > healthy)
+        assertTrue(coordinator.contains("existingUid == \"2000\""))
+        val adb = code("AdbTransport.kt")
+        assertTrue(adb.contains("oldManager?.disconnect()"))
+        assertTrue(adb.contains("private val sessionKey: PrivateKey"))
+        assertTrue(adb.contains("AdbSessionKey.copyOf(identity.privateKey)"))
+        assertTrue(adb.contains("getPrivateKey(): PrivateKey = sessionKey"))
+        assertFalse(adb.contains("getPrivateKey(): PrivateKey = identity.privateKey"))
+        assertTrue(adb.contains("suspend fun disconnect() = close()"))
+        assertTrue(adb.contains("if (manager === mgr) manager = null"))
+        assertTrue(adb.contains("runCatching { mgr.disconnect() }"))
+        assertFalse(adb.contains("manager?.close()"))
+        assertFalse(adb.contains("mgr.close()"))
+    }
+
+    @Test fun privateKeyIsNotSharedBetweenLibadbConnections() {
+        val generator = java.security.KeyPairGenerator.getInstance("RSA")
+        generator.initialize(1024)
+        val saved = generator.generateKeyPair().private
+        val first = AdbSessionKey.copyOf(saved)
+        val next = AdbSessionKey.copyOf(saved)
+        assertNotSame(saved, first)
+        assertNotSame(first, next)
+        assertArrayEquals(saved.encoded, first.encoded)
+        assertArrayEquals(saved.encoded, next.encoded)
+    }
+
     @Test fun connectionStatusVerifiedNotInferredFromPort() {
         val s = code("AdbCoordinator.kt")
         assertTrue(s.contains("AdbTransport.exec(\"id -u\")"))

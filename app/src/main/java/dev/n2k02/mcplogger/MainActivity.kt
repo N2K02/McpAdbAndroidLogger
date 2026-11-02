@@ -43,9 +43,11 @@ class MainActivity : ComponentActivity() {
                 onQuit = {
                     startService(Intent(this, LogMonitorService::class.java)
                         .setAction(LogMonitorService.QUIT))
+                    // Only the foreground Service owns transport teardown and
+                    // awaits completion before stopping. Activity work can be
+                    // cancelled on screen exit.
                     AdbRecoverySettings.setManuallyQuit(this, true)
                     AdbRecoveryLifecycle.shutdown(this)
-                    lifecycleScope.launch { AdbCoordinator.quit() }
                     MonitorState.quit()
                 }
             ) }
