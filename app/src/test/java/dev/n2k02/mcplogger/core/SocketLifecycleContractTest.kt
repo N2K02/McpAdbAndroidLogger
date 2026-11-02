@@ -24,8 +24,9 @@ class SocketLifecycleContractTest {
         val quit = s.substringAfter("QUIT -> {").substringBefore("STOP -> {")
         assertTrue(quit.contains("quitJob = scope.launch"))
         assertTrue(quit.contains("withContext(NonCancellable) { AdbCoordinator.quit() }"))
-        assertTrue(quit.contains("stopSelfResult(startId)"))
-        assertTrue(quit.indexOf("AdbCoordinator.quit()") < quit.indexOf("stopSelfResult(startId)"))
+        assertTrue(quit.contains("stopSelf()"))
+        assertTrue(quit.indexOf("AdbCoordinator.quit()") < quit.indexOf("stopSelf()"))
+        assertTrue(s.contains("if (quitJob?.isActive == true) return START_NOT_STICKY"))
         assertFalse(quit.contains("scope.launch { AdbCoordinator.quit() }"))
     }
 

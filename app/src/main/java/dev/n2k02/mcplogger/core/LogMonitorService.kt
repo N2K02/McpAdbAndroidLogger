@@ -200,6 +200,8 @@ class LogMonitorService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Never restart monitoring or the MCP listener while Quit is closing ADB.
+        if (quitJob?.isActive == true) return START_NOT_STICKY
         // Android may restart a sticky foreground service without the original Intent.
         when (intent?.action ?: LOCAL_START) {
             CLEAR_DEVICE_LOGCAT -> {
@@ -272,7 +274,7 @@ class LogMonitorService : Service() {
                         withContext(NonCancellable + Dispatchers.Main.immediate) {
                             stopForeground(STOP_FOREGROUND_REMOVE)
                             foreground = false
-                            stopSelfResult(startId)
+                            stopSelf()
                         }
                     }
                 }
