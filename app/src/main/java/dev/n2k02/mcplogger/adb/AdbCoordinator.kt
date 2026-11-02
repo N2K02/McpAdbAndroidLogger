@@ -137,6 +137,20 @@ object AdbCoordinator {
             manualRetryRequired.value = false
             lastDiscoveredAttempt = null
         }
+        // Preserve an already-verified ADB session instead of replacing it
+        // whenever the Activity opens or a recovery request overlaps.
+        if (verified.value && AdbTransport.lastKnownConnected) {
+            val existingUid = try {
+                AdbTransport.exec("id -u", timeoutMs = 6_000).getOrNull()?.trim()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            }
+            if (existingUid == "2000") {
+                manualRetryRequired.value = false
+                return@withLock Result.success(Unit)
+            }
+            verified.value = false
+        }
         MonitorState.adb.value = "Connecting..."
         tcpPortOpen.value = tcpListening()
         val candidates = listOfNotNull(

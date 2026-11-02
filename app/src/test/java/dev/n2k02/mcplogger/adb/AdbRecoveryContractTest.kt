@@ -18,6 +18,19 @@ class AdbRecoveryContractTest {
         assertTrue(s.contains("AdbCoordinator.manualRetryRequired.value"))
         assertTrue(s.contains("AdbRecoverySettings.restoreWirelessAfterReboot(app)"))
     }
+    @Test fun healthyConnectionIsReusedAndDisconnectDoesNotDestroyIdentity() {
+        val coordinator = code("AdbCoordinator.kt")
+        val healthy = coordinator.indexOf("if (verified.value && AdbTransport.lastKnownConnected)")
+        val firstReconnect = coordinator.indexOf("AdbTransport.close()")
+        assertTrue(healthy >= 0)
+        assertTrue(firstReconnect > healthy)
+        assertTrue(coordinator.contains("existingUid == \"2000\""))
+        val adb = code("AdbTransport.kt")
+        assertTrue(adb.contains("oldManager?.disconnect()"))
+        assertFalse(adb.contains("manager?.close()"))
+        assertFalse(adb.contains("mgr.close()"))
+    }
+
     @Test fun connectionStatusVerifiedNotInferredFromPort() {
         val s = code("AdbCoordinator.kt")
         assertTrue(s.contains("AdbTransport.exec(\"id -u\")"))

@@ -187,7 +187,7 @@ object AdbTransport {
                         // The command's first word only: the daemon's launch
                         // line carries its token.
                         Log.w(TAG, "exec: '${command.substringBefore(' ')} ...' timed out after ${timeoutMs}ms")
-                        session?.let { runCatching { it.close() } } ?: runCatching { mgr.close() }
+                        session?.let { runCatching { it.close() } } ?: runCatching { mgr.disconnect() }
                         shell = null
                         lastKnownConnected = false
                     }
@@ -382,13 +382,19 @@ object AdbTransport {
         Unit
     }
 
-    /** Drops the connection AND the in-memory manager, but never the identity
-     *  files - keep the stable ADB identity across app sessions. */
+    /**
+     * Release the transport and in-memory manager, but preserve our ADB identity.
+     *
+     * libadb AbsAdbConnectionManager.close() calls getPrivateKey().destroy()
+     * and prints DestroyFailedException if the persistent key cannot be erased.
+     * Use disconnect() for socket-only teardown on reconnect, Stop and Quit.
+     */
     suspend fun close() = withContext(Dispatchers.IO) {
         runCatching { shell?.close() }
         shell = null
-        runCatching { manager?.close() }
+        val oldManager = manager
         manager = null
+        runCatching { oldManager?.disconnect() }
         lastKnownConnected = false
         Unit
     }

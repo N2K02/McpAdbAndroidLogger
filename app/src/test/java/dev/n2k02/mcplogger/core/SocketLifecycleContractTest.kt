@@ -52,5 +52,13 @@ class SocketLifecycleContractTest {
         assertTrue(close.contains("runCatching { out.close() }"))
         assertTrue(adb.contains("lastKnownConnected = false"))
         assertTrue(source("adb/AdbCoordinator.kt").contains("AdbTransport.close()"))
+        assertTrue(adb.contains("oldManager?.disconnect()"))
+        assertFalse(adb.contains("manager?.close()"))
+        assertFalse(adb.contains("mgr.close()"))
+        assertTrue(adb.contains("manager = null"))
+        assertTrue(source("adb/AdbCoordinator.kt").contains(
+            "if (verified.value && AdbTransport.lastKnownConnected)"))
+        assertFalse(source("MainActivity.kt").contains(
+            "lifecycleScope.launch { AdbCoordinator.quit() }"))
     }
 }
