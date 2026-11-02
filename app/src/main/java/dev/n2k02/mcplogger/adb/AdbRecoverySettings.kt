@@ -150,13 +150,11 @@ object AdbRecoverySettings {
         }.getOrDefault(false)
     }
 
-    /** Only transient networking failures should be automatically retried. */
-    fun requiresManualRetry(error: Throwable): Boolean {
-        val causes = generateSequence(error) { it.cause }.toList()
-        val transient = causes.any {
-            it is ConnectException || it is NoRouteToHostException ||
-                it is SocketTimeoutException || it is IOException
-        }
-        return !transient
-    }
+    /**
+     * A stale TLS port or a temporary rejection during daemon restart is not
+     * proof that pairing was revoked. Keep retrying automatically; reserve
+     * manual intervention for explicit security/authorization exceptions.
+     */
+    fun requiresManualRetry(error: Throwable): Boolean =
+        generateSequence(error) { it.cause }.any { it is SecurityException }
 }
