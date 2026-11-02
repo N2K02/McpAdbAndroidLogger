@@ -23,9 +23,23 @@ class CompactLogcatScreenTest {
         assertTrue(screen.contains("onClick = { selectLogcatTab(destination) }"))
         assertTrue(screen.contains("BackHandler(enabled = HomeTabHistory.canGoBack(tabHistory))"))
         assertTrue(screen.contains("LogcatTab.LOGS -> {"))
-        // The pager must have one Column root per page; multiple top-level
-        // children overlap and hide the search, filters and log list at runtime.
-        assertTrue(screen.contains("LogcatTab.LOGS -> {\\n                // A single full-size layout root is required for each pager page.\\n                Column(Modifier.fillMaxSize()) {"))
+        // A pager page needs one vertical layout root. Without it, sibling
+        // composables overlap and the search/filters/log list become invisible.
+        val logsPage = screen.substringAfter("LogcatTab.LOGS -> {")
+            .substringBefore("LogcatTab.FILTERS -> {")
+        assertTrue(logsPage.contains("Column(Modifier.fillMaxSize()) {"))
+        val status = logsPage.indexOf("Text(filtered.size.toString()")
+        val search = logsPage.indexOf("BasicTextField(value = filter.search")
+        val quickFilters = logsPage.indexOf("FilterChip(selected = filter.packageName.isNotBlank()")
+        val logRows = logsPage.indexOf("LazyColumn(Modifier.fillMaxWidth().weight(1f)")
+        assertTrue("Logcat status must appear first", status >= 0)
+        assertTrue("Search box must appear below status", search > status)
+        assertTrue("Quick filters must appear below search", quickFilters > search)
+        assertTrue("Scrollable log list must appear below filters", logRows > quickFilters)
+        assertTrue(logsPage.contains("Search logs, tags or PID"))
+        assertTrue(logsPage.contains("FilterChip(selected = filter.selectedLevels.isNotEmpty()"))
+        assertTrue(logsPage.contains("FilterChip(selected = filter.windowMinutes != 0"))
+        assertTrue(logsPage.contains("FilterChip(selected = filter.crashesOnly"))
         assertTrue(screen.contains("LazyColumn(Modifier.fillMaxWidth().weight(1f)"))
         assertTrue(screen.contains("Box(Modifier.fillMaxWidth().weight(1f).padding(24.dp)"))
         assertTrue(screen.contains("LogcatTab.FILTERS -> {"))
