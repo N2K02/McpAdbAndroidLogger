@@ -57,6 +57,18 @@ class LogViewPolicyTest {
             uids, 1000000).isEmpty())
     }
 
+    @Test fun badgeCountsAdvancedFiltersNotSearch() {
+        assertEquals(0, LogViewPolicy.activeFilterCount(LogViewFilter()))
+        assertEquals(0, LogViewPolicy.activeFilterCount(LogViewFilter(search = "error")))
+        assertEquals(1, LogViewPolicy.activeFilterCount(
+            LogViewFilter(selectedLevels = setOf("E", "W"))))
+        val all = LogViewFilter(packageName = "app.a", search = "hello",
+            selectedLevels = setOf("E", "F"), windowMinutes = 15,
+            crashesOnly = true, tag = "AndroidRuntime", pid = "123")
+        assertEquals(6, LogViewPolicy.activeFilterCount(all))
+        assertEquals(0, LogViewPolicy.activeFilterCount(LogViewPolicy.reset()))
+    }
+
     @Test fun resetClearsAllFilters() {
         assertEquals(LogViewFilter(), LogViewPolicy.reset())
     }

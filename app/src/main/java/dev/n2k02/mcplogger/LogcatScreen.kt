@@ -12,7 +12,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -153,6 +152,7 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
         else matching
     }
     val currentApp = apps.firstOrNull { it.packageName == filter.packageName }
+    val activeFilterCount = LogViewPolicy.activeFilterCount(filter)
     var showPicker by remember { mutableStateOf(false) }
     // Share Home's settled-page navigation behavior: both swipes and taps are
     // remembered, and Back visits the preceding tab before exiting Logs.
@@ -181,8 +181,6 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
     var deviceClearConfirmation by remember { mutableStateOf(false) }
     var timeExpanded by remember { mutableStateOf(false) }
     var levelExpanded by remember { mutableStateOf(false) }
-    var quickLevelExpanded by remember { mutableStateOf(false) }
-    var quickTimeExpanded by remember { mutableStateOf(false) }
     var actionMenu by remember { mutableStateOf(false) }
     val recentFirst = remember(filtered) { filtered.asReversed() }
     var exportSnapshot by remember { mutableStateOf<List<LogEvent>>(emptyList()) }
@@ -285,6 +283,9 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                             }, null, modifier = Modifier.size(16.dp))
                             Text(destination.title, maxLines = 1,
                                 style = MaterialTheme.typography.labelLarge)
+                            if (destination == LogcatTab.FILTERS && activeFilterCount > 0) {
+                                Badge { Text(activeFilterCount.toString()) }
+                            }
                         }
                     })
             }
@@ -366,7 +367,7 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                     }
                     Surface(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 3.dp),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(18.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                     ) {
@@ -399,50 +400,6 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                             }
                         }
                     }
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        FilterChip(selected = filter.packageName.isNotBlank(),
-                            onClick = { showPicker = true },
-                            label = { Text(if (filter.packageName.isBlank()) "App: All" else
-                                (currentApp?.label ?: filter.packageName).take(16)) },
-                            leadingIcon = { Icon(Icons.Rounded.Apps, null,
-                                modifier = Modifier.size(16.dp)) })
-                        Box {
-                            FilterChip(selected = filter.selectedLevels.isNotEmpty(),
-                                onClick = { quickLevelExpanded = true },
-                                label = { Text("Level: " + LogViewPolicy.levelSummary(filter)) },
-                                trailingIcon = { Icon(Icons.Rounded.ArrowDropDown, null) })
-                            LevelMultiSelectMenu(quickLevelExpanded, filter, ::update) {
-                                quickLevelExpanded = false
-                            }
-                        }
-                        Box {
-                            FilterChip(selected = filter.windowMinutes != 0,
-                                onClick = { quickTimeExpanded = true },
-                                label = { Text("Time: " + when (filter.windowMinutes) {
-                                    5 -> "5m"; 15 -> "15m"; 60 -> "1h"; else -> "Any"
-                                }) },
-                                trailingIcon = { Icon(Icons.Rounded.ArrowDropDown, null) })
-                            DropdownMenu(expanded = quickTimeExpanded,
-                                onDismissRequest = { quickTimeExpanded = false }) {
-                                listOf(0 to "Any time", 5 to "Last 5 minutes",
-                                    15 to "Last 15 minutes", 60 to "Last hour")
-                                    .forEach { (minutes, label) ->
-                                        DropdownMenuItem(text = { Text(label) }, onClick = {
-                                            update(filter.copy(windowMinutes = minutes))
-                                            quickTimeExpanded = false
-                                        })
-                                    }
-                            }
-                        }
-                        FilterChip(selected = filter.crashesOnly,
-                            onClick = { update(filter.copy(crashesOnly = !filter.crashesOnly)) },
-                            label = { Text("Crashes/ANRs") },
-                            leadingIcon = { Icon(Icons.Rounded.BugReport, null,
-                                modifier = Modifier.size(16.dp)) })
-                    }
                     if (feedback.isNotBlank())
                         Text(feedback, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.labelSmall,
@@ -459,7 +416,7 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                             else "No entries match these filters",
                             style = MaterialTheme.typography.titleSmall)
                         Text(if (logs.isEmpty()) "Refresh logs here or request them via MCP after ADB is authorized."
-                            else "Change app, level, time or search, or tap Reset filters.",
+                            else "Change the search or open Filters to refine results.",
                             style = MaterialTheme.typography.bodySmall)
                     }
                 }
@@ -475,8 +432,20 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
             LogcatTab.FILTERS -> {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
                     .padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Filter today's captured logs", style = MaterialTheme.typography.titleMedium)
-                    OutlinedCard(onClick = { showPicker = true }, modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Filter captured logs", modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.titleMedium)
+                        if (activeFilterCount > 0) {
+                            Surface(shape = RoundedCornerShape(50),
+                                color = MaterialTheme.colorScheme.secondaryContainer) {
+                                Text(activeFilterCount.toString() + " active",
+                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                                    style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                    OutlinedCard(onClick = { showPicker = true }, modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(18.dp)) {
                         Row(Modifier.fillMaxWidth().padding(10.dp),
                             verticalAlignment = Alignment.CenterVertically) {
                             AppIcon(filter.packageName)
@@ -493,7 +462,7 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                     Text("Log levels", style = MaterialTheme.typography.labelMedium)
                     Box {
                         OutlinedButton(onClick = { levelExpanded = true },
-                            modifier = Modifier.fillMaxWidth()) {
+                            modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
                             Text("Level: " + LogViewPolicy.levelSummary(filter))
                             Icon(Icons.Rounded.ArrowDropDown, null)
                         }
@@ -501,15 +470,19 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                             levelExpanded = false
                         }
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Crashes / ANRs", modifier = Modifier.weight(1f))
-                        Switch(checked = filter.crashesOnly,
-                            onCheckedChange = { update(filter.copy(crashesOnly = it)) })
+                    Surface(shape = RoundedCornerShape(18.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Text("Crashes / ANRs", modifier = Modifier.weight(1f))
+                            Switch(checked = filter.crashesOnly,
+                                onCheckedChange = { update(filter.copy(crashesOnly = it)) })
+                        }
                     }
                     Text("Time window", style = MaterialTheme.typography.labelMedium)
                     Box {
                         OutlinedButton(onClick = { timeExpanded = true },
-                            modifier = Modifier.fillMaxWidth()) {
+                            modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
                             Text(when (filter.windowMinutes) {
                                 5 -> "Last 5 minutes"; 15 -> "Last 15 minutes"
                                 60 -> "Last hour"; else -> "Any time today"
@@ -531,26 +504,30 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                     OutlinedTextField(value = filter.tag,
                         onValueChange = { update(filter.copy(tag = it.take(120))) },
                         label = { Text("Tag contains") },
+                        leadingIcon = { Icon(Icons.Rounded.Label, contentDescription = null) },
+                        shape = RoundedCornerShape(18.dp),
                         singleLine = true, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(value = filter.pid,
                         onValueChange = { update(filter.copy(pid = it.filter(Char::isDigit))) },
                         label = { Text("Process ID") },
+                        leadingIcon = { Icon(Icons.Rounded.Numbers, contentDescription = null) },
+                        shape = RoundedCornerShape(18.dp),
                         singleLine = true, modifier = Modifier.fillMaxWidth())
                     Button(onClick = { update(LogViewPolicy.reset()) },
-                        modifier = Modifier.fillMaxWidth()) {
+                        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
                         Icon(Icons.Rounded.RestartAlt, null)
                         Spacer(Modifier.width(8.dp))
                         Text("Reset filters")
                     }
                     OutlinedButton(onClick = { selectLogcatTab(LogcatTab.LOGS) },
-                        modifier = Modifier.fillMaxWidth()) { Text("View logs") }
+                        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) { Text("View logs") }
                 }
             }
             LogcatTab.STORAGE -> {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
                     .padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Today’s private Logcat cache", style = MaterialTheme.typography.titleMedium)
-                    ElevatedCard(Modifier.fillMaxWidth()) {
+                    ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
                         Column(Modifier.padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(9.dp)) {
                             Text("Daily reset enabled", style = MaterialTheme.typography.titleSmall)
@@ -564,7 +541,8 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                     }
                     OutlinedButton(onClick = {
                         copy("Filtered Android Logcat", filtered)
-                    }, enabled = filtered.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+                    }, enabled = filtered.isNotEmpty(), modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(18.dp)) {
                         Icon(Icons.Rounded.ContentCopy, null)
                         Spacer(Modifier.width(6.dp))
                         Text("Copy visible logs")
@@ -573,13 +551,15 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                         exportSnapshot = filtered.toList()
                         exportLauncher.launch("Android-Logcat-" +
                             System.currentTimeMillis().toString() + ".txt")
-                    }, enabled = filtered.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+                    }, enabled = filtered.isNotEmpty(), modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(18.dp)) {
                         Icon(Icons.Rounded.SaveAlt, null)
                         Spacer(Modifier.width(6.dp))
                         Text("Export visible logs")
                     }
                     OutlinedButton(onClick = { clearConfirmation = true },
-                        enabled = logs.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+                        enabled = logs.isNotEmpty(), modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(18.dp)) {
                         Icon(Icons.Rounded.DeleteOutline, null)
                         Spacer(Modifier.width(6.dp))
                         Text("Clear captured logs")
@@ -587,7 +567,7 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                     HorizontalDivider()
                     OutlinedButton(onClick = { deviceClearConfirmation = true },
                         enabled = adbVerified && !deviceLogcatClearing,
-                        modifier = Modifier.fillMaxWidth()) {
+                        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
                         Icon(Icons.Rounded.DeleteSweep, null)
                         Spacer(Modifier.width(6.dp))
                         Text("Clear device Logcat (all buffers)")

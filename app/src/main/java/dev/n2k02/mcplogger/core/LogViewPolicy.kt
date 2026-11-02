@@ -17,6 +17,12 @@ object LogViewPolicy {
         "V" to "Verbose", "D" to "Debug", "I" to "Info",
         "W" to "Warning", "E" to "Error", "F" to "Fatal")
 
+    /** Advanced filters only: searching in Logs does not count as a Filters criterion. */
+    fun activeFilterCount(filter: LogViewFilter): Int =
+        listOf(filter.packageName.isNotBlank(), filter.selectedLevels.isNotEmpty(),
+            filter.windowMinutes > 0, filter.crashesOnly,
+            filter.tag.isNotBlank(), filter.pid.isNotBlank()).count { it }
+
     fun toggleLevel(filter: LogViewFilter, code: String): LogViewFilter {
         if (code !in LEVELS.map(Char::toString)) return filter
         val levels = if (code in filter.selectedLevels) filter.selectedLevels - code
