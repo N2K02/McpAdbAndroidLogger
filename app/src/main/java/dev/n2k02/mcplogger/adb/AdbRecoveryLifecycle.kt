@@ -83,7 +83,8 @@ object AdbRecoveryLifecycle {
             val app = context.applicationContext
             if (quitting || !AdbRecoverySettings.backgroundRecoveryAllowed(app))
                 return@withLock false
-            if (AdbCoordinator.manualRetryRequired.value) return@withLock false
+            if (AdbCoordinator.manualRetryRequired.value && !AdbCoordinator.isTcpListening())
+                return@withLock false
             val now = android.os.SystemClock.elapsedRealtime()
             if (now < nextAllowedTime) return@withLock false
             try {
