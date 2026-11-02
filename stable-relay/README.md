@@ -19,7 +19,7 @@ If GitHub shows a failing `Workers Builds` check, inspect the matching build
 under Cloudflare **Workers → Builds → Build logs**. A `wrangler preview`
 "missing previews block" error means the build is using the wrong config
 file or an outdated commit. Fix the **root directory** and confirm
-`wrangler.toml` includes `previews = { }` and
+`wrangler.toml` includes `[previews]` and
 `[[previews.durable_objects.bindings]]`.
 
 Preview environments do **not** inherit runtime `DEVICE_TOKEN` secrets; do not

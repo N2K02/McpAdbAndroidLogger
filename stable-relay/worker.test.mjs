@@ -83,7 +83,7 @@ test("Cloudflare Workers preview config isolates Durable Object storage", () => 
   const config = readFileSync(new URL("./wrangler.toml", import.meta.url), "utf8");
   assert.match(config, /^name = "mcpadbandroidlogger"$/m);
   assert.match(config, /^main = "worker.mjs"$/m);
-  assert.match(config, /^previews = \{ \}$/m);
+  assert.match(config, /^\[previews\]$/m);
   assert.match(config, /^\[\[durable_objects.bindings\]\]$/m);
   assert.match(config, /^\[\[previews.durable_objects.bindings\]\]$/m);
   assert.equal((config.match(/name = "MCP_ROUTE"/g) || []).length, 2);
