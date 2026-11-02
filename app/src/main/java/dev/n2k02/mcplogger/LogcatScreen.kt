@@ -7,12 +7,15 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.widget.ImageView
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -36,6 +39,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import dev.n2k02.mcplogger.core.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -150,7 +154,29 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
     }
     val currentApp = apps.firstOrNull { it.packageName == filter.packageName }
     var showPicker by remember { mutableStateOf(false) }
-    var tab by rememberSaveable { mutableStateOf(LogcatTab.LOGS) }
+    // Share Home's settled-page navigation behavior: both swipes and taps are
+    // remembered, and Back visits the preceding tab before exiting Logs.
+    var tabHistory by rememberSaveable {
+        mutableStateOf(listOf(LogcatTab.LOGS.ordinal))
+    }
+    val pagerState = rememberPagerState(
+        initialPage = tabHistory.last(), pageCount = { LogcatTab.entries.size }
+    )
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }
+            .distinctUntilChanged()
+            .collect { page ->
+                tabHistory = HomeTabHistory.visit(tabHistory, page, LogcatTab.entries.size)
+            }
+    }
+    BackHandler(enabled = HomeTabHistory.canGoBack(tabHistory)) {
+        val prior = HomeTabHistory.back(tabHistory)
+        tabHistory = prior
+        scope.launch { pagerState.scrollToPage(prior.last()) }
+    }
+    fun selectLogcatTab(destination: LogcatTab) {
+        scope.launch { pagerState.animateScrollToPage(destination.ordinal) }
+    }
     var clearConfirmation by remember { mutableStateOf(false) }
     var deviceClearConfirmation by remember { mutableStateOf(false) }
     var timeExpanded by remember { mutableStateOf(false) }
@@ -245,9 +271,10 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
 
     Column(modifier.fillMaxSize()) {
         // Portrait-first: filter/storage controls never occupy the Logcat viewport.
-        TabRow(selectedTabIndex = tab.ordinal) {
+        TabRow(selectedTabIndex = pagerState.currentPage) {
             LogcatTab.entries.forEach { destination ->
-                Tab(selected = tab == destination, onClick = { tab = destination },
+                Tab(selected = pagerState.currentPage == destination.ordinal,
+                    onClick = { selectLogcatTab(destination) },
                     text = {
                         Row(verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -262,7 +289,8 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                     })
             }
         }
-        when (tab) {
+        HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { page ->
+            when (LogcatTab.entries[page]) {
             LogcatTab.LOGS -> {
                 Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 2.dp),
                     verticalAlignment = Alignment.CenterVertically) {
@@ -309,11 +337,11 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                             HorizontalDivider()
                             DropdownMenuItem(text = { Text("Open Filters") }, onClick = {
                                 actionMenu = false
-                                tab = LogcatTab.FILTERS
+                                selectLogcatTab(LogcatTab.FILTERS)
                             })
                             DropdownMenuItem(text = { Text("Storage & retention") }, onClick = {
                                 actionMenu = false
-                                tab = LogcatTab.STORAGE
+                                selectLogcatTab(LogcatTab.STORAGE)
                             })
                         }
                     }
@@ -511,7 +539,7 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                         Spacer(Modifier.width(8.dp))
                         Text("Reset filters")
                     }
-                    OutlinedButton(onClick = { tab = LogcatTab.LOGS },
+                    OutlinedButton(onClick = { selectLogcatTab(LogcatTab.LOGS) },
                         modifier = Modifier.fillMaxWidth()) { Text("View logs") }
                 }
             }
@@ -568,6 +596,7 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                     if (deviceLogcatStatus.isNotBlank()) Text(deviceLogcatStatus)
                     if (feedback.isNotBlank()) Text(feedback)
                 }
+            }
             }
         }
     }
