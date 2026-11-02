@@ -189,6 +189,7 @@ object AdbTransport {
                         Log.w(TAG, "exec: '${command.substringBefore(' ')} ...' timed out after ${timeoutMs}ms")
                         session?.let { runCatching { it.close() } } ?: runCatching { mgr.close() }
                         shell = null
+                        lastKnownConnected = false
                     }
                     session = session ?: ShellSession(mgr.openStream(SHELL_SERVICE)).also { shell = it }
                     try {
@@ -322,8 +323,10 @@ object AdbTransport {
         }
 
         fun close() {
-            runCatching { out.close() }
+            // Close transport first so a pending readLine can unblock.
             runCatching { if (!stream.isClosed) stream.close() }
+            runCatching { reader.close() }
+            runCatching { out.close() }
         }
 
         private companion object {
@@ -375,6 +378,7 @@ object AdbTransport {
         runCatching { shell?.close() }
         shell = null
         runCatching { manager?.disconnect() }
+        lastKnownConnected = false
         Unit
     }
 

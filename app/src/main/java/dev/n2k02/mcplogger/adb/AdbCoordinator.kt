@@ -187,6 +187,8 @@ object AdbCoordinator {
                 }
             }
         }
+        // Even an unsuccessful TLS handshake may leave a transport open.
+        AdbTransport.close()
         MonitorState.adb.value = "Disconnected"
         discoveryState.value = discoveryState.value.copy(
             status = if (manualRetryRequired.value) "Authorization requires manual Retry"
