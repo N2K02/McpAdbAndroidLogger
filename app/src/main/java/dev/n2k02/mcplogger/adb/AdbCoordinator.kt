@@ -64,6 +64,7 @@ object AdbCoordinator {
                         discoveryState.value = current.copy(pairingPort = null)
                     } else if (!service.contains("pairing") && current.connectPort == info.port) {
                         connectPort = null
+                        lastDiscoveredAttempt = null
                         discoveryState.value = current.copy(connectPort = null)
                     }
                 }
@@ -131,7 +132,9 @@ object AdbCoordinator {
         val app = context.applicationContext
         if (AdbRecoverySettings.manuallyQuit(app) && !userInitiated)
             return@withLock Result.failure(IllegalStateException("Stopped by Quit"))
-        if (manualRetryRequired.value && !userInitiated)
+        // A later already-authorized TCP/5555 listener can recover even after
+        // a failed TLS authorization attempt. Do not skip that safe path.
+        if (manualRetryRequired.value && !userInitiated && !tcpListening())
             return@withLock Result.failure(SecurityException("User authorization needed; tap Retry"))
         if (userInitiated) {
             manualRetryRequired.value = false
@@ -178,10 +181,32 @@ object AdbCoordinator {
                 }
                 if (port != 5555 && AdbRecoverySettings.tcpMode(app)) {
                     AdbTransport.switchToTcpip().getOrThrow()
-                    delay(1500)
-                    AdbTransport.close()
-                    AdbTransport.connect(app, AdbTransport.LOOPBACK, 5555).getOrThrow()
-                    check(AdbTransport.exec("id -u").getOrThrow().trim() == "2000")
+                    // Switching restarts adbd. The old TLS shell is no longer verified.
+                    verified.value = false
+                    var promoted = false
+                    var promotionError: Throwable? = null
+                    // Android takes a variable time to reopen the TCP listener.
+                    for (attempt in 1..5) {
+                        delay(1_100)
+                        if (!tcpListening()) continue
+                        try {
+                            AdbTransport.close()
+                            AdbTransport.connect(app, AdbTransport.LOOPBACK, 5555).getOrThrow()
+                            check(AdbTransport.exec("id -u").getOrThrow().trim() == "2000") {
+                                "TCP/5555 identity verification failed"
+                            }
+                            promoted = true
+                            break
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            promotionError = failure
+                        }
+                    }
+                    if (!promoted) throw IllegalStateException(
+                        "TCP/5555 did not become an authorized shell",
+                        promotionError)
+                    verified.value = true
                     MonitorState.adb.value = "UID 2000 verified • TCP/5555"
                     tcpPortOpen.value = true
                 }

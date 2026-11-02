@@ -36,5 +36,9 @@ class AdbRecoverySettingsTest {
         assertTrue(AdbRecoverySettings.requiresManualRetry(
             SecurityException("denied")))
         assertFalse(AdbRecoverySettings.requiresManualRetry(IOException("socket lost")))
+        assertFalse(AdbRecoverySettings.requiresManualRetry(
+            IllegalStateException("Android TLS debugging connection not authorized")))
+        assertFalse(AdbRecoverySettings.requiresManualRetry(
+            IllegalStateException("No local ADB port")))
     }
 }

@@ -23,15 +23,23 @@ class McpAndAdbWorkflowContractTest {
         assertTrue(service.contains("QuickMcpTunnel.stop()"))
     }
 
-    @Test fun adbHasLiveDiscoveryAndVrecStylePairing() {
-        val ui = source("app/src/main/java/dev/n2k02/mcplogger/LoggerUi.kt")
+    @Test fun adbPairingStaysOnHomeAndSettingsMatchVrec() {
+        val settings = source("app/src/main/java/dev/n2k02/mcplogger/LoggerUi.kt")
             .substringAfter("private fun AdbPage(").substringBefore("private fun BridgePage(")
-        assertTrue(ui.contains("AdbCoordinator.discoveryState.collectAsState()"))
-        assertTrue(ui.contains("Open Android Developer options"))
-        assertTrue(ui.contains("Pair and connect ADB"))
-        assertTrue(ui.contains("UID 2000"))
-        assertTrue(ui.contains("Reconnect / verify ADB"))
-        assertTrue(ui.contains("Hide advanced port controls"))
+        val home = source("app/src/main/java/dev/n2k02/mcplogger/HomeDashboard.kt")
+        val setup = source("app/src/main/java/dev/n2k02/mcplogger/AdbHomeSetupCard.kt")
+        assertTrue(home.contains("AdbHomeSetupCard()"))
+        assertTrue(setup.contains("AdbCoordinator.discoveryState.collectAsState()"))
+        assertTrue(setup.contains("Open Android Developer options"))
+        assertTrue(setup.contains("Pair and connect ADB"))
+        assertTrue(setup.contains("Reconnect / verify ADB"))
+        assertFalse(settings.contains("Connect Android ADB"))
+        assertFalse(settings.contains("Advanced: manual ports"))
+        for (name in listOf("Pairing & recovery", "Connection & security",
+                "Auto-detect pairing code", "Connection watchdog", "Start on boot",
+                "Restore after restart", "Keep ADB without Wi-Fi (TCP/5555)",
+                "Disable TCP/5555"))
+            assertTrue(name, settings.contains(name))
         val adb = source("app/src/main/java/dev/n2k02/mcplogger/adb/AdbCoordinator.kt")
         assertTrue(adb.contains("val discoveryState = MutableStateFlow"))
         assertTrue(adb.contains("connectAsync(context.applicationContext)"))

@@ -253,6 +253,8 @@ internal fun HomeDashboard(
             }
         }
 
+        AdbHomeSetupCard()
+
         // Read-only MCP connection details; changes happen on the MCP connection page.
         ElevatedCard(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {

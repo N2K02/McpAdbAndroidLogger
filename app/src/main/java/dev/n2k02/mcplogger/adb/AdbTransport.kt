@@ -115,10 +115,12 @@ object AdbTransport {
                 }
                 val mgr = manager(context)
                 if (mgr.isConnected) {
+                    lastKnownConnected = true
                     return@runCatching
                 }
                 val ok = mgr.connect(host, port)
                 check(ok || mgr.isConnected) { "connect refused by adbd at $host:$port" }
+                lastKnownConnected = mgr.isConnected
                 Log.i(TAG, "connect: established")
             }
         }
@@ -147,6 +149,7 @@ object AdbTransport {
                         "Android TLS debugging connection not authorized"
                     }
                 }
+                lastKnownConnected = mgr.isConnected
                 Unit
             }
         }
