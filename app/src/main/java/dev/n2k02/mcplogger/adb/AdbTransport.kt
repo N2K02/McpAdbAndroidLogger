@@ -13,8 +13,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.security.PrivateKey
-import java.security.KeyFactory
-import java.security.spec.PKCS8EncodedKeySpec
 import java.security.cert.Certificate
 import java.util.concurrent.TimeUnit
 
@@ -31,9 +29,7 @@ private class JemAdbConnectionManager(context: Context) : AbsAdbConnectionManage
     private val identity = AdbIdentity.getOrCreate(context)
     // libadb's connection close destroys its key. Always provide a fresh
     // per-connection key object, not the persisted cached identity object.
-    private val sessionKey: PrivateKey = KeyFactory.getInstance("RSA")
-        .generatePrivate(PKCS8EncodedKeySpec(
-            requireNotNull(identity.privateKey.encoded) { "ADB RSA key is not exportable" }))
+    private val sessionKey: PrivateKey = AdbSessionKey.copyOf(identity.privateKey)
 
     init {
         setApi(Build.VERSION.SDK_INT)

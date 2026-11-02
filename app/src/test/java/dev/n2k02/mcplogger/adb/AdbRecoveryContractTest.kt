@@ -28,7 +28,7 @@ class AdbRecoveryContractTest {
         val adb = code("AdbTransport.kt")
         assertTrue(adb.contains("oldManager?.disconnect()"))
         assertTrue(adb.contains("private val sessionKey: PrivateKey"))
-        assertTrue(adb.contains("PKCS8EncodedKeySpec("))
+        assertTrue(adb.contains("AdbSessionKey.copyOf(identity.privateKey)"))
         assertTrue(adb.contains("getPrivateKey(): PrivateKey = sessionKey"))
         assertFalse(adb.contains("getPrivateKey(): PrivateKey = identity.privateKey"))
         assertTrue(adb.contains("suspend fun disconnect() = close()"))
@@ -36,6 +36,18 @@ class AdbRecoveryContractTest {
         assertTrue(adb.contains("runCatching { mgr.disconnect() }"))
         assertFalse(adb.contains("manager?.close()"))
         assertFalse(adb.contains("mgr.close()"))
+    }
+
+    @Test fun privateKeyIsNotSharedBetweenLibadbConnections() {
+        val generator = java.security.KeyPairGenerator.getInstance("RSA")
+        generator.initialize(1024)
+        val saved = generator.generateKeyPair().private
+        val first = AdbSessionKey.copyOf(saved)
+        val next = AdbSessionKey.copyOf(saved)
+        assertNotSame(saved, first)
+        assertNotSame(first, next)
+        assertArrayEquals(saved.encoded, first.encoded)
+        assertArrayEquals(saved.encoded, next.encoded)
     }
 
     @Test fun connectionStatusVerifiedNotInferredFromPort() {
