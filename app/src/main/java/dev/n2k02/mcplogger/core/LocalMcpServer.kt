@@ -8,6 +8,7 @@ import java.net.URLDecoder
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketException
+import java.util.concurrent.RejectedExecutionException
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.concurrent.Executors
@@ -26,31 +27,57 @@ object LocalMcpServer {
     @Volatile private var listener: ServerSocket? = null
     @Volatile private var active = false
     private val lock = Any()
+    private val clients = LocalMcpSocketRegistry()
 
     fun start(context: Context): Boolean = synchronized(lock) {
-        if (active) return@synchronized true
+        if (active && listener?.isClosed == false) return@synchronized true
+        active = false
+        clients.stop()
+        runCatching { listener?.close() }
+        listener = null
         BridgeClient.initialize(context.applicationContext)
         try {
             val socket = ServerSocket(PORT, 8, InetAddress.getByName("127.0.0.1"))
             socket.soTimeout = 1500
             listener = socket
+            val generation = clients.begin()
             active = true
             MonitorState.localMcp.value = "Local server running"
             Thread({
-                while (active) {
+                while (clients.isCurrent(generation)) {
                     try {
                         val client = socket.accept()
-                        workers.execute { handle(client, context.applicationContext) }
+                        if (!clients.register(generation, client)) continue
+                        try {
+                            workers.execute {
+                                try {
+                                    if (clients.isCurrent(generation))
+                                        handle(client, context.applicationContext)
+                                } finally {
+                                    runCatching { client.close() }
+                                    clients.release(client)
+                                }
+                            }
+                        } catch (_: RejectedExecutionException) {
+                            runCatching { client.close() }
+                            clients.release(client)
+                        }
                     } catch (_: java.net.SocketTimeoutException) {
+                        // Recheck generation.
                     } catch (_: SocketException) {
                         break
                     } catch (_: Exception) {
-                        if (active) MonitorState.localMcp.value = "Listener error"
+                        if (clients.isCurrent(generation))
+                            MonitorState.localMcp.value = "Listener error"
                     }
                 }
             }, "mcp-local-listener").apply { isDaemon = true }.start()
             true
         } catch (_: Exception) {
+            active = false
+            clients.stop()
+            runCatching { listener?.close() }
+            listener = null
             MonitorState.localMcp.value = "Port unavailable"
             false
         }
@@ -58,6 +85,7 @@ object LocalMcpServer {
 
     fun stop() = synchronized(lock) {
         active = false
+        clients.stop()
         runCatching { listener?.close() }
         listener = null
         MonitorState.localMcp.value = "Stopped"
