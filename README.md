@@ -42,7 +42,7 @@ This repository's Actions secrets must be configured; secrets from other reposit
 ## Device setup
 
 1. Install debug APK. Enable USB debugging and Wireless debugging.
-2. Open **ADB connection**, choose Android's **Pair device with pairing code**, and enter the code and port (or enable the optional Accessibility pairing helper to read a visible Settings pairing dialog automatically). Android must authorize the initial connection.
+2. In **Home → Connection → Connect Android ADB**, open Android's **Pair device with pairing code** and enter the code using **Pair manually** (or enable the optional Accessibility helper in **Settings → ADB connection**). Android must authorize the app's ADB key once.
 3. The app validates `id -u == 2000` before starting capture. TCP/5555 is enabled by default but can expose an ADB listener to the LAN; disable in Settings if not wanted.
 4. Use **Home → Refresh** or **Logs → Refresh logs from Android**, or request a Logcat tool from MCP. Each request reads Android's existing logd buffer once and stops. ADB and the phone-hosted MCP foreground service remain connected; no continuous capture runs.
 5. For remote AI access, follow the **Start here** Cloudflare Worker steps above. Your phone hosts the MCP service; once the permanent Worker endpoint is **Online**, connect via OAuth/DCR. **Do not generate or rotate the MCP client access key merely to troubleshoot a Worker deployment.**
@@ -87,7 +87,7 @@ CI validates MCP gateway tests, Android unit tests/lint, R8 release builds, and 
 Initial pairing and permission approvals, Android 13+ Logcat availability, TCP/5555 handoff, OEM reboot recovery, foreground-service time limits, update signer continuity and Claude OAuth integration must be tested on an Android device and deployment. CI passing alone cannot verify these.
 
 
-The ADB setup page uses VRec-style guided wireless pairing, a live port/status display, automatic attempts on discovered TLS endpoints, an optional pairing-code Accessibility helper, and advanced manual port fallback. The system still requires the user to authorize the initial pairing; shell UID 2000 is always verified.
+The **Home → Connection** tab hosts the pairing-code entry, live discovery status, manual Retry, and Developer options shortcut. **Settings → ADB connection** contains only VRec's two cards and five choices. USB debugging alone does not authorize an app, start local TCP/5555 or establish a loopback ADB connection: pair/authorize through Wireless debugging or use an already authorized TCP/5555 listener. Every successful connection must verify shell UID 2000.
 
 
 ## Permanent MCP URL (Cloudflare Worker)
