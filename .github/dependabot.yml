@@ -1,5 +1,4 @@
 version: 2
-
 registries:
   n2k02-theme:
     type: maven-repository
@@ -12,6 +11,7 @@ registries:
     username: N2K02
     password: ${{secrets.N2K02_PACKAGES_TOKEN}}
 
+# Combine all scheduled version updates into one PR across Gradle, Python and Actions.
 multi-ecosystem-groups:
   all-dependencies:
     schedule:
