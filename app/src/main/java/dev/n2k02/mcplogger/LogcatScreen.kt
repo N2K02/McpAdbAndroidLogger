@@ -292,182 +292,185 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
         HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { page ->
             when (LogcatTab.entries[page]) {
             LogcatTab.LOGS -> {
-                Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Text(filtered.size.toString() + " shown · " + logs.size + " buffered",
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1, modifier = Modifier.weight(1f))
-                    Text(if (active) "● Reading" else "● Idle",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (active) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant)
-                    IconButton(onClick = {
-                        ContextCompat.startForegroundService(context,
-                            Intent(context, LogMonitorService::class.java)
-                                .setAction(LogMonitorService.START))
-                    }, enabled = !active && !deviceLogcatClearing && adbVerified) {
-                        Icon(Icons.Rounded.Refresh, contentDescription = "Refresh logs")
-                    }
-                    Box {
-                        IconButton(onClick = { actionMenu = true }) {
-                            Icon(Icons.Rounded.MoreVert, contentDescription = "Log actions")
+                // A single full-size layout root is required for each pager page.
+                Column(Modifier.fillMaxSize()) {
+                    Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text(filtered.size.toString() + " shown · " + logs.size + " buffered",
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1, modifier = Modifier.weight(1f))
+                        Text(if (active) "● Reading" else "● Idle",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (active) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant)
+                        IconButton(onClick = {
+                            ContextCompat.startForegroundService(context,
+                                Intent(context, LogMonitorService::class.java)
+                                    .setAction(LogMonitorService.START))
+                        }, enabled = !active && !deviceLogcatClearing && adbVerified) {
+                            Icon(Icons.Rounded.Refresh, contentDescription = "Refresh logs")
                         }
-                        DropdownMenu(expanded = actionMenu, onDismissRequest = { actionMenu = false }) {
-                            DropdownMenuItem(text = { Text("Copy visible logs") },
-                                enabled = filtered.isNotEmpty(), onClick = {
+                        Box {
+                            IconButton(onClick = { actionMenu = true }) {
+                                Icon(Icons.Rounded.MoreVert, contentDescription = "Log actions")
+                            }
+                            DropdownMenu(expanded = actionMenu, onDismissRequest = { actionMenu = false }) {
+                                DropdownMenuItem(text = { Text("Copy visible logs") },
+                                    enabled = filtered.isNotEmpty(), onClick = {
+                                        actionMenu = false
+                                        copy("Filtered Android Logcat", filtered)
+                                    })
+                                DropdownMenuItem(text = { Text("Export visible logs") },
+                                    enabled = filtered.isNotEmpty(), onClick = {
+                                        actionMenu = false
+                                        exportSnapshot = filtered.toList()
+                                        exportLauncher.launch("Android-Logcat-" +
+                                            System.currentTimeMillis().toString() + ".txt")
+                                    })
+                                DropdownMenuItem(text = { Text("Reset filters") }, onClick = {
                                     actionMenu = false
-                                    copy("Filtered Android Logcat", filtered)
+                                    update(LogViewPolicy.reset())
                                 })
-                            DropdownMenuItem(text = { Text("Export visible logs") },
-                                enabled = filtered.isNotEmpty(), onClick = {
+                                DropdownMenuItem(text = { Text("Clear captured logs") },
+                                    enabled = logs.isNotEmpty(), onClick = {
+                                        actionMenu = false
+                                        clearConfirmation = true
+                                    })
+                                HorizontalDivider()
+                                DropdownMenuItem(text = { Text("Open Filters") }, onClick = {
                                     actionMenu = false
-                                    exportSnapshot = filtered.toList()
-                                    exportLauncher.launch("Android-Logcat-" +
-                                        System.currentTimeMillis().toString() + ".txt")
+                                    selectLogcatTab(LogcatTab.FILTERS)
                                 })
-                            DropdownMenuItem(text = { Text("Reset filters") }, onClick = {
-                                actionMenu = false
-                                update(LogViewPolicy.reset())
-                            })
-                            DropdownMenuItem(text = { Text("Clear captured logs") },
-                                enabled = logs.isNotEmpty(), onClick = {
+                                DropdownMenuItem(text = { Text("Storage & retention") }, onClick = {
                                     actionMenu = false
-                                    clearConfirmation = true
+                                    selectLogcatTab(LogcatTab.STORAGE)
                                 })
-                            HorizontalDivider()
-                            DropdownMenuItem(text = { Text("Open Filters") }, onClick = {
-                                actionMenu = false
-                                selectLogcatTab(LogcatTab.FILTERS)
-                            })
-                            DropdownMenuItem(text = { Text("Storage & retention") }, onClick = {
-                                actionMenu = false
-                                selectLogcatTab(LogcatTab.STORAGE)
-                            })
-                        }
-                    }
-                }
-                if (recentRequest != null) {
-                    val previous = recentRequest!!
-                    val time = SimpleDateFormat("HH:mm:ss", Locale.ROOT)
-                        .format(Date(previous.atMillis))
-                    Text("Last request: " +
-                        (if (previous.origin == LogReadOrigin.MCP)
-                            "MCP · " + previous.tool else "Manual") +
-                        " · " + time + " · " + filtered.size + " shown" +
-                        (if (previous.isMcpSelection(filter)) " · exact MCP results"
-                        else if (previous.origin == LogReadOrigin.MCP) " · filters modified"
-                        else ""),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 2.dp))
-                }
-                Surface(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 3.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                ) {
-                    Row(Modifier.height(46.dp).padding(horizontal = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(Icons.Rounded.Search, null, modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        BasicTextField(value = filter.search,
-                            onValueChange = { update(filter.copy(search = it)) },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                            textStyle = MaterialTheme.typography.bodyMedium.copy(
-                                color = MaterialTheme.colorScheme.onSurface),
-                            decorationBox = { inner ->
-                                Box {
-                                    if (filter.search.isBlank())
-                                        Text("Search logs, tags or PID",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    inner()
-                                }
-                            })
-                        if (filter.search.isNotBlank()) {
-                            IconButton(onClick = { update(filter.copy(search = "")) },
-                                modifier = Modifier.size(36.dp)) {
-                                Icon(Icons.Rounded.Close, contentDescription = "Clear search",
-                                    modifier = Modifier.size(18.dp))
                             }
                         }
                     }
-                }
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FilterChip(selected = filter.packageName.isNotBlank(),
-                        onClick = { showPicker = true },
-                        label = { Text(if (filter.packageName.isBlank()) "App: All" else
-                            (currentApp?.label ?: filter.packageName).take(16)) },
-                        leadingIcon = { Icon(Icons.Rounded.Apps, null,
-                            modifier = Modifier.size(16.dp)) })
-                    Box {
-                        FilterChip(selected = filter.selectedLevels.isNotEmpty(),
-                            onClick = { quickLevelExpanded = true },
-                            label = { Text("Level: " + LogViewPolicy.levelSummary(filter)) },
-                            trailingIcon = { Icon(Icons.Rounded.ArrowDropDown, null) })
-                        LevelMultiSelectMenu(quickLevelExpanded, filter, ::update) {
-                            quickLevelExpanded = false
-                        }
+                    if (recentRequest != null) {
+                        val previous = recentRequest!!
+                        val time = SimpleDateFormat("HH:mm:ss", Locale.ROOT)
+                            .format(Date(previous.atMillis))
+                        Text("Last request: " +
+                            (if (previous.origin == LogReadOrigin.MCP)
+                                "MCP · " + previous.tool else "Manual") +
+                            " · " + time + " · " + filtered.size + " shown" +
+                            (if (previous.isMcpSelection(filter)) " · exact MCP results"
+                            else if (previous.origin == LogReadOrigin.MCP) " · filters modified"
+                            else ""),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 2.dp))
                     }
-                    Box {
-                        FilterChip(selected = filter.windowMinutes != 0,
-                            onClick = { quickTimeExpanded = true },
-                            label = { Text("Time: " + when (filter.windowMinutes) {
-                                5 -> "5m"; 15 -> "15m"; 60 -> "1h"; else -> "Any"
-                            }) },
-                            trailingIcon = { Icon(Icons.Rounded.ArrowDropDown, null) })
-                        DropdownMenu(expanded = quickTimeExpanded,
-                            onDismissRequest = { quickTimeExpanded = false }) {
-                            listOf(0 to "Any time", 5 to "Last 5 minutes",
-                                15 to "Last 15 minutes", 60 to "Last hour")
-                                .forEach { (minutes, label) ->
-                                    DropdownMenuItem(text = { Text(label) }, onClick = {
-                                        update(filter.copy(windowMinutes = minutes))
-                                        quickTimeExpanded = false
-                                    })
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 3.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    ) {
+                        Row(Modifier.height(46.dp).padding(horizontal = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Rounded.Search, null, modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            BasicTextField(value = filter.search,
+                                onValueChange = { update(filter.copy(search = it)) },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                    color = MaterialTheme.colorScheme.onSurface),
+                                decorationBox = { inner ->
+                                    Box {
+                                        if (filter.search.isBlank())
+                                            Text("Search logs, tags or PID",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        inner()
+                                    }
+                                })
+                            if (filter.search.isNotBlank()) {
+                                IconButton(onClick = { update(filter.copy(search = "")) },
+                                    modifier = Modifier.size(36.dp)) {
+                                    Icon(Icons.Rounded.Close, contentDescription = "Clear search",
+                                        modifier = Modifier.size(18.dp))
                                 }
+                            }
                         }
                     }
-                    FilterChip(selected = filter.crashesOnly,
-                        onClick = { update(filter.copy(crashesOnly = !filter.crashesOnly)) },
-                        label = { Text("Crashes/ANRs") },
-                        leadingIcon = { Icon(Icons.Rounded.BugReport, null,
-                            modifier = Modifier.size(16.dp)) })
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FilterChip(selected = filter.packageName.isNotBlank(),
+                            onClick = { showPicker = true },
+                            label = { Text(if (filter.packageName.isBlank()) "App: All" else
+                                (currentApp?.label ?: filter.packageName).take(16)) },
+                            leadingIcon = { Icon(Icons.Rounded.Apps, null,
+                                modifier = Modifier.size(16.dp)) })
+                        Box {
+                            FilterChip(selected = filter.selectedLevels.isNotEmpty(),
+                                onClick = { quickLevelExpanded = true },
+                                label = { Text("Level: " + LogViewPolicy.levelSummary(filter)) },
+                                trailingIcon = { Icon(Icons.Rounded.ArrowDropDown, null) })
+                            LevelMultiSelectMenu(quickLevelExpanded, filter, ::update) {
+                                quickLevelExpanded = false
+                            }
+                        }
+                        Box {
+                            FilterChip(selected = filter.windowMinutes != 0,
+                                onClick = { quickTimeExpanded = true },
+                                label = { Text("Time: " + when (filter.windowMinutes) {
+                                    5 -> "5m"; 15 -> "15m"; 60 -> "1h"; else -> "Any"
+                                }) },
+                                trailingIcon = { Icon(Icons.Rounded.ArrowDropDown, null) })
+                            DropdownMenu(expanded = quickTimeExpanded,
+                                onDismissRequest = { quickTimeExpanded = false }) {
+                                listOf(0 to "Any time", 5 to "Last 5 minutes",
+                                    15 to "Last 15 minutes", 60 to "Last hour")
+                                    .forEach { (minutes, label) ->
+                                        DropdownMenuItem(text = { Text(label) }, onClick = {
+                                            update(filter.copy(windowMinutes = minutes))
+                                            quickTimeExpanded = false
+                                        })
+                                    }
+                            }
+                        }
+                        FilterChip(selected = filter.crashesOnly,
+                            onClick = { update(filter.copy(crashesOnly = !filter.crashesOnly)) },
+                            label = { Text("Crashes/ANRs") },
+                            leadingIcon = { Icon(Icons.Rounded.BugReport, null,
+                                modifier = Modifier.size(16.dp)) })
+                    }
+                    if (feedback.isNotBlank())
+                        Text(feedback, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(horizontal = 12.dp))
+                    HorizontalDivider()
+                    if (filtered.isEmpty()) {
+                Box(Modifier.fillMaxWidth().weight(1f).padding(24.dp), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Rounded.FilterAltOff, null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(40.dp))
+                        Text(if (logs.isEmpty()) "No captured Logcat entries yet"
+                            else "No entries match these filters",
+                            style = MaterialTheme.typography.titleSmall)
+                        Text(if (logs.isEmpty()) "Refresh logs here or request them via MCP after ADB is authorized."
+                            else "Change app, level, time or search, or tap Reset filters.",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
                 }
-                if (feedback.isNotBlank())
-                    Text(feedback, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(horizontal = 12.dp))
-                HorizontalDivider()
-                if (filtered.isEmpty()) {
-            Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Rounded.FilterAltOff, null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(40.dp))
-                    Text(if (logs.isEmpty()) "No captured Logcat entries yet"
-                        else "No entries match these filters",
-                        style = MaterialTheme.typography.titleSmall)
-                    Text(if (logs.isEmpty()) "Refresh logs here or request them via MCP after ADB is authorized."
-                        else "Change app, level, time or search, or tap Reset filters.",
-                        style = MaterialTheme.typography.bodySmall)
+            } else {
+                LazyColumn(Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = 20.dp)) {
+                    items(recentFirst, key = { it.id }) { event ->
+                        LogcatEntryCard(event) { copy("Logcat entry", listOf(event)) }
+                    }
                 }
             }
-        } else {
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 20.dp)) {
-                items(recentFirst, key = { it.id }) { event ->
-                    LogcatEntryCard(event) { copy("Logcat entry", listOf(event)) }
                 }
-            }
-        }
             }
             LogcatTab.FILTERS -> {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())

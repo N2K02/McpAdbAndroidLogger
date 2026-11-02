@@ -88,7 +88,9 @@ class HomeAndLogcatUiContractTest {
         assertTrue(logcat.contains("BackHandler(enabled = HomeTabHistory.canGoBack(tabHistory))"))
         assertTrue(logcat.contains("HomeTabHistory.visit(tabHistory, page"))
         assertTrue(logcat.contains("scope.launch { pagerState.scrollToPage(prior.last()) }"))
-        assertTrue(logcat.contains("LazyColumn(Modifier.fillMaxSize()"))
+        assertTrue(logcat.contains("LazyColumn(Modifier.fillMaxWidth().weight(1f)"))
+        assertTrue(logcat.contains("LogcatTab.LOGS -> {"))
+        assertTrue(logcat.contains("Column(Modifier.fillMaxSize())"))
         assertTrue(logcat.contains("MonitorState.logFilter.collectAsState()"))
         assertFalse(logcat.contains("when (tab)"))
     }

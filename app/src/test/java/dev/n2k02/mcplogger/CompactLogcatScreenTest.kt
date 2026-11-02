@@ -23,6 +23,11 @@ class CompactLogcatScreenTest {
         assertTrue(screen.contains("onClick = { selectLogcatTab(destination) }"))
         assertTrue(screen.contains("BackHandler(enabled = HomeTabHistory.canGoBack(tabHistory))"))
         assertTrue(screen.contains("LogcatTab.LOGS -> {"))
+        // The pager must have one Column root per page; multiple top-level
+        // children overlap and hide the search, filters and log list at runtime.
+        assertTrue(screen.contains("LogcatTab.LOGS -> {\\n                // A single full-size layout root is required for each pager page.\\n                Column(Modifier.fillMaxSize()) {"))
+        assertTrue(screen.contains("LazyColumn(Modifier.fillMaxWidth().weight(1f)"))
+        assertTrue(screen.contains("Box(Modifier.fillMaxWidth().weight(1f).padding(24.dp)"))
         assertTrue(screen.contains("LogcatTab.FILTERS -> {"))
         assertTrue(screen.contains("LogcatTab.STORAGE -> {"))
         assertTrue(screen.contains("Text(\"Search logs, tags or PID\""))
