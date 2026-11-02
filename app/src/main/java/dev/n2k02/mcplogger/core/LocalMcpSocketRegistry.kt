@@ -3,7 +3,8 @@ package dev.n2k02.mcplogger.core
 import java.net.Socket
 
 /** Accepted TCP sockets are owned by one listener generation. */
-internal class LocalMcpSocketRegistry {
+internal class LocalMcpSocketRegistry(private val maxClients: Int = 32) {
+    init { require(maxClients > 0) }
     private val sockets = mutableSetOf<Socket>()
     private var generation = 0L
     private var accepting = false
@@ -18,7 +19,8 @@ internal class LocalMcpSocketRegistry {
 
     fun register(id: Long, client: Socket): Boolean {
         val accepted = synchronized(this) {
-            if (!accepting || generation != id) false else sockets.add(client)
+            if (!accepting || generation != id || sockets.size >= maxClients) false
+            else sockets.add(client)
         }
         if (!accepted) runCatching { client.close() }
         return accepted
