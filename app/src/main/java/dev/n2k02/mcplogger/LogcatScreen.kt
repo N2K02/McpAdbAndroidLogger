@@ -96,6 +96,7 @@ private fun AppPickerDialog(apps: List<InstalledApp>, selected: String,
                 OutlinedTextField(query, { query = it }, singleLine = true,
                     label = { Text("Find app by name or package") },
                     leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                    shape = RoundedCornerShape(18.dp),
                     modifier = Modifier.fillMaxWidth())
                 LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 430.dp)) {
                     item {
