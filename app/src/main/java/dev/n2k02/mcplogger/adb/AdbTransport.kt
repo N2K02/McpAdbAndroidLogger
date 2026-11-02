@@ -194,7 +194,12 @@ object AdbTransport {
                         // The command's first word only: the daemon's launch
                         // line carries its token.
                         Log.w(TAG, "exec: '${command.substringBefore(' ')} ...' timed out after ${timeoutMs}ms")
-                        session?.let { runCatching { it.close() } } ?: runCatching { mgr.disconnect() }
+                        // Timeout means the shell protocol is no longer trustworthy.
+                        // Tear down the entire ADB socket; next connect must create a
+                        // fresh session key and verify UID 2000 before issuing commands.
+                        runCatching { session?.close() }
+                        runCatching { mgr.disconnect() }
+                        if (manager === mgr) manager = null
                         shell = null
                         lastKnownConnected = false
                     }

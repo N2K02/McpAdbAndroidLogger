@@ -32,6 +32,8 @@ class AdbRecoveryContractTest {
         assertTrue(adb.contains("getPrivateKey(): PrivateKey = sessionKey"))
         assertFalse(adb.contains("getPrivateKey(): PrivateKey = identity.privateKey"))
         assertTrue(adb.contains("suspend fun disconnect() = close()"))
+        assertTrue(adb.contains("if (manager === mgr) manager = null"))
+        assertTrue(adb.contains("runCatching { mgr.disconnect() }"))
         assertFalse(adb.contains("manager?.close()"))
         assertFalse(adb.contains("mgr.close()"))
     }
