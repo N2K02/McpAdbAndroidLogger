@@ -30,7 +30,9 @@ class HomeMcpCardAndStatusUiTest {
         assertEquals(Tone.BUSY, tunnelTone("Tunnel is reconnecting"))
         assertEquals(Tone.BUSY, tunnelTone("Connecting to Cloudflare..."))
         assertEquals(Tone.BAD, tunnelTone("Tunnel unavailable; local MCP still works"))
-        assertEquals(Tone.IDLE, tunnelTone("Stopped"))
+        assertEquals(Tone.BAD, tunnelTone("Stopped"))
+        assertEquals(Tone.BAD, tunnelTone("Off"))
+        assertEquals(Tone.BAD, tunnelTone("Permanent endpoint not configured"))
     }
 
     @Test fun localAndAdbTones() {
