@@ -73,7 +73,7 @@ class HomeAndLogcatUiContractTest {
     @Test fun tunnelStatusIconTracksLiveConnectionAndTone() {
         val app = code("LoggerUi.kt")
         assertTrue(app.contains("MonitorState.tunnel.collectAsState()"))
-        assertTrue(app.contains("MCP tunnel status: $tunnel"))
+        assertTrue(app.contains("contentDescription = \"MCP tunnel status: $tunnel\""))
         assertTrue(app.contains("Icons.Rounded.Cloud"))
         assertTrue(app.contains("navigateTo(Page.BRIDGE)"))
         assertEquals(Tone.GOOD, tunnelTone("Public MCP connected"))
