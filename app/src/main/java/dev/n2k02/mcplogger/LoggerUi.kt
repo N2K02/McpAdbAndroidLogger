@@ -61,6 +61,8 @@ fun LoggerApp(onQuit: () -> Unit) {
 
     val context = LocalContext.current
     val status by LiveUpdater.controller.status.collectAsState()
+    val tunnel by MonitorState.tunnel.collectAsState()
+    val tunnelStatusTone = tunnelTone(tunnel)
     Scaffold(
         topBar = {
             TopAppBar(
@@ -87,6 +89,12 @@ fun LoggerApp(onQuit: () -> Unit) {
                     } }
                 } else { {} },
                 actions = {
+                    IconButton(onClick = { navigateTo(Page.BRIDGE) }) {
+                        Icon(Icons.Rounded.Cloud,
+                            contentDescription = "MCP tunnel status: $tunnel",
+                            tint = tunnelStatusTone.colors().dot,
+                            modifier = Modifier.size(22.dp))
+                    }
                     Icon(painter = painterResource(R.drawable.ic_app_mark),
                         contentDescription = "MCP Logger", tint = Color.Unspecified,
                         modifier = Modifier.size(20.dp))
