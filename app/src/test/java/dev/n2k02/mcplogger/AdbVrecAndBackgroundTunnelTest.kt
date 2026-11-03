@@ -38,6 +38,17 @@ class AdbVrecAndBackgroundTunnelTest {
         assertTrue(main.contains("getBoolean(\"mcp_server_enabled\", true)"))
     }
 
+    @Test fun mcpBootPreferenceIsInConnectionSubmenuAndControlsBootLaunch() {
+        val ui = read(src + "LoggerUi.kt").substringAfter("private fun BridgePage()")
+        assertTrue(ui.contains("Start MCP on boot"))
+        assertTrue(ui.contains("McpBootSettings.startOnBoot(context)"))
+        assertTrue(ui.contains("McpBootSettings.setStartOnBoot(context, enabled)"))
+        val boot = read(src + "core/BootReceiver.kt")
+        assertTrue(boot.contains("McpBootSettings.shouldStartOnBoot"))
+        assertTrue(boot.contains("McpBootSettings.startOnBoot(context)"))
+        assertTrue(boot.contains("LogMonitorService.LOCAL_START"))
+    }
+
     @Test fun deliberateQuitStopsRecoveryAndTunnel() {
         val main = read(src + "MainActivity.kt")
         assertTrue(main.contains("AdbRecoveryLifecycle.shutdown(this)"))
