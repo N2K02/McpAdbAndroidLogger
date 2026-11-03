@@ -70,6 +70,23 @@ class HomeAndLogcatUiContractTest {
         assertFalse(manifest.contains("android.permission.QUERY_ALL_PACKAGES"))
         assertTrue(manifest.contains("android.intent.category.LAUNCHER"))
     }
+    @Test fun tunnelStatusIconTracksLiveConnectionAndTone() {
+        val app = code("LoggerUi.kt")
+        assertTrue(app.contains("MonitorState.tunnel.collectAsState()"))
+        assertTrue(app.contains("MonitorState.foregroundServiceActive.collectAsState()"))
+        assertTrue(app.contains("MCP foreground service stopped"))
+        val service = code("core/LogMonitorService.kt")
+        assertTrue(service.contains("MonitorState.foregroundServiceActive.value = true"))
+        assertTrue(service.contains("MonitorState.foregroundServiceActive.value = false"))
+        assertTrue(app.contains("MCP tunnel status:"))
+        assertTrue(app.contains("Icons.Rounded.Cloud"))
+        assertTrue(app.contains("navigateTo(Page.BRIDGE)"))
+        assertEquals(Tone.GOOD, tunnelTone("Public MCP connected"))
+        assertEquals(Tone.BUSY, tunnelTone("Tunnel is reconnecting"))
+        assertEquals(Tone.BAD, tunnelTone("Stable relay unavailable"))
+        assertEquals(Tone.BAD, tunnelTone("Off"))
+    }
+
     @Test fun logcatTabsSwipeAndTapLikeHome() {
         val home = code("HomeDashboard.kt")
         val logcat = code("LogcatScreen.kt")

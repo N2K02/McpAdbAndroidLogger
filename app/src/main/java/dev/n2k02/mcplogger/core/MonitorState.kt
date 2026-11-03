@@ -63,6 +63,8 @@ object MonitorState {
     val gateway = MutableStateFlow("Disconnected")
     val localMcp = MutableStateFlow("Stopped")
     val publicMcpUrl = MutableStateFlow("")
+    /** True only while LogMonitorService is promoted to Android foreground. */
+    val foregroundServiceActive = MutableStateFlow(false)
     val tunnel = MutableStateFlow("Off")
     val selectedPackage = MutableStateFlow("")
     val logFilter = MutableStateFlow(LogViewFilter())

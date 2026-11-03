@@ -61,6 +61,9 @@ fun LoggerApp(onQuit: () -> Unit) {
 
     val context = LocalContext.current
     val status by LiveUpdater.controller.status.collectAsState()
+    val tunnel by MonitorState.tunnel.collectAsState()
+    val foregroundServiceActive by MonitorState.foregroundServiceActive.collectAsState()
+    val tunnelStatusTone = if (foregroundServiceActive) tunnelTone(tunnel) else Tone.BAD
     Scaffold(
         topBar = {
             TopAppBar(
@@ -87,6 +90,12 @@ fun LoggerApp(onQuit: () -> Unit) {
                     } }
                 } else { {} },
                 actions = {
+                    IconButton(onClick = { navigateTo(Page.BRIDGE) }) {
+                        Icon(Icons.Rounded.Cloud,
+                            contentDescription = if (foregroundServiceActive) "MCP tunnel status: $tunnel" else "MCP foreground service stopped",
+                            tint = tunnelStatusTone.colors().dot,
+                            modifier = Modifier.size(22.dp))
+                    }
                     Icon(painter = painterResource(R.drawable.ic_app_mark),
                         contentDescription = "MCP Logger", tint = Color.Unspecified,
                         modifier = Modifier.size(20.dp))

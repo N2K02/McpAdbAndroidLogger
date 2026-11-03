@@ -40,9 +40,13 @@ internal fun localMcpTone(status: String) = when {
 
 internal fun tunnelTone(status: String) = when {
     status == "Public MCP connected" -> Tone.GOOD
-    status == "Stopped" || status.isBlank() -> Tone.IDLE
-    status.contains("unavailable", true) || status.contains("disconnected", true) -> Tone.BAD
-    else -> Tone.BUSY
+    status.contains("reconnect", true) || status.contains("connect", true) ||
+        status.contains("starting", true) || status.contains("request", true) -> Tone.BUSY
+    status == "Stopped" || status == "Off" || status.isBlank() -> Tone.BAD
+    status.contains("unavailable", true) || status.contains("disconnected", true) ||
+        status.contains("not configured", true) || status.contains("offline", true) ||
+        status.contains("expired", true) || status.contains("stopped", true) -> Tone.BAD
+    else -> Tone.BAD
 }
 
 /** Pill badge: colored dot + short label on a tonal container. */
