@@ -24,7 +24,10 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) {
+            val prefs = getSharedPreferences("mcp_logger", MODE_PRIVATE)
+            val serviceEnabled = prefs.getBoolean("mcp_server_enabled", true) &&
+                !prefs.getBoolean("manual_quit", false)
+            if (granted && serviceEnabled) {
                 runCatching {
                     ContextCompat.startForegroundService(this,
                         Intent(this, LogMonitorService::class.java)
@@ -32,7 +35,7 @@ class MainActivity : ComponentActivity() {
                 }.onFailure {
                     MonitorState.error("Notification refresh: " + it.javaClass.simpleName)
                 }
-            } else {
+            } else if (!granted) {
                 Toast.makeText(this,
                     "Allow notifications to show the MCP tunnel icon in the status bar.",
                     Toast.LENGTH_LONG).show()
