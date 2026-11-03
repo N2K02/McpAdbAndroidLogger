@@ -411,8 +411,13 @@ class LogMonitorService : Service() {
         val status = TunnelNotificationPolicy.fromTunnelStatus(MonitorState.tunnel.value)
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val statusIcon = when (status.state) {
+            TunnelNotificationState.ONLINE -> R.drawable.ic_tunnel_status_online
+            TunnelNotificationState.RECONNECTING -> R.drawable.ic_tunnel_status_reconnecting
+            TunnelNotificationState.OFFLINE -> R.drawable.ic_tunnel_status_offline
+        }
         return Notification.Builder(this, channelId)
-            .setSmallIcon(R.drawable.ic_app_notification)
+            .setSmallIcon(statusIcon)
             .setContentTitle(status.title)
             .setContentText(status.message)
             .setColor(status.colorArgb)
