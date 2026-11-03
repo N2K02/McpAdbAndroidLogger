@@ -8,6 +8,17 @@ class QuickMcpTunnelTest {
     private fun tracker(vararg lines: String) =
         QuickMcpTunnel.ConnectionTracker().also { t -> lines.forEach { t.onLine(it) } }
 
+    @Test fun notificationPolicyReflectsOnlineReconnectingAndOfflineStates() {
+        val online = TunnelNotificationPolicy.fromTunnelStatus("Public MCP connected")
+        assertEquals(TunnelNotificationState.ONLINE, online.state)
+        assertEquals("MCP tunnel online", online.title)
+        val reconnecting = TunnelNotificationPolicy.fromTunnelStatus("Tunnel is reconnecting")
+        assertEquals(TunnelNotificationState.RECONNECTING, reconnecting.state)
+        val offline = TunnelNotificationPolicy.fromTunnelStatus("Stable relay unavailable")
+        assertEquals(TunnelNotificationState.OFFLINE, offline.state)
+        assertNotEquals(online.colorArgb, offline.colorArgb)
+    }
+
     @Test fun oneFailedConnectionDoesNotMarkTunnelDown() {
         val t = tracker(
             "INF Registered tunnel connection connIndex=0 connection=a ip=1.1.1.1",
