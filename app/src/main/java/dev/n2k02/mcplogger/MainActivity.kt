@@ -2,11 +2,6 @@ package dev.n2k02.mcplogger
 
 import android.os.Bundle
 import android.content.Intent
-import android.Manifest
-import android.content.pm.PackageManager
-import android.os.Build
-import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -22,25 +17,6 @@ import dev.n2k02.theme.N2K02Theme
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
-    private val notificationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            val prefs = getSharedPreferences("mcp_logger", MODE_PRIVATE)
-            val serviceEnabled = prefs.getBoolean("mcp_server_enabled", true) &&
-                !prefs.getBoolean("manual_quit", false)
-            if (granted && serviceEnabled) {
-                runCatching {
-                    ContextCompat.startForegroundService(this,
-                        Intent(this, LogMonitorService::class.java)
-                            .setAction(LogMonitorService.LOCAL_START))
-                }.onFailure {
-                    MonitorState.error("Notification refresh: " + it.javaClass.simpleName)
-                }
-            } else if (!granted) {
-                Toast.makeText(this,
-                    "Allow notifications to show the MCP tunnel icon in the status bar.",
-                    Toast.LENGTH_LONG).show()
-            }
-        }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -76,18 +52,7 @@ class MainActivity : ComponentActivity() {
                 }
             ) }
         }
-        requestNotificationPermissionIfNeeded()
     }
-    private fun requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
-                PackageManager.PERMISSION_GRANTED) return
-        val prefs = getSharedPreferences("mcp_logger", MODE_PRIVATE)
-        if (prefs.getBoolean("notification_permission_requested", false)) return
-        prefs.edit().putBoolean("notification_permission_requested", true).apply()
-        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-    }
-
     override fun onResume() {
         super.onResume()
         LiveUpdater.onResume(this)
