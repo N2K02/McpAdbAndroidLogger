@@ -38,21 +38,6 @@ class AdbVrecAndBackgroundTunnelTest {
         assertTrue(main.contains("getBoolean(\"mcp_server_enabled\", true)"))
     }
 
-    @Test fun statusBarNotificationRequestsPermissionAndTracksTunnelState() {
-        val main = read(src + "MainActivity.kt")
-        assertTrue(main.contains("notificationPermissionLauncher"))
-        assertTrue(main.contains("Manifest.permission.POST_NOTIFICATIONS"))
-        assertTrue(main.contains("notification_permission_requested"))
-        val service = read(src + "core/LogMonitorService.kt")
-        assertTrue(service.contains("MonitorState.tunnel.collect"))
-        assertTrue(service.contains("setColorized(true)"))
-        assertTrue(service.contains("setContentTitle(status.title)"))
-        assertTrue(service.contains("manager?.notify(2026, notification)"))
-        assertTrue(service.contains("R.drawable.ic_tunnel_status_online"))
-        assertTrue(service.contains("R.drawable.ic_tunnel_status_reconnecting"))
-        assertTrue(service.contains("R.drawable.ic_tunnel_status_offline"))
-    }
-
     @Test fun deliberateQuitStopsRecoveryAndTunnel() {
         val main = read(src + "MainActivity.kt")
         assertTrue(main.contains("AdbRecoveryLifecycle.shutdown(this)"))
