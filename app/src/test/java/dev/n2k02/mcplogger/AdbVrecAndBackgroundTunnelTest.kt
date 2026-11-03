@@ -48,6 +48,9 @@ class AdbVrecAndBackgroundTunnelTest {
         assertTrue(service.contains("setColorized(true)"))
         assertTrue(service.contains("setContentTitle(status.title)"))
         assertTrue(service.contains("manager?.notify(2026, notification)"))
+        assertTrue(service.contains("R.drawable.ic_tunnel_status_online"))
+        assertTrue(service.contains("R.drawable.ic_tunnel_status_reconnecting"))
+        assertTrue(service.contains("R.drawable.ic_tunnel_status_offline"))
     }
 
     @Test fun deliberateQuitStopsRecoveryAndTunnel() {
