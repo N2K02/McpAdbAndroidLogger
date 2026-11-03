@@ -196,7 +196,8 @@ class LogMonitorService : Service() {
     private var relayHeartbeatJob: Job? = null
     private var dailyPruneJob: Job? = null
     private var quitJob: Job? = null
-    private var foreground = false
+    private var notificationStatusJob: Job? = null
+    @Volatile private var foreground = false
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -386,21 +387,43 @@ class LogMonitorService : Service() {
     }
 
     private fun ensureForeground() {
-        if (foreground) return
         val channelId = "logger_monitor"
         getSystemService(NotificationManager::class.java)?.createNotificationChannel(
             NotificationChannel(channelId, "MCP ADB local server", NotificationManager.IMPORTANCE_LOW))
+        val notification = tunnelNotification(channelId)
+        val manager = getSystemService(NotificationManager::class.java)
+        if (foreground) {
+            manager?.notify(2026, notification)
+        } else {
+            startForeground(2026, notification)
+            foreground = true
+        }
+        if (notificationStatusJob?.isActive != true) {
+            notificationStatusJob = scope.launch {
+                MonitorState.tunnel.collect {
+                    if (foreground) manager?.notify(2026, tunnelNotification(channelId))
+                }
+            }
+        }
+    }
+
+    private fun tunnelNotification(channelId: String): Notification {
+        val status = TunnelNotificationPolicy.fromTunnelStatus(MonitorState.tunnel.value)
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val notification = Notification.Builder(this, channelId)
+        return Notification.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_app_notification)
-            .setContentTitle("MCP ADB Logger")
-            .setContentText("MCP tunnel active · tap to manage connection")
+            .setContentTitle(status.title)
+            .setContentText(status.message)
+            .setColor(status.colorArgb)
+            .setColorized(true)
+            .setCategory(Notification.CATEGORY_SERVICE)
             .setContentIntent(open)
-            .setOngoing(true).build()
-        startForeground(2026, notification)
-        foreground = true
+            .setOnlyAlertOnce(true)
+            .setOngoing(true)
+            .build()
     }
+
 
     /** One explicit Home/Logs refresh; never start a repeating polling loop. */
     private fun startCapture() {
