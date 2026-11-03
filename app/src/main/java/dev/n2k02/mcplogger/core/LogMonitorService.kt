@@ -274,6 +274,7 @@ class LogMonitorService : Service() {
                         withContext(NonCancellable + Dispatchers.Main.immediate) {
                             stopForeground(STOP_FOREGROUND_REMOVE)
                             foreground = false
+                            MonitorState.foregroundServiceActive.value = false
                             stopSelf()
                         }
                     }
@@ -299,6 +300,7 @@ class LogMonitorService : Service() {
                 if (!MonitorState.active.value) {
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     foreground = false
+                    MonitorState.foregroundServiceActive.value = false
                     stopSelf()
                     return START_NOT_STICKY
                 }
@@ -400,6 +402,7 @@ class LogMonitorService : Service() {
             .setOngoing(true).build()
         startForeground(2026, notification)
         foreground = true
+        MonitorState.foregroundServiceActive.value = true
     }
 
     /** One explicit Home/Logs refresh; never start a repeating polling loop. */
@@ -430,6 +433,8 @@ class LogMonitorService : Service() {
         relayHeartbeatJob?.cancel()
         LocalMcpServer.stop()
         if (foreground) stopForeground(STOP_FOREGROUND_REMOVE)
+        foreground = false
+        MonitorState.foregroundServiceActive.value = false
         scope.cancel()
         super.onDestroy()
     }
