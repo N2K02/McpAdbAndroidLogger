@@ -34,6 +34,7 @@ import dev.n2k02.mcplogger.core.McpAgentAuditAccess
 import dev.n2k02.mcplogger.core.McpConnectionSetup
 import dev.n2k02.mcplogger.core.StableMcpRelay
 import dev.n2k02.mcplogger.core.LogMonitorService
+import dev.n2k02.mcplogger.core.McpBootSettings
 import dev.n2k02.mcplogger.core.MonitorState
 import dev.n2k02.updater.N2K02UpdatePage
 import dev.n2k02.updater.N2K02UpdateBadge
@@ -319,6 +320,7 @@ private fun BridgePage(modifier: Modifier) {
     val scope = rememberCoroutineScope()
     val local by MonitorState.localMcp.collectAsState()
     val tunnel by MonitorState.tunnel.collectAsState()
+    var startMcpOnBoot by remember { mutableStateOf(McpBootSettings.startOnBoot(context)) }
     val publicUrl by MonitorState.publicMcpUrl.collectAsState()
     val clientToken = BridgeClient.clientTokenState(context).collectAsState().value.orEmpty()
     val agents by dev.n2k02.mcplogger.core.LocalMcpOAuth.connected.collectAsState()
@@ -408,6 +410,20 @@ private fun BridgePage(modifier: Modifier) {
             style = MaterialTheme.typography.bodySmall)
         Text("Phone-hosted server: $local", style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
+        HorizontalDivider()
+        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Start MCP on boot", style = MaterialTheme.typography.bodyLarge)
+                Text("Start the local server and tunnel after the phone restarts.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(checked = startMcpOnBoot, onCheckedChange = { enabled ->
+                startMcpOnBoot = enabled
+                McpBootSettings.setStartOnBoot(context, enabled)
+            })
+        }
         OutlinedTextField(
             value = if (editingPermanentUrl) permanentUrl else stableUrl.orEmpty(),
             onValueChange = { if (editingPermanentUrl) permanentUrl = it },

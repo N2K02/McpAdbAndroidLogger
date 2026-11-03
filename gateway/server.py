@@ -14,7 +14,7 @@ import os
 import re
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Mount, Route
@@ -25,7 +25,7 @@ device_key = os.environ.get("DEVICE_API_KEY", "")
 client_token = os.environ.get("MCP_CLIENT_TOKEN", "")
 allowed_origins = {item.strip() for item in os.environ.get("MCP_ALLOWED_ORIGINS", "").split(",") if item.strip()}
 
-mcp = FastMCP("MCP ADB Android Logger", stateless_http=True, json_response=True)
+mcp = MCPServer("MCP ADB Android Logger")
 lock = asyncio.Lock()
 logbook: deque[dict[str, Any]] = deque(maxlen=LOG_CAP)
 snapshot: dict[str, Any] = {"device": "android", "adb": "not connected", "package": "", "packages": []}
@@ -159,7 +159,7 @@ http = Starlette(
     routes=[
         Route("/health", health, methods=["GET"]),
         Route("/ingest", ingest, methods=["POST"]),
-        Mount("/", app=mcp.streamable_http_app()),
+        Mount("/", app=mcp.streamable_http_app(stateless_http=True, json_response=True)),
     ],
     lifespan=lifespan,
 )

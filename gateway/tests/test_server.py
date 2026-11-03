@@ -5,10 +5,21 @@ from gateway import server
 
 @pytest.fixture(scope="module")
 def client():
-    # FastMCP session managers deliberately have a one-shot lifespan.
+    # MCPServer session managers deliberately have a one-shot lifespan.
     # Share one ASGI lifespan across all tests; never restart it.
     with TestClient(server.application) as instance:
         yield instance
+
+
+def test_gateway_uses_mcp_sdk_v2_and_exposes_tools(client):
+    from mcp.server import MCPServer
+    assert isinstance(server.mcp, MCPServer)
+    assert client.get("/mcp").status_code == 401
+    result = asyncio.run(server.mcp.list_tools())
+    assert {tool.name for tool in result} >= {
+        "get_device_status", "list_installed_apps", "get_live_logs",
+        "search_logs", "get_crashes", "get_anrs",
+    }
 
 
 def test_ingest_requires_auth(monkeypatch, client):

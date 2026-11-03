@@ -15,22 +15,26 @@ import androidx.core.content.ContextCompat
 
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
-        if (!AdbCoordinator.autoStart(context)) return
-        if (context.getSharedPreferences("mcp_logger", Context.MODE_PRIVATE)
-                .getBoolean("manual_quit", false)) return
+        val prefs = context.getSharedPreferences("mcp_logger", Context.MODE_PRIVATE)
+        val manuallyQuit = prefs.getBoolean("manual_quit", false)
+        if (manuallyQuit) return
         // connectedDevice FGS may be launched on BOOT_COMPLETED for the
-        // user-enabled ADB/tunnel connection; dataSync is not permitted on Android 15+.
-        if (context.getSharedPreferences("mcp_logger", Context.MODE_PRIVATE)
-                .getBoolean("mcp_server_enabled", true)) {
+        // user-enabled MCP tunnel; dataSync is not permitted on Android 15+.
+        if (McpBootSettings.shouldStartOnBoot(
+                McpBootSettings.startOnBoot(context),
+                prefs.getBoolean("mcp_server_enabled", true),
+                manuallyQuit)) {
             runCatching {
                 ContextCompat.startForegroundService(context,
                     Intent(context, LogMonitorService::class.java)
                         .setAction(LogMonitorService.LOCAL_START))
             }.onFailure { MonitorState.error("MCP boot restart blocked by Android") }
         }
-        WorkManager.getInstance(context).enqueueUniqueWork(
-            "adb-boot-recovery", ExistingWorkPolicy.REPLACE,
-            OneTimeWorkRequestBuilder<AdbRecoveryWorker>().build())
+        if (AdbCoordinator.autoStart(context)) {
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                "adb-boot-recovery", ExistingWorkPolicy.REPLACE,
+                OneTimeWorkRequestBuilder<AdbRecoveryWorker>().build())
+        }
     }
 }
 class AdbRecoveryWorker(context: Context, args: WorkerParameters) : CoroutineWorker(context, args) {
