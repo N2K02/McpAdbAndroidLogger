@@ -146,6 +146,59 @@ class SurfaceActivityDiagnosticsTest {
         assertTrue(build.contains("keepDebugSymbols += \"**/libtraceprocessor.so\""))
     }
 
+    @Test fun shellCapturePreservesExitStatusAndNeverReturnsRawDiagnosticsToMcp() {
+        val wrapped = PerfettoStageDiagnostics.checked("echo TRACE_ONLY_LOCAL", 128)
+        assertTrue(wrapped.contains("n2k02_rc=\$?"))
+        assertTrue(wrapped.contains("head -c 128"))
+        assertTrue(wrapped.contains("__N2K02_PERFETTO_EXIT__="))
+        val success = PerfettoStageDiagnostics.parse(
+            "private trace path\n__N2K02_PERFETTO_EXIT__=0\n")
+        assertEquals(0, success.exitCode)
+        assertTrue(success.succeeded)
+        assertEquals("private trace path", success.output)
+        assertEquals("ok", PerfettoStageDiagnostics.executionStatus(success))
+        val denied = PerfettoStageDiagnostics.parse(
+            "Permission denied: very private path\n__N2K02_PERFETTO_EXIT__=126\n")
+        assertEquals("permission_denied",
+            PerfettoStageDiagnostics.executionStatus(denied))
+        assertEquals("permission_denied",
+            PerfettoStageDiagnostics.traceStatus(denied))
+        assertEquals("sql_schema_error", PerfettoStageDiagnostics.queryStatus(
+            PerfettoStageDiagnostics.parse(
+                "no such table: actual_frame_timeline_slice\n" +
+                    "__N2K02_PERFETTO_EXIT__=1\n")))
+        assertEquals("binary_incompatible", PerfettoStageDiagnostics.executionStatus(
+            PerfettoStageDiagnostics.ShellResult(
+                "CANNOT LINK EXECUTABLE: unsupported ABI", 127)))
+        assertEquals("no_exit_code", PerfettoStageDiagnostics.executionStatus(
+            PerfettoStageDiagnostics.parse("no shell end marker")))
+        assertEquals("capture_failed", PerfettoStageDiagnostics.traceStatus(
+            PerfettoStageDiagnostics.ShellResult("Failure without details", 1)))
+        assertEquals("data_source_unavailable", PerfettoStageDiagnostics.traceStatus(
+            PerfettoStageDiagnostics.ShellResult("Unknown data source", 1)))
+        assertTrue(PerfettoStageDiagnostics.checked("true").length < 300)
+        assertThrows(IllegalArgumentException::class.java) {
+            PerfettoStageDiagnostics.checked("true\nmalicious")
+        }
+    }
+
+    @Test fun schedulerCpuParsingAndMissingRowsAreNotFabricated() {
+        assertEquals(27.5, PerfettoStageDiagnostics.parseCpuMillis(
+            "\"sf_cpu_ms\"\n27.5\n")!!, 0.001)
+        assertEquals(0.0, PerfettoStageDiagnostics.parseCpuMillis(
+            "sf_cpu_ms\n0.0")!!, 0.001)
+        assertNull(PerfettoStageDiagnostics.parseCpuMillis("sf_cpu_ms\n"))
+        assertNull(PerfettoStageDiagnostics.parseCpuMillis(
+            "sf_cpu_ms\nprivate process title"))
+        val result = SurfaceActivityDiagnostics.TraceOutcome(
+            captureStatus = "ok", processorStatus = "ok",
+            frameStatus = "no_frames", schedStatus = "no_sched_data",
+            traceBytes = 2400L)
+        assertEquals(2400L, result.traceBytes)
+        assertEquals(null, result.cpuMs)
+        assertTrue(result.rows.isEmpty())
+    }
+
     @Test fun activityAndPerfettoRemainExplicitBoundedAndNoRawTracesLeaveTheServer() {
         val root = "app/src/main/java/dev/n2k02/mcplogger/"
         fun source(path: String) = listOf(File(root + path), File("../" + root + path))
@@ -157,9 +210,15 @@ class SurfaceActivityDiagnosticsTest {
         assertTrue(src.contains("android.surfaceflinger.frametimeline"))
         assertTrue(src.contains("sched/sched_switch"))
         assertTrue(src.contains("trace_processor_shell"))
-        // Perfetto classic CLI -q reads a file. -Q executes a query string.
-        assertEquals(2, Regex(" -Q ").findAll(src).count())
-        assertFalse(src.contains(" -q "))
+        // Use a CSV-producing query subcommand, with -Q legacy fallback.
+        assertTrue(src.contains("query --format csv --no-progress"))
+        assertTrue(src.contains(" -Q "))
+        assertTrue(src.contains("PerfettoStageDiagnostics.checked("))
+        assertTrue(src.contains("PerfettoStageDiagnostics.queryStatus("))
+        assertTrue(src.contains("perfetto_capture_status"))
+        assertTrue(src.contains("perfetto_processor_status"))
+        assertTrue(src.contains("perfetto_frame_status"))
+        assertTrue(src.contains("perfetto_scheduler_status"))
         assertTrue(src.contains("elapsedSoFar < seconds * 1000L"))
         assertTrue(src.contains("runTrace(seconds, processor.first, catalog, finishCapture)"))
         assertTrue(src.contains("onCaptured()"))
