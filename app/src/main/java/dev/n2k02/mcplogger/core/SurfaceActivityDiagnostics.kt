@@ -78,12 +78,27 @@ internal object SurfaceActivityDiagnostics {
                     traceStatus = trace.third
                 } else delay(seconds * 1000L)
             } else delay(seconds * 1000L)
+            // A trace failure may return immediately. Do not present a sub-second
+            // TimeStats/CPU read as the requested multi-second capture.
+            val captureMs = (SystemClock.elapsedRealtime() - begin).coerceAtLeast(0L)
+            if (captureMs < seconds * 1000L) delay(seconds * 1000L - captureMs)
             val elapsed = (SystemClock.elapsedRealtime() - begin).coerceAtLeast(1L)
             val after = readCpuStat(AdbTransport.exec(CPU_COMMAND, timeoutMs = TIMEOUT_MS).getOrThrow())
             val raw = AdbTransport.exec(TIMESTATS_READ, timeoutMs = TIMEOUT_MS).getOrThrow()
-            val layers = parseTimeStats(raw, catalog)
+            val statsError = when {
+                denied(raw) -> "permission_denied"
+                raw.isBlank() || raw.contains("Can't find service", ignoreCase = true) ||
+                    raw.contains("unknown option", ignoreCase = true) ||
+                    raw.contains("Invalid argument", ignoreCase = true) ->
+                    "timestats_unavailable"
+                else -> null
+            }
+            val layers = if (statsError == null) parseTimeStats(raw, catalog) else emptyList()
             val cpu = processCpu(before, after, elapsed)
             val result = summarize(layers, traceRows, elapsed, cpu, limit)
+            if (statsError != null) result.put("timestats_status", statsError)
+            else result.put("timestats_status", if (layers.isEmpty())
+                "no_app_layers" else "ok")
             result.put("perfetto_status", traceStatus)
                 .put("perfetto_compositor_sched_cpu_ms", tracedCpuMs ?: JSONObject.NULL)
                 .put("sampling_seconds_requested", seconds)
@@ -249,10 +264,10 @@ internal object SurfaceActivityDiagnostics {
             if (size == null || size <= 0 || size > 16L * 1024 * 1024)
                 return Triple(emptyList(), null, "trace_missing_or_too_large")
             val frameRaw = AdbTransport.exec(
-                "$executable -q \"$frameSql\" $file 2>&1 | head -c 32768",
+                "$executable -Q \"$frameSql\" $file 2>&1 | head -c 32768",
                 timeoutMs = 40_000L).getOrThrow()
             val cpuRaw = AdbTransport.exec(
-                "$executable -q \"$cpuSql\" $file 2>&1 | head -c 2048",
+                "$executable -Q \"$cpuSql\" $file 2>&1 | head -c 2048",
                 timeoutMs = 40_000L).getOrThrow()
             val rows = parseTraceRows(frameRaw, known)
             val cpu = cpuRaw.lineSequence().mapNotNull {
