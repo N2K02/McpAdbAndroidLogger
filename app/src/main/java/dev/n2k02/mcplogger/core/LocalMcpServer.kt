@@ -99,6 +99,7 @@ object LocalMcpServer {
         runCatching { listener?.close() }
         listener = null
         MonitorState.localMcp.value = "Stopped"
+        DeviceDiagnostics.clearBaseline()
     }
 
     /** Never log OAuth parameters, headers, browser forms, access tokens or codes. */
@@ -318,6 +319,11 @@ object LocalMcpServer {
                                     pkg, arguments.optInt("limit", 20))
                                 "get_frame_timing" -> PerformanceDiagnostics.frames(pkg, budget)
                                 "get_performance_snapshot" -> PerformanceDiagnostics.summary(pkg, budget)
+                                "get_battery_diagnostics" -> DeviceDiagnostics.battery()
+                                "get_memory_pressure" -> DeviceDiagnostics.memory()
+                                "get_wakelock_usage" -> DeviceDiagnostics.wakelocks(arguments.optInt("limit", 20))
+                                "get_screen_off_baseline" -> DeviceDiagnostics.beginScreenOff()
+                                "get_screen_off_report" -> DeviceDiagnostics.reportScreenOff(arguments.optInt("limit", 20))
                                 else -> throw IllegalArgumentException()
                             }
                         }
