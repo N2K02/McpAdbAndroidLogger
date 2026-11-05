@@ -172,8 +172,10 @@ internal object DeviceDiagnostics {
             .put("health_code", numeric["health"] ?: JSONObject.NULL)
             .put("battery_status_code", numeric["status"] ?: JSONObject.NULL)
             .put("plugged_code", plugged ?: JSONObject.NULL)
-            .put("is_plugged", if (plugged != null) plugged != 0 else
-                flags.filterKeys { it.endsWith("powered") }.values.any { it })
+            .put("is_plugged", if (plugged != null) plugged != 0 else {
+                val states = flags.filterKeys { it.endsWith("powered") }.values
+                if (states.isEmpty()) JSONObject.NULL else states.any { it }
+            })
             .put("source", "dumpsys battery")
     }
 
