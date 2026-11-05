@@ -195,26 +195,8 @@ internal object LocalMcpProtocol {
                     level = level,
                     limit = limit,
                 )
-                // Mirror the most recent successful MCP request in the Logs screen.
-                // Store IDs rather than copying log messages, and preserve the tool's
-                // returned limit / cursor selection until the user edits UI filters.
-                val nextFilter = LogViewFilter(
-                    packageName = args.optString("package_name", "").trim(),
-                    search = query,
-                    selectedLevels = if (name == "get_live_logs" &&
-                        level.uppercase() in setOf("V", "D", "I", "W", "E", "F"))
-                        setOf(level.uppercase()) else emptySet(),
-                    crashesOnly = name == "get_crashes" || name == "get_anrs",
-                )
-                MonitorState.logFilter.value = nextFilter
-                MonitorState.selectedPackage.value = nextFilter.packageName
-                MonitorState.recentLogRequest.value = RecentLogRequest(
-                    origin = LogReadOrigin.MCP,
-                    tool = name,
-                    atMillis = System.currentTimeMillis(),
-                    filter = nextFilter,
-                    entryIds = logs.mapTo(mutableSetOf()) { it.id }
-                )
+                // Remote arguments scope only this MCP response. The on-device
+                // Logs filters, selected app, and manual review remain unchanged.
                 JSONArray().apply {
                     logs.forEach { e ->
                         put(JSONObject().put("cursor", e.id).put("time", e.epochMillis)
