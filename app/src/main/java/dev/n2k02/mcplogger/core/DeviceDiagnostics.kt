@@ -195,8 +195,11 @@ internal object DeviceDiagnostics {
                 "uid" -> if (p[2] == "i" && p.size >= 6) {
                     val id = p[4].toIntOrNull() ?: continue
                     val pkg = p[5].trim()
-                    if (PerformanceDiagnostics.validPackage(pkg) && !packages.containsKey(id))
-                        packages[id] = pkg
+                    if (PerformanceDiagnostics.validPackage(pkg)) {
+                        val current = packages[id]
+                        if (current == null) packages[id] = pkg
+                        else if (current != pkg) packages[id] = "uid:$id (shared)"
+                    }
                 }
                 "wl" -> if (p[2] == "l" && uid > 0 && p.size >= 11 &&
                     p[6] == "f" && p[9] == "p") {
