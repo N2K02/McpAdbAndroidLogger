@@ -328,7 +328,8 @@ object LocalMcpServer {
                                 "get_surfaceflinger_activity" -> SurfaceActivityDiagnostics.activity(
                                     arguments.optInt("duration_seconds", 5), arguments.optInt("limit", 15))
                                 "get_surfaceflinger_perfetto" -> SurfaceActivityDiagnostics.perfetto(
-                                    arguments.optInt("duration_seconds", 5), arguments.optInt("limit", 15))
+                                    arguments.optInt("duration_seconds", 5), arguments.optInt("limit", 15),
+                                    context.applicationInfo.nativeLibraryDir)
                                 else -> throw IllegalArgumentException()
                             }
                         }
