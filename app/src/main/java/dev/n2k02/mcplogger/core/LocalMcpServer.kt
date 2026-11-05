@@ -324,6 +324,7 @@ object LocalMcpServer {
                                 "get_wakelock_usage" -> DeviceDiagnostics.wakelocks(arguments.optInt("limit", 20))
                                 "get_screen_off_baseline" -> DeviceDiagnostics.beginScreenOff()
                                 "get_screen_off_report" -> DeviceDiagnostics.reportScreenOff(arguments.optInt("limit", 20))
+                                "get_surfaceflinger_layers" -> SurfaceLayersDiagnostics.layers(arguments.optInt("limit", 20))
                                 else -> throw IllegalArgumentException()
                             }
                         }
