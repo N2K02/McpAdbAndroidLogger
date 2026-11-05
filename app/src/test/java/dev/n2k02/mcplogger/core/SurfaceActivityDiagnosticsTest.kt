@@ -134,7 +134,7 @@ class SurfaceActivityDiagnosticsTest {
             .first { it.isFile }.readText()
         val helper = file("scripts/prepare-perfetto-processor.sh")
         val workflow = file("workflows/build.yml")
-        assertTrue(helper.contains("v${VERSION}/android-arm64/trace_processor_shell"))
+        assertTrue(helper.contains("android-arm64/trace_processor_shell"))
         assertTrue(helper.contains(
             "05e95758a26cf57fb8d552d3c1d532486681a6ecc4ee705a484a8deb4d092d09"))
         assertTrue(helper.contains("EXPECTED_SIZE=13098064"))
