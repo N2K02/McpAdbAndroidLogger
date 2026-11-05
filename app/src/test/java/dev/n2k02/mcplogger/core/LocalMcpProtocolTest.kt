@@ -11,6 +11,38 @@ class LocalMcpProtocolTest {
         assertEquals(1, reply.getInt("id"))
         assertEquals("2025-11-25", reply.getJSONObject("result").getString("protocolVersion"))
     }
+    @Test fun existingDeviceStatusReportsTheLiveCatalogWithoutRunningDiagnostics() {
+        val calls = java.util.concurrent.atomic.AtomicInteger()
+        val reader: (String, JSONObject) -> JSONObject = { _, _ ->
+            calls.incrementAndGet()
+            JSONObject().put("status", "unexpected")
+        }
+        val reply = LocalMcpProtocol.execute(JSONObject(
+            """{"jsonrpc":"2.0","method":"tools/call","id":1,
+               "params":{"name":"get_device_status","arguments":{"limit":20}}}"""),
+            performanceReader = reader)!!
+        assertFalse(reply.has("error"))
+        val payload = JSONObject(reply.getJSONObject("result")
+            .getJSONArray("content").getJSONObject(0).getString("text"))
+        assertEquals(LocalMcpProtocol.CATALOG_REVISION,
+            payload.getString("mcp_catalog_revision"))
+        assertEquals(14, payload.getInt("mcp_tool_count"))
+        val toolNames = payload.getJSONArray("mcp_tool_names")
+        val listed = LocalMcpProtocol.execute(JSONObject(
+            """{"jsonrpc":"2.0","method":"tools/list","id":2}"""),
+            performanceReader = reader)!!.getJSONObject("result").getJSONArray("tools")
+        assertEquals(listed.length(), toolNames.length())
+        assertEquals((0 until listed.length()).map {
+            listed.getJSONObject(it).getString("name")
+        }, (0 until toolNames.length()).map { toolNames.getString(it) })
+        assertTrue(payload.getBoolean("on_demand_health_available"))
+        assertEquals(MonitorState.adb.value.startsWith("UID 2000 verified"),
+            payload.getBoolean("on_demand_health_ready"))
+        assertEquals(0, calls.get())
+        assertFalse(payload.toString().contains("access_key"))
+        assertFalse(payload.toString().contains("token"))
+    }
+
     @Test fun listToolsContainsOnlyReadOnlyOperations() {
         val reply = LocalMcpProtocol.execute(JSONObject(
             """{"jsonrpc":"2.0","method":"tools/list","id":2}"""))!!
