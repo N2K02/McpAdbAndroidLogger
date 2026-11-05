@@ -18,11 +18,12 @@ import kotlin.math.round
 internal object DeviceDiagnostics {
     private const val TIMEOUT_MS = 15_000L
     private const val BATTERY_COMMAND = "dumpsys battery"
-    private const val MEMORY_COMMAND = "cat /proc/meminfo; echo __MCP_PSI__; cat /proc/pressure/memory 2>/dev/null"
-    // Restrict expensive batterystats output before it reaches the app. Checkin
-    // fields are machine-readable; names of individual wake locks are discarded.
+    private const val MEMORY_COMMAND = "cat /proc/meminfo; echo __MCP_PSI__; cat /proc/pressure/memory 2>&1"
+    // Keep aggregate 'awl' records: newer Android versions emit these per-UID
+    // partial wakelock durations independently of per-tag 'wl' rows.
+    // Checkin fields are machine-readable; all tag names are discarded.
     private const val STATS_COMMAND =
-        "dumpsys batterystats --charged --checkin | grep -E ',(uid|wl|pwi|bt|lv),' | head -c 524288"
+        "dumpsys batterystats --charged --checkin | grep -E ',(uid|wl|awl|pwi|bt|lv),' | head -c 524288"
     private const val POWER_COMMAND =
         "dumpsys power | grep -E 'mWakefulness=|Wake Locks:|PARTIAL_WAKE_LOCK' | head -n 120"
     private val lock = Mutex()
@@ -115,12 +116,20 @@ internal object DeviceDiagnostics {
         val mem = mutableMapOf<String, Long>()
         val psi = JSONObject()
         var inPsi = false
+        var psiFailure: String? = null
         for (line in text.lineSequence()) {
             if (line.trim() == "__MCP_PSI__") { inPsi = true; continue }
             if (!inPsi) {
                 val m = kvRegex.matchEntire(line.trim()) ?: continue
                 mem[m.groupValues[1]] = m.groupValues[2].toLongOrNull() ?: continue
             } else {
+                // Preserve a safe reason code without leaking raw shell output.
+                if (line.contains("Permission denied", ignoreCase = true) ||
+                    line.contains("Operation not permitted", ignoreCase = true))
+                    psiFailure = "permission_denied"
+                else if (line.contains("No such file", ignoreCase = true) ||
+                    line.contains("not found", ignoreCase = true))
+                    psiFailure = "not_supported"
                 val m = psiRegex.find(line) ?: continue
                 psi.put(m.groupValues[1], JSONObject()
                     .put("avg10_percent", m.groupValues[2].toDoubleOrNull() ?: JSONObject.NULL)
@@ -143,9 +152,12 @@ internal object DeviceDiagnostics {
             .put("swap_used_kib", if (swapTotal != null && swapFree != null)
                 (swapTotal - swapFree).coerceAtLeast(0) else JSONObject.NULL)
             .put("psi", psi)
-            .put("psi_status", if (psi.length() == 0) "unavailable" else "ok")
-            .put("notes", "PSI avg10/60/300 is the percentage of time tasks stalled " +
-                "on memory over each window; a short snapshot cannot prove ongoing memory pressure.")
+            .put("psi_status", if (psi.length() > 0) "ok" else
+                psiFailure ?: "unavailable_or_unrecognized")
+            .put("notes", "PSI requires readable /proc/pressure/memory. If blocked by " +
+                "Android/SELinux the read is reported as unavailable rather than zero. " +
+                "RAM and swap remain readable from /proc/meminfo; neither alone proves " +
+                "memory-pressure stalls. PSI percentages represent memory stalls.")
     }
 
     internal fun parseBattery(text: String): JSONObject {
@@ -183,6 +195,7 @@ internal object DeviceDiagnostics {
     internal fun parseCheckin(text: String): BatteryStats {
         val packages = mutableMapOf<Int, String>()
         val locks = mutableMapOf<Int, Long>()
+        val aggregatedLocks = mutableMapOf<Int, Long>()
         val estimated = mutableMapOf<Int, Double>()
         var screenOff: Long? = null
         var batteryRealtime: Long? = null
@@ -201,11 +214,25 @@ internal object DeviceDiagnostics {
                         else if (current != pkg) packages[id] = "uid:$id (shared)"
                     }
                 }
-                "wl" -> if (p[2] == "l" && uid > 0 && p.size >= 11 &&
-                    p[6] == "f" && p[9] == "p") {
-                    val millis = p[8].toLongOrNull() ?: continue
-                    if (millis >= 0 && millis < 1_000_000_000_000L)
-                        locks[uid] = (locks[uid] ?: 0) + millis
+                // Modern AOSP "awl": version,uid,mode,awl,partial_ms,bg_partial_ms.
+                // This is the safest per-UID total: tag times can overlap.
+                "awl" -> if (p[2] == "l" && uid > 0 && p.size >= 6) {
+                    val millis = p[4].toLongOrNull() ?: continue
+                    if (millis in 0..1_000_000_000_000L)
+                        aggregatedLocks[uid] = millis
+                }
+                // Per-tag "wl" format evolved: modern rows include three extra
+                // duration columns before the 'p' marker. Never assume p[9].
+                // Partial total time is immediately BEFORE the 'p' marker in
+                // both layouts, not the earlier full-wakelock duration.
+                "wl" -> if (p[2] == "l" && uid > 0 && p.size >= 11) {
+                    val partialIndex = (5 until p.size).firstOrNull { p[it] == "p" }
+                        ?: continue
+                    if (partialIndex <= 5 || partialIndex + 1 >= p.size ||
+                        p[partialIndex + 1].toIntOrNull() == null) continue
+                    val millis = p[partialIndex - 1].toLongOrNull() ?: continue
+                    if (millis in 0..1_000_000_000_000L)
+                        locks[uid] = (locks[uid] ?: 0L) + millis
                 }
                 "pwi" -> if (p[2] == "l" && p.size >= 7 && p[4] == "uid") {
                     val id = p[5].toIntOrNull() ?: continue
@@ -222,7 +249,10 @@ internal object DeviceDiagnostics {
                 }
             }
         }
-        return BatteryStats(packages, locks, estimated, screenOff, batteryRealtime, clock)
+        // Prefer aggregated counters when present; tag-level sums are only a
+        // fallback and must not be added to the aggregated value.
+        return BatteryStats(packages, locks + aggregatedLocks, estimated,
+            screenOff, batteryRealtime, clock)
     }
 
     private fun label(uid: Int, stats: BatteryStats): String =
@@ -256,10 +286,14 @@ internal object DeviceDiagnostics {
         }
         return JSONObject().put("status", if (all.isEmpty()) "unavailable_or_none" else "ok")
             .put("wakelocks", rows).put("active_partial_total", active.values.sum())
+            .put("cumulative_counter_status", if (stats.partialWakelockMs.isEmpty())
+                "unavailable_or_none" else "ok")
             .put("source", "dumpsys power + batterystats --charged --checkin")
-            .put("notes", "Active PARTIAL wakelocks are instantaneous. Hold times sum per-tag " +
-                "battery counters since the last charge (may overlap); they do not equal CPU " +
-                "time or prove an app kept the screen off. Tags are not exposed.")
+            .put("notes", "Active PARTIAL wakelocks are instantaneous and may be hidden " +
+                "by the device's power-service dump. Per-UID aggregate hold times are " +
+                "preferred when available, otherwise per-tag totals (which can overlap). " +
+                "They do not equal CPU time or prove an app kept the screen off. " +
+                "Raw wakelock tags are not exposed.")
     }
 
     internal fun screenOffDelta(start: BatteryStats, end: BatteryStats,
