@@ -239,8 +239,7 @@ class SurfaceActivityDiagnosticsTest {
         assertTrue(src.contains("bundled_arm64_shell_copy"))
         assertTrue(src.contains("umask 077; cp"))
         assertTrue(src.contains("chmod 700"))
-        assertTrue(src.contains("rm -f $stagedProcessor".replace("$stagedProcessor",
-            "$stagedProcessor")))
+        assertTrue(src.contains("rm -f " + "$" + "stagedProcessor"))
         assertTrue(src.contains("effectiveSource"))
         assertTrue(src.contains("if (staged)"))
         assertTrue(dashboard.contains("Render activity"))
