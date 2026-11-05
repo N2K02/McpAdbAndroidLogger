@@ -325,6 +325,10 @@ object LocalMcpServer {
                                 "get_screen_off_baseline" -> DeviceDiagnostics.beginScreenOff()
                                 "get_screen_off_report" -> DeviceDiagnostics.reportScreenOff(arguments.optInt("limit", 20))
                                 "get_surfaceflinger_layers" -> SurfaceLayersDiagnostics.layers(arguments.optInt("limit", 20))
+                                "get_surfaceflinger_activity" -> SurfaceActivityDiagnostics.activity(
+                                    arguments.optInt("duration_seconds", 5), arguments.optInt("limit", 15))
+                                "get_surfaceflinger_perfetto" -> SurfaceActivityDiagnostics.perfetto(
+                                    arguments.optInt("duration_seconds", 5), arguments.optInt("limit", 15))
                                 else -> throw IllegalArgumentException()
                             }
                         }
