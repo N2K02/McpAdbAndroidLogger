@@ -83,9 +83,7 @@ internal object SurfaceActivityDiagnostics {
                 AdbTransport.exec(TIMESTATS_STOP, timeoutMs = TIMEOUT_MS).getOrThrow()
                 started = false
             }
-            var traceRows: List<TraceRow> = emptyList()
-            var tracedCpuMs: Double? = null
-            var traceStatus = if (usePerfetto) "processor_unavailable" else "not_requested"
+            var traceResult: TraceOutcome? = null
             var processorSource = "none"
             if (usePerfetto) {
                 val systemPath = AdbTransport.exec(PROCESSOR_CHECK, timeoutMs = TIMEOUT_MS)
@@ -93,10 +91,7 @@ internal object SurfaceActivityDiagnostics {
                 val processor = resolveProcessor(systemPath, nativeLibraryDir)
                 if (processor != null) {
                     processorSource = processor.second
-                    val trace = runTrace(seconds, processor.first, catalog, finishCapture)
-                    traceRows = trace.first
-                    tracedCpuMs = trace.second
-                    traceStatus = trace.third
+                    traceResult = runTrace(seconds, processor.first, catalog, finishCapture)
                 } else delay(seconds * 1000L)
             } else delay(seconds * 1000L)
             // If tracing/processing failed before the capture callback, still
@@ -115,13 +110,33 @@ internal object SurfaceActivityDiagnostics {
             }
             val layers = if (statsError == null) parseTimeStats(raw, catalog) else emptyList()
             val cpu = processCpu(before, after, elapsed)
-            val result = summarize(layers, traceRows, elapsed, cpu, limit)
+            val result = summarize(layers, traceResult?.rows.orEmpty(), elapsed, cpu, limit)
             if (statsError != null) result.put("timestats_status", statsError)
             else result.put("timestats_status", if (layers.isEmpty())
                 "no_app_layers" else "ok")
+            val traceStatus = traceResult?.let {
+                when {
+                    it.captureStatus != "ok" -> "capture_unavailable"
+                    it.processorStatus != "ok" -> "processor_unavailable"
+                    it.frameStatus == "ok" && it.schedStatus == "ok" -> "ok"
+                    it.frameStatus == "no_frames" && it.schedStatus == "no_sched_data" ->
+                        "trace_has_no_events"
+                    it.frameStatus == "ok" || it.schedStatus == "ok" ||
+                        it.frameStatus == "no_frames" || it.schedStatus == "no_sched_data" ->
+                        "partial"
+                    else -> "analysis_unavailable"
+                }
+            } ?: if (usePerfetto) "processor_unavailable" else "not_requested"
             result.put("perfetto_processor_source", processorSource)
                 .put("perfetto_status", traceStatus)
-                .put("perfetto_compositor_sched_cpu_ms", tracedCpuMs ?: JSONObject.NULL)
+                .put("perfetto_capture_status", traceResult?.captureStatus
+                    ?: if (usePerfetto) "not_attempted" else "not_requested")
+                .put("perfetto_processor_status", traceResult?.processorStatus
+                    ?: if (usePerfetto) "binary_unavailable" else "not_requested")
+                .put("perfetto_frame_status", traceResult?.frameStatus ?: "not_attempted")
+                .put("perfetto_scheduler_status", traceResult?.schedStatus ?: "not_attempted")
+                .put("perfetto_trace_bytes", traceResult?.traceBytes ?: JSONObject.NULL)
+                .put("perfetto_compositor_sched_cpu_ms", traceResult?.cpuMs ?: JSONObject.NULL)
                 .put("sampling_seconds_requested", seconds)
                 .put("taken_at", System.currentTimeMillis())
                 .put("notes", "Explicit bounded capture. SurfaceFlinger CPU is shared across " +
