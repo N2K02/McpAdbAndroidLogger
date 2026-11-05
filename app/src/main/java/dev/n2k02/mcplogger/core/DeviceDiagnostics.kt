@@ -153,7 +153,7 @@ internal object DeviceDiagnostics {
                 (swapTotal - swapFree).coerceAtLeast(0) else JSONObject.NULL)
             .put("psi", psi)
             .put("psi_status", if (psi.length() > 0) "ok" else
-                psiFailure ?: "unavailable_or_unrecognized")
+                psiFailure ?: "unavailable")
             .put("notes", "PSI requires readable /proc/pressure/memory. If blocked by " +
                 "Android/SELinux the read is reported as unavailable rather than zero. " +
                 "RAM and swap remain readable from /proc/meminfo; neither alone proves " +
