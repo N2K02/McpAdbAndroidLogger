@@ -29,7 +29,7 @@ internal object DeviceDiagnostics {
     private val uidRegex = Regex("""\buid=(\d{1,7})\b""")
     private val kvRegex = Regex("""^([A-Za-z_][A-Za-z_0-9()]*):\s*(\d+)\s*kB$""")
     private val psiRegex = Regex("""(some|full)\s+avg10=([0-9.]+)\s+avg60=([0-9.]+)\s+avg300=([0-9.]+)\s+total=(\d+)""")
-    private var baseline: Baseline? = null
+    @Volatile private var baseline: Baseline? = null
 
     private data class Baseline(val takenAt: Long, val batteryLevel: Int?,
                                 val stats: BatteryStats)
