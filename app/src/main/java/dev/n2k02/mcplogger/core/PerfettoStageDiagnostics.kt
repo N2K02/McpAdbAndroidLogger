@@ -21,7 +21,7 @@ internal object PerfettoStageDiagnostics {
     internal fun checked(command: String, maxOutputBytes: Int = 4096): String {
         require(command.isNotBlank() && '\n' !in command && '\r' !in command)
         require(maxOutputBytes in 64..MAX_RESULT_BYTES)
-        return "n2k02_out=\$($command 2>&1); n2k02_rc=\$?; " +
+        // The ADB watchdog logs the first shell token on timeout. Keep it static.\n        return ":; n2k02_out=\$($command 2>&1); n2k02_rc=\$?; " +
             "printf '%s\\n' \"\$n2k02_out\" | head -c $maxOutputBytes; " +
             "printf '\\n${MARKER}%s\\n' \"\$n2k02_rc\""
     }
