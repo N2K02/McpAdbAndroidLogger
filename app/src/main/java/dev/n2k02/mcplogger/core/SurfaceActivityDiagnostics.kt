@@ -31,7 +31,7 @@ internal object SurfaceActivityDiagnostics {
     private const val TIMESTATS_STOP = "dumpsys SurfaceFlinger --timestats -disable | head -c 512"
     private const val CPU_COMMAND =
         "pid=$(pidof surfaceflinger | cut -d' ' -f1); " +
-        "if [ -n \"$pid\" ]; then cat /proc/$pid/stat 2>/dev/null; fi; " +
+        "if [ -n \"\$pid\" ]; then cat /proc/\$pid/stat 2>/dev/null; fi; " +
         "printf '__HZ__\\n'; getconf CLK_TCK 2>/dev/null"
     private const val PROCESSOR_CHECK = "command -v trace_processor_shell 2>/dev/null"
     private val lock = Mutex()
@@ -249,10 +249,10 @@ internal object SurfaceActivityDiagnostics {
             if (size == null || size <= 0 || size > 16L * 1024 * 1024)
                 return Triple(emptyList(), null, "trace_missing_or_too_large")
             val frameRaw = AdbTransport.exec(
-                "$executable -q '$frameSql' $file 2>&1 | head -c 32768",
+                "$executable -q \"$frameSql\" $file 2>&1 | head -c 32768",
                 timeoutMs = 40_000L).getOrThrow()
             val cpuRaw = AdbTransport.exec(
-                "$executable -q '$cpuSql' $file 2>&1 | head -c 2048",
+                "$executable -q \"$cpuSql\" $file 2>&1 | head -c 2048",
                 timeoutMs = 40_000L).getOrThrow()
             val rows = parseTraceRows(frameRaw, known)
             val cpu = cpuRaw.lineSequence().mapNotNull {
