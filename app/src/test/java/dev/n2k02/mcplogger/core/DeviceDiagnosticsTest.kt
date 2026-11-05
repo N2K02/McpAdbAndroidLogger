@@ -76,6 +76,9 @@ class DeviceDiagnosticsTest {
     @Test fun checkinMapsUidAndNeverLeaksWakelockTags() {
         val parsed = DeviceDiagnostics.parseCheckin(checkinStart)
         assertEquals("com.example.worker", parsed.packages[10123])
+        val shared = DeviceDiagnostics.parseCheckin(checkinStart +
+            "\n9,0,i,uid,10123,com.example.another")
+        assertEquals("uid:10123 (shared)", shared.packages[10123])
         assertNull(parsed.packages[10125])
         assertEquals(8000L, parsed.partialWakelockMs[10123])
         assertEquals(2000L, parsed.partialWakelockMs[10124])
