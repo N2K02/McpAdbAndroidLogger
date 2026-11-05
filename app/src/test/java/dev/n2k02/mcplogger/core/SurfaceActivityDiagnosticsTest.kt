@@ -94,7 +94,7 @@ class SurfaceActivityDiagnosticsTest {
         val after = SurfaceActivityDiagnostics.readCpuStat(end)
         assertNotNull(before)
         assertNotNull(after)
-        assertEquals(60.0, SurfaceActivityDiagnostics.processCpu(before, after, 500), .01)
+        assertEquals(60.0, SurfaceActivityDiagnostics.processCpu(before, after, 500)!!, .01)
         assertNull(SurfaceActivityDiagnostics.readCpuStat("Permission denied"))
         assertNull(SurfaceActivityDiagnostics.readCpuStat(begin.replace("__HZ__\n100", "")))
         assertNull(SurfaceActivityDiagnostics.processCpu(after, before, 500))
