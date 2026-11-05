@@ -160,7 +160,9 @@ class SurfaceActivityDiagnosticsTest {
         // Perfetto classic CLI -q reads a file. -Q executes a query string.
         assertEquals(2, Regex(" -Q ").findAll(src).count())
         assertFalse(src.contains(" -q "))
-        assertTrue(src.contains("captureMs < seconds * 1000L"))
+        assertTrue(src.contains("elapsedSoFar < seconds * 1000L"))
+        assertTrue(src.contains("runTrace(seconds, processor.first, catalog, finishCapture)"))
+        assertTrue(src.contains("onCaptured()"))
         assertTrue(src.contains("timestats_unavailable"))
         assertTrue(src.contains("timestats_status"))
         assertTrue(src.contains("NonCancellable"))
