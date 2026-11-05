@@ -335,7 +335,7 @@ internal object SurfaceActivityDiagnostics {
             "FROM actual_frame_timeline_slice a JOIN process p ON a.upid=p.upid " +
             "WHERE p.name NOT LIKE '%surfaceflinger%' GROUP BY p.name " +
             "ORDER BY frame_count DESC LIMIT 100"
-        val cpuSql = "SELECT ROUND(COALESCE(SUM(s.dur),0)/1000000.0,1) AS sf_cpu_ms " +
+        val cpuSql = "SELECT ROUND(SUM(s.dur)/1000000.0,1) AS sf_cpu_ms " +
             "FROM sched s JOIN thread t ON s.utid=t.utid " +
             "JOIN process p ON t.upid=p.upid " +
             "WHERE p.name LIKE '%surfaceflinger%' AND s.dur > 0"
