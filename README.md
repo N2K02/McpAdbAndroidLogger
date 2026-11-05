@@ -501,13 +501,21 @@ require verified ADB shell UID 2000:
   the start and `-disable` is called on completion or cancellation.
 - get_surfaceflinger_perfetto: the same short TimeStats/CPU snapshot plus a
   temporary Perfetto trace with `android.surfaceflinger.frametimeline`,
-  `sched/sched_switch` and process metadata. When an on-device
-  `trace_processor_shell` executable is available, only aggregated,
-  verified-package frame/jank counts and shared compositor scheduled CPU time
-  are returned. If the device lacks trace processor, the tool explicitly
-  returns `processor_unavailable` while still providing TimeStats/CPU results.
-  Neither the raw trace nor layer titles are sent via MCP. Trace files are
-  bounded (16 MiB) and deleted in the cleanup path. No background tracing,
+  `sched/sched_switch` and process metadata. On ARM64 builds it uses a
+  **build-time SHA-256-verified official Perfetto Trace Processor v57.2** bundled
+  as an executable installed native library, when Android has no system
+  `trace_processor_shell`. It runs through the existing verified ADB shell
+  UID 2000, only during an explicit deep diagnostic. The binary is 13.1 MB
+  uncompressed, so the APK becomes larger; it is never downloaded at runtime.
+  Other ABIs and devices that reject native binary execution safely report
+  `processor_unavailable`/`capture_unavailable` with TimeStats fallback.
+  No Shizuku dependency or elevated/root permissions are added.
+  The CPU/TimeStats endpoint is captured before SQL trace analysis for
+  consistent timing. Only aggregate verified-package frame/jank counts and
+  shared compositor scheduled CPU time are returned; raw trace data, window
+  titles and layer names never leave the phone. Trace files are bounded
+  (16 MiB) and deleted on normal or exceptional termination; abnormal
+  process death may prevent immediate cleanup. No background tracing,
   polling or remote arbitrary shell is introduced.
   Two buttons (Render activity / Deep Perfetto) appear in Home → Performance.
 
@@ -526,8 +534,9 @@ package-associated surface counts**, with no private layer names. The new
 TimeStats and Perfetto tools improve **frame activity attribution**, and
 synchronize a compositor CPU sample over the same interval, but they still
 cannot provide an exact per-app share of SurfaceFlinger CPU. Actual correlated
-FrameTimeline records require an on-device trace processor, which is not
-shipped by this app. AOSP devices vary in trace processor support.
+FrameTimeline records require a compatible trace processor; the verified
+ARM64 processor is now bundled at build time and selected only on demand.
+Device SELinux, trace permissions and hardware/ABI support still vary.
 
 Commands are fixed read-only shell literals, bounded in time and output,
 and executed only for authenticated, explicit user requests. MCP cannot send
