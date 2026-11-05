@@ -9,6 +9,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.util.UUID
 import kotlin.math.round
 
@@ -46,10 +47,12 @@ internal object SurfaceActivityDiagnostics {
     suspend fun activity(seconds: Int = 5, limit: Int = 15): JSONObject =
         sample(seconds, limit, usePerfetto = false)
 
-    suspend fun perfetto(seconds: Int = 5, limit: Int = 15): JSONObject =
-        sample(seconds, limit, usePerfetto = true)
+    suspend fun perfetto(
+        seconds: Int = 5, limit: Int = 15, nativeLibraryDir: String? = null
+    ): JSONObject = sample(seconds, limit, usePerfetto = true, nativeLibraryDir)
 
-    private suspend fun sample(seconds: Int, limit: Int, usePerfetto: Boolean): JSONObject {
+    private suspend fun sample(seconds: Int, limit: Int, usePerfetto: Boolean,
+                               nativeLibraryDir: String? = null): JSONObject {
         require(seconds in 3..MAX_SECONDS && limit in 1..50)
         check(AdbCoordinator.verified.value) { "ADB shell UID 2000 is not verified" }
         check(lock.tryLock()) { "A SurfaceFlinger analysis is already running" }
@@ -66,13 +69,14 @@ internal object SurfaceActivityDiagnostics {
             var traceRows: List<TraceRow> = emptyList()
             var tracedCpuMs: Double? = null
             var traceStatus = if (usePerfetto) "processor_unavailable" else "not_requested"
+            var processorSource = "none"
             if (usePerfetto) {
-                val bin = AdbTransport.exec(PROCESSOR_CHECK, timeoutMs = TIMEOUT_MS)
+                val systemPath = AdbTransport.exec(PROCESSOR_CHECK, timeoutMs = TIMEOUT_MS)
                     .getOrThrow().trim()
-                if (bin == "trace_processor_shell" || bin == "/system/bin/trace_processor_shell" ||
-                    bin == "/vendor/bin/trace_processor_shell" ||
-                    bin == "/data/local/tmp/trace_processor_shell") {
-                    val trace = runTrace(seconds, bin, catalog)
+                val processor = resolveProcessor(systemPath, nativeLibraryDir)
+                if (processor != null) {
+                    processorSource = processor.second
+                    val trace = runTrace(seconds, processor.first, catalog)
                     traceRows = trace.first
                     tracedCpuMs = trace.second
                     traceStatus = trace.third
@@ -99,7 +103,8 @@ internal object SurfaceActivityDiagnostics {
             if (statsError != null) result.put("timestats_status", statsError)
             else result.put("timestats_status", if (layers.isEmpty())
                 "no_app_layers" else "ok")
-            result.put("perfetto_status", traceStatus)
+            result.put("perfetto_processor_source", processorSource)
+                .put("perfetto_status", traceStatus)
                 .put("perfetto_compositor_sched_cpu_ms", tracedCpuMs ?: JSONObject.NULL)
                 .put("sampling_seconds_requested", seconds)
                 .put("taken_at", System.currentTimeMillis())
@@ -115,6 +120,31 @@ internal object SurfaceActivityDiagnostics {
             }
             lock.unlock()
         }
+    }
+
+    /**
+     * Prefer Android's own trace processor when available. On stock phones it
+     * is commonly absent: use the official, SHA-256-verified build-time ARM64
+     * standalone ELF extracted as an installed app native library.
+     *
+     * The directory comes ONLY from Android applicationInfo.nativeLibraryDir,
+     * never an MCP argument. Android installs it read-only, outside app data,
+     * avoiding Android 10+ writable-app-directory executable restrictions.
+     */
+    internal fun resolveProcessor(
+        systemPath: String, nativeLibraryDir: String?
+    ): Pair<String, String>? {
+        val system = systemPath.trim()
+        if (system in setOf("/system/bin/trace_processor_shell",
+                "/vendor/bin/trace_processor_shell", "trace_processor_shell"))
+            return system to "system"
+        val dir = nativeLibraryDir ?: return null
+        if (!dir.startsWith("/data/app/") ||
+            !dir.matches(Regex("""[/A-Za-z0-9_.~+=-]+"""))) return null
+        val binary = File(dir, "libtraceprocessor.so")
+        if (!binary.isFile || !binary.canExecute() ||
+            binary.length() !in 10_000_000L..20_000_000L) return null
+        return binary.absolutePath to "bundled_arm64"
     }
 
     private fun response(status: String): JSONObject = JSONObject()
