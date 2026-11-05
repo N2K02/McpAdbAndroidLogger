@@ -58,7 +58,8 @@ internal fun HomeDashboard(
     val mcpPerformanceReading = mcpToolsInFlight.any {
         it in setOf("get_cpu_usage", "get_frame_timing", "get_performance_snapshot",
             "get_battery_diagnostics", "get_memory_pressure", "get_wakelock_usage",
-            "get_screen_off_baseline", "get_screen_off_report")
+            "get_screen_off_baseline", "get_screen_off_report",
+            "get_surfaceflinger_layers")
     }
     val adb by MonitorState.adb.collectAsState()
     val tunnel by MonitorState.tunnel.collectAsState()
@@ -181,7 +182,7 @@ internal fun HomeDashboard(
                     HomeBadgePolicy.mcp(tunnel, mcpToolsInFlight.isNotEmpty() || mcpLogReading),
                     onClick = { selectHomeTab(HomeTab.CONNECTION) })
                 HomeStatusCard(Icons.Rounded.Speed, "Performance tools",
-                    "CPU, RAM, battery and wakelocks · on demand",
+                    "CPU, RAM, battery, wakelocks and layers · on demand",
                     HomeBadgePolicy.performance(perfBusy || healthBusy || mcpPerformanceReading),
                     sourceBadge = HomeBadgePolicy.mcpSource(mcpPerformanceReading),
                     onClick = { selectHomeTab(HomeTab.PERFORMANCE) })
@@ -273,6 +274,13 @@ internal fun HomeDashboard(
                 OutlinedButton(onClick = { runHealth { DeviceDiagnostics.wakelocks() } },
                     enabled = verified && !healthBusy,
                     modifier = Modifier.fillMaxWidth()) { Text("Wakelock snapshot") }
+                OutlinedButton(onClick = { runHealth { dev.n2k02.mcplogger.core.SurfaceLayersDiagnostics.layers() } },
+                    enabled = verified && !healthBusy,
+                    modifier = Modifier.fillMaxWidth()) { Text("SurfaceFlinger layers") }
+                Text("Lists app-associated display layers, not per-app compositor CPU " +
+                    "or GPU usage. Raw window titles stay private.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                 HorizontalDivider()
                 Text("Screen-off comparison: save a baseline, turn the screen off, " +
                     "then return to compare cumulative Android counters.",
