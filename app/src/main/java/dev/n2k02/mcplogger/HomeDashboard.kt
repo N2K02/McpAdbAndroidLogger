@@ -30,6 +30,8 @@ import dev.n2k02.mcplogger.core.LogDayPolicy
 import dev.n2k02.mcplogger.core.LogCaptureStats
 import dev.n2k02.mcplogger.core.LogReadOrigin
 import dev.n2k02.mcplogger.core.PerformanceDiagnostics
+import dev.n2k02.mcplogger.core.DeviceDiagnostics
+import org.json.JSONObject
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import java.text.DateFormat
@@ -53,7 +55,9 @@ internal fun HomeDashboard(
     val mcpLogReading = (active && readOrigin == LogReadOrigin.MCP) ||
         mcpToolsInFlight.any { it in setOf("get_live_logs", "search_logs", "get_crashes", "get_anrs") }
     val mcpPerformanceReading = mcpToolsInFlight.any {
-        it in setOf("get_cpu_usage", "get_frame_timing", "get_performance_snapshot")
+        it in setOf("get_cpu_usage", "get_frame_timing", "get_performance_snapshot",
+            "get_battery_diagnostics", "get_memory_pressure", "get_wakelock_usage",
+            "get_screen_off_baseline", "get_screen_off_report")
     }
     val adb by MonitorState.adb.collectAsState()
     val tunnel by MonitorState.tunnel.collectAsState()
@@ -96,6 +100,20 @@ internal fun HomeDashboard(
     var perfPackage by remember { mutableStateOf("") }
     var perfBusy by remember { mutableStateOf(false) }
     var perfResult by remember { mutableStateOf("No performance snapshot yet.") }
+    var healthBusy by remember { mutableStateOf(false) }
+    var healthResult by remember { mutableStateOf("No device-health snapshot yet.") }
+    fun runHealth(read: suspend () -> JSONObject) {
+        healthBusy = true
+        perfScope.launch {
+            try {
+                healthResult = read().toString(2)
+            } catch (_: Exception) {
+                healthResult = "Diagnostic unavailable. Verify ADB UID 2000 and retry."
+            } finally {
+                healthBusy = false
+            }
+        }
+    }
     Column(modifier.fillMaxSize()) {
         TabRow(selectedTabIndex = pagerState.currentPage) {
             HomeTab.entries.forEach { destination ->
@@ -162,7 +180,7 @@ internal fun HomeDashboard(
                     HomeBadgePolicy.mcp(tunnel, mcpToolsInFlight.isNotEmpty() || mcpLogReading),
                     onClick = { selectHomeTab(HomeTab.CONNECTION) })
                 HomeStatusCard(Icons.Rounded.Speed, "Performance tools",
-                    "CPU processes and UI frame timing · on demand",
+                    "CPU, RAM, battery and wakelocks · on demand",
                     HomeBadgePolicy.performance(perfBusy || mcpPerformanceReading),
                     sourceBadge = HomeBadgePolicy.mcpSource(mcpPerformanceReading),
                     onClick = { selectHomeTab(HomeTab.PERFORMANCE) })
@@ -233,6 +251,40 @@ internal fun HomeDashboard(
                     }
                 }
                 Text(perfResult, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                CardHeader(Icons.Rounded.BatteryFull, "Device health", Tone.IDLE,
+                    if (healthBusy) "Reading" else "On demand")
+                Text("Battery, RAM pressure and wake locks use fixed, read-only ADB commands. " +
+                    "No background polling or persistent health history.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { runHealth { DeviceDiagnostics.battery() } },
+                        enabled = verified && !healthBusy,
+                        modifier = Modifier.weight(1f)) { Text("Battery") }
+                    OutlinedButton(onClick = { runHealth { DeviceDiagnostics.memory() } },
+                        enabled = verified && !healthBusy,
+                        modifier = Modifier.weight(1f)) { Text("RAM / PSI") }
+                }
+                OutlinedButton(onClick = { runHealth { DeviceDiagnostics.wakelocks() } },
+                    enabled = verified && !healthBusy,
+                    modifier = Modifier.fillMaxWidth()) { Text("Wakelock snapshot") }
+                HorizontalDivider()
+                Text("Screen-off comparison: save a baseline, turn the screen off, " +
+                    "then return to compare cumulative Android counters.",
+                    style = MaterialTheme.typography.bodySmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { runHealth { DeviceDiagnostics.beginScreenOff() } },
+                        enabled = verified && !healthBusy,
+                        modifier = Modifier.weight(1f)) { Text("Start baseline") }
+                    Button(onClick = { runHealth { DeviceDiagnostics.reportScreenOff() } },
+                        enabled = verified && !healthBusy,
+                        modifier = Modifier.weight(1f)) { Text("Compare") }
+                }
+                Text(healthResult, style = MaterialTheme.typography.bodySmall)
             }
         }
 
