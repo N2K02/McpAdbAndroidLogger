@@ -189,7 +189,8 @@ class DeviceDiagnosticsTest {
             list.getJSONObject(it).getString("name")
         }
         val names = listOf("get_battery_diagnostics", "get_memory_pressure",
-            "get_wakelock_usage", "get_screen_off_baseline", "get_screen_off_report")
+            "get_wakelock_usage", "get_screen_off_baseline", "get_screen_off_report",
+            "get_surfaceflinger_layers")
         assertTrue(available.containsAll(names))
         assertEquals(0, count.get())
         LocalMcpProtocol.execute(call("get_device_status"), performanceReader = reader)
