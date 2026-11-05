@@ -66,6 +66,23 @@ internal object SurfaceActivityDiagnostics {
             started = true
             val before = readCpuStat(AdbTransport.exec(CPU_COMMAND, timeoutMs = TIMEOUT_MS).getOrThrow())
             val begin = SystemClock.elapsedRealtime()
+            var capturedElapsedMs: Long? = null
+            var capturedAfterCpu: Pair<Long, Long>? = null
+            var capturedStats: String? = null
+            // Capture CPU and TimeStats at the END of tracing rather than after
+            // the (potentially slow) SQL analysis. Keep rates time-aligned.
+            val finishCapture: suspend () -> Unit = {
+                val elapsedSoFar = (SystemClock.elapsedRealtime() - begin).coerceAtLeast(0L)
+                if (elapsedSoFar < seconds * 1000L)
+                    delay(seconds * 1000L - elapsedSoFar)
+                capturedElapsedMs = (SystemClock.elapsedRealtime() - begin).coerceAtLeast(1L)
+                capturedAfterCpu = readCpuStat(
+                    AdbTransport.exec(CPU_COMMAND, timeoutMs = TIMEOUT_MS).getOrThrow())
+                capturedStats = AdbTransport.exec(TIMESTATS_READ, timeoutMs = TIMEOUT_MS)
+                    .getOrThrow()
+                AdbTransport.exec(TIMESTATS_STOP, timeoutMs = TIMEOUT_MS).getOrThrow()
+                started = false
+            }
             var traceRows: List<TraceRow> = emptyList()
             var tracedCpuMs: Double? = null
             var traceStatus = if (usePerfetto) "processor_unavailable" else "not_requested"
@@ -76,19 +93,18 @@ internal object SurfaceActivityDiagnostics {
                 val processor = resolveProcessor(systemPath, nativeLibraryDir)
                 if (processor != null) {
                     processorSource = processor.second
-                    val trace = runTrace(seconds, processor.first, catalog)
+                    val trace = runTrace(seconds, processor.first, catalog, finishCapture)
                     traceRows = trace.first
                     tracedCpuMs = trace.second
                     traceStatus = trace.third
                 } else delay(seconds * 1000L)
             } else delay(seconds * 1000L)
-            // A trace failure may return immediately. Do not present a sub-second
-            // TimeStats/CPU read as the requested multi-second capture.
-            val captureMs = (SystemClock.elapsedRealtime() - begin).coerceAtLeast(0L)
-            if (captureMs < seconds * 1000L) delay(seconds * 1000L - captureMs)
-            val elapsed = (SystemClock.elapsedRealtime() - begin).coerceAtLeast(1L)
-            val after = readCpuStat(AdbTransport.exec(CPU_COMMAND, timeoutMs = TIMEOUT_MS).getOrThrow())
-            val raw = AdbTransport.exec(TIMESTATS_READ, timeoutMs = TIMEOUT_MS).getOrThrow()
+            // If tracing/processing failed before the capture callback, still
+            // collect one bounded 3-10s window with the exact same end marker.
+            if (capturedElapsedMs == null) finishCapture()
+            val elapsed = capturedElapsedMs ?: 1L
+            val after = capturedAfterCpu
+            val raw = capturedStats.orEmpty()
             val statsError = when {
                 denied(raw) -> "permission_denied"
                 raw.isBlank() || raw.contains("Can't find service", ignoreCase = true) ||
@@ -262,7 +278,8 @@ internal object SurfaceActivityDiagnostics {
      * reaches an MCP client.
      */
     private suspend fun runTrace(
-        seconds: Int, executable: String, known: Set<String>
+        seconds: Int, executable: String, known: Set<String>,
+        onCaptured: suspend () -> Unit
     ): Triple<List<TraceRow>, Double?, String> {
         val file = "/data/misc/perfetto-traces/n2k02_sf_" +
             UUID.randomUUID().toString().replace("-", "") + ".perfetto-trace"
@@ -289,6 +306,8 @@ internal object SurfaceActivityDiagnostics {
             if (denied(outcome) || outcome.contains("Failed to", ignoreCase = true) ||
                 outcome.contains("ERROR", ignoreCase = true))
                 return Triple(emptyList(), null, "capture_unavailable")
+            // Stop TimeStats and record the CPU endpoint BEFORE SQL parsing.
+            onCaptured()
             val size = AdbTransport.exec("stat -c %s $file 2>/dev/null",
                 timeoutMs = TIMEOUT_MS).getOrThrow().trim().toLongOrNull()
             if (size == null || size <= 0 || size > 16L * 1024 * 1024)
