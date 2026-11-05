@@ -124,6 +124,13 @@ class SurfaceActivityDiagnosticsTest {
         assertTrue(src.contains("android.surfaceflinger.frametimeline"))
         assertTrue(src.contains("sched/sched_switch"))
         assertTrue(src.contains("trace_processor_shell"))
+        // Perfetto classic CLI -q reads a file. -Q executes a query string.
+        assertTrue(src.contains("-Q \\"\\$frameSql"))
+        assertTrue(src.contains("-Q \\"\\$cpuSql"))
+        assertFalse(src.contains("-q \\"\\$frameSql"))
+        assertTrue(src.contains("captureMs < seconds * 1000L"))
+        assertTrue(src.contains("timestats_unavailable"))
+        assertTrue(src.contains("timestats_status"))
         assertTrue(src.contains("NonCancellable"))
         assertTrue(src.contains("rm -f"))
         assertTrue(src.contains("seconds in 3..MAX_SECONDS"))
