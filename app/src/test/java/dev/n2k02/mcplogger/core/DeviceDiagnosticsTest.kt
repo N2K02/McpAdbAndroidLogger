@@ -73,6 +73,63 @@ class DeviceDiagnosticsTest {
         assertTrue(missing.isNull("available_ram_kib"))
     }
 
+    @Test fun psiFailuresReportWhyUnavailableWithoutInventingStallPercentages() {
+        val denied = DeviceDiagnostics.parseMemory("""
+            MemTotal: 8192000 kB
+            MemAvailable: 2048000 kB
+            SwapTotal: 4096000 kB
+            SwapFree: 1024000 kB
+            __MCP_PSI__
+            cat: /proc/pressure/memory: Permission denied
+        """.trimIndent())
+        assertEquals("ok", denied.getString("status"))
+        assertEquals("permission_denied", denied.getString("psi_status"))
+        assertEquals(0, denied.getJSONObject("psi").length())
+        assertEquals(25.0, denied.getDouble("available_ram_percent"), 0.01)
+        assertEquals(3072000L, denied.getLong("swap_used_kib"))
+        assertFalse(denied.toString().contains("/proc/pressure/memory: Permission denied"))
+
+        val unsupported = DeviceDiagnostics.parseMemory("""
+            MemTotal: 8192000 kB
+            __MCP_PSI__
+            cat: /proc/pressure/memory: No such file or directory
+        """.trimIndent())
+        assertEquals("not_supported", unsupported.getString("psi_status"))
+        assertEquals("unavailable_or_unrecognized",
+            DeviceDiagnostics.parseMemory("MemTotal: 100 kB")
+                .getString("psi_status"))
+    }
+
+    @Test fun modernWakelockRowsUseAggregatedUidCountersAndSafeTagFallback() {
+        val modern = """
+            9,0,i,uid,10123,com.example.worker
+            9,10123,l,wl,SECRET_TAG,0,f,0,-1,-1,-1,5000,p,4,0,0,5000,0,bp,0,-1,-1,-1,0,w,0,-1,-1,-1
+            9,10123,l,wl,ANOTHER_SECRET,0,f,0,-1,-1,-1,3000,p,1,0,0,3000,0,bp,0,-1,-1,-1,0,w,0,-1,-1,-1
+            9,10123,l,awl,6500,4500
+            9,10124,l,wl,FALLBACK_TAG,0,f,0,-1,-1,-1,2700,p,3,0,0,2700
+            9,10125,l,awl,900,600
+        """.trimIndent()
+        val parsed = DeviceDiagnostics.parseCheckin(modern)
+        assertEquals(6500L, parsed.partialWakelockMs[10123])
+        assertEquals(2700L, parsed.partialWakelockMs[10124])
+        assertEquals(900L, parsed.partialWakelockMs[10125])
+        val view = DeviceDiagnostics.parseWakelocks("", parsed)
+        assertEquals("ok", view.getString("status"))
+        assertEquals("ok", view.getString("cumulative_counter_status"))
+        assertFalse(view.toString().contains("SECRET_TAG"))
+        assertFalse(view.toString().contains("FALLBACK_TAG"))
+        assertEquals(3, view.getJSONArray("wakelocks").length())
+
+        val baseline = DeviceDiagnostics.parseCheckin("""
+            9,10123,l,awl,1000,500
+            9,10125,l,awl,300,100
+        """.trimIndent())
+        val comparison = DeviceDiagnostics.screenOffDelta(baseline, parsed, 10000L)
+        assertEquals("ok", comparison.getString("status"))
+        assertEquals(5500L, comparison.getJSONArray("wakelock_deltas")
+            .getJSONObject(0).getLong("partial_hold_ms_delta"))
+    }
+
     @Test fun checkinMapsUidAndNeverLeaksWakelockTags() {
         val parsed = DeviceDiagnostics.parseCheckin(checkinStart)
         assertEquals("com.example.worker", parsed.packages[10123])
