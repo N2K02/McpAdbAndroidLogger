@@ -195,7 +195,7 @@ class SurfaceActivityDiagnosticsTest {
             frameStatus = "no_frames", schedStatus = "no_sched_data",
             traceBytes = 2400L)
         assertEquals(2400L, result.traceBytes)
-        assertEquals(null, result.cpuMs)
+        assertNull(result.cpuMs)
         assertTrue(result.rows.isEmpty())
     }
 
