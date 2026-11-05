@@ -456,3 +456,38 @@ The midnight task performs no shell commands. In-memory reuse avoids
 re-reading the audit JSON file for each request. Export needed audit
 history before the local midnight cutoff. This does not clear Android
 Logcat, stored exports or revoke MCP agent authorization.
+
+
+## On-demand device health and screen-off investigation
+
+**Home → Performance → Device health** includes Battery, RAM / PSI,
+Wakelock snapshot, Start baseline and Compare. Equivalent authenticated MCP tools
+require verified ADB shell UID 2000:
+
+- get_cpu_usage: already implemented; a single bounded top process sample.
+- get_battery_diagnostics: battery level, charging state, temperature and
+  available per-UID estimated mAh **since the last charge**. These estimates
+  are not current electrical power or guaranteed individual-app attribution.
+- get_memory_pressure: /proc/meminfo RAM and swap plus Linux memory PSI
+  10/60/300-second stall percentages when accessible.
+- get_wakelock_usage: currently held partial CPU wakelocks from dumpsys power,
+  plus cumulative per-UID partial-held time from batterystats checkin. Shared
+  UIDs are labeled conservatively; raw wakelock names/tags never leave the phone.
+- get_screen_off_baseline: explicit in-memory counter snapshot. Turn off the
+  screen after invoking it. **No timer, sampler or wakelock is started.**
+- get_screen_off_report: explicit second read showing the delta in the
+  system-reported screen-off time and the largest per-UID partial wakelock
+  hold deltas. Durations can overlap and exceed elapsed time. Counters
+  that reset are reported as unavailable, not as zero.
+
+These tools do not alone establish why a phone is hot. An active wakelock
+is not proof of CPU load. OEM builds may restrict batterystats data; missing
+metrics are explicitly reported as unavailable.
+
+Commands are fixed read-only shell literals, bounded in time and output,
+and executed only for authenticated, explicit user requests. MCP cannot send
+arbitrary shell commands. In-memory baselines clear on Stop/Quit and are not
+persisted. Existing logging/OAuth behavior is retained.
+
+**Install the updated APK and refresh/reconnect the MCP integration** to
+discover the new tools; older APKs can still advertise just the original six.
