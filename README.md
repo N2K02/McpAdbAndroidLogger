@@ -529,8 +529,13 @@ require verified ADB shell UID 2000:
   compatibility fallback for older processors). Unsupported SQL schemas,
   missing data sources, shell execution restrictions, empty frame results and
   missing scheduling events are distinct outcomes, not all reported as
-  `processor_unavailable`. Only categorical error codes are returned; no raw
-  trace, CLI error strings, window titles, paths or SQL are sent to ChatGPT.
+  `processor_unavailable`. If shell UID 2000 cannot execute the bundled
+  library in place, an optional fallback copies the same verified executable
+  to a random-named `/data/local/tmp` shell-only path (0700), probes it and
+  deletes that copy in noncancellable cleanup; no persistent daemon is started.
+  The response then uses `perfetto_processor_source: bundled_arm64_shell_copy`.
+  Only categorical error codes are returned; no raw trace, CLI error strings,
+  window titles, paths or SQL are sent to ChatGPT.
 
 
 These tools do not alone establish why a phone is hot. An active wakelock
