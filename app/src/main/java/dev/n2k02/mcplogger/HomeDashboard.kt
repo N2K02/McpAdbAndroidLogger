@@ -31,6 +31,7 @@ import dev.n2k02.mcplogger.core.LogCaptureStats
 import dev.n2k02.mcplogger.core.LogReadOrigin
 import dev.n2k02.mcplogger.core.PerformanceDiagnostics
 import dev.n2k02.mcplogger.core.DeviceDiagnostics
+import dev.n2k02.mcplogger.core.LocalMcpProtocol
 import org.json.JSONObject
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -319,6 +320,15 @@ internal fun HomeDashboard(
                         Icon(Icons.Rounded.ChevronRight, contentDescription = "MCP connection")
                     }
                 }
+                Text("MCP server catalog: " +
+                    LocalMcpProtocol.builtInToolNames().size + " built-in tools · " +
+                    LocalMcpProtocol.CATALOG_REVISION,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("If an AI client still lists six tools after updating, reconnect its " +
+                    "MCP integration to refresh its cached tool catalog.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                 ReadOnlyCopyField("Public HTTPS MCP URL", publicUrl.ifBlank { "Not available yet" },
                     copyEnabled = publicUrl.isNotBlank(), copyDescription = "Copy public MCP URL") {
                     copyHint = copyText(context, "Public MCP URL", publicUrl, sensitive = false)
