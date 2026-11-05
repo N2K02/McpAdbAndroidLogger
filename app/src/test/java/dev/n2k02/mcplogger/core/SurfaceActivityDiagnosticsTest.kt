@@ -148,6 +148,7 @@ class SurfaceActivityDiagnosticsTest {
 
     @Test fun shellCapturePreservesExitStatusAndNeverReturnsRawDiagnosticsToMcp() {
         val wrapped = PerfettoStageDiagnostics.checked("echo TRACE_ONLY_LOCAL", 128)
+        assertTrue(wrapped.startsWith(":; "))
         assertTrue(wrapped.contains("n2k02_rc=\$?"))
         assertTrue(wrapped.contains("head -c 128"))
         assertTrue(wrapped.contains("__N2K02_PERFETTO_EXIT__="))
