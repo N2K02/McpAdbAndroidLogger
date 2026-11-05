@@ -134,8 +134,7 @@ class LogMonitorService : Service() {
                         MonitorState.recentLogRequest.value = RecentLogRequest(
                             origin = LogReadOrigin.MANUAL,
                             tool = "Manual refresh",
-                            atMillis = System.currentTimeMillis(),
-                            filter = MonitorState.logFilter.value
+                            atMillis = System.currentTimeMillis()
                         )
                     }
                     buffer.snapshot(0, 2000)
