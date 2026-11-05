@@ -169,10 +169,14 @@ package-scoped query; omit the filter to investigate such records.
 All filtering is read-only: each MCP log query triggers one bounded Android Logcat
 snapshot, followed by filtering of the deduplicated 2,000-entry in-memory cache.
 This preserves cursor continuity and local review without continuous collection.
-It does not change the phone's on-screen app filter, permissions, public MCP URL,
-registration token or client access key. Update
-the experimental APK and reconnect/refresh MCP tools in your AI client for the
-new `package_name` schema to become visible.
+**MCP request arguments affect only that MCP response.** The server does not
+change the Logs screen's package picker, text search, severity, time/crash
+filters, selected app, or last manual-refresh marker. It does not narrow
+the on-device list to the events returned by the remote query. Logs fetched by
+an MCP request may enter the shared bounded cache, but the local UI continues
+to display them using only filters chosen on the phone.
+Permissions, public MCP URL, registration token, and client access key are
+unchanged. Update the experimental APK to receive this behavior.
 
 ## Home and Android Logcat redesign
 
