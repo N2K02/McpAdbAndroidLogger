@@ -244,7 +244,7 @@ internal object LocalMcpOAuth {
                 }
             }
         }
-        redundantIds.forEach(clients::remove)
+        redundantIds.forEach { clients.remove(it) }
         return redundantIds.size
     }
 
