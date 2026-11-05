@@ -518,6 +518,20 @@ require verified ADB shell UID 2000:
   process death may prevent immediate cleanup. No background tracing,
   polling or remote arbitrary shell is introduced.
   Two buttons (Render activity / Deep Perfetto) appear in Home → Performance.
+  The deep analysis now performs an actual shell UID 2000 processor execution
+  probe before recording, preserves the original shell command exit codes, and
+  returns privacy-safe statuses independently for capture, processor execution,
+  FrameTimeline SQL and scheduling SQL:
+  `perfetto_capture_status`, `perfetto_processor_status`,
+  `perfetto_frame_status`, `perfetto_scheduler_status`,
+  `perfetto_trace_bytes` and `perfetto_processor_source`.
+  SQL uses a CSV-producing Trace Processor `query` command (with `-Q`
+  compatibility fallback for older processors). Unsupported SQL schemas,
+  missing data sources, shell execution restrictions, empty frame results and
+  missing scheduling events are distinct outcomes, not all reported as
+  `processor_unavailable`. Only categorical error codes are returned; no raw
+  trace, CLI error strings, window titles, paths or SQL are sent to ChatGPT.
+
 
 These tools do not alone establish why a phone is hot. An active wakelock
 is not proof of CPU load. OEM builds may restrict batterystats data; missing
