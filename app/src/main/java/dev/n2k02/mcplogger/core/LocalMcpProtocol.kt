@@ -8,12 +8,13 @@ internal object LocalMcpProtocol {
     const val VERSION = "2025-11-25"
     // Readable through the original get_device_status tool even when an MCP client
     // still has an old tools/list cache. Never starts a shell diagnostic.
-    const val CATALOG_REVISION = "2026-11-05-health-2"
+    const val CATALOG_REVISION = "2026-11-06-surface-layers-1"
     private val names = listOf("get_device_status", "list_installed_apps", "get_live_logs",
         "search_logs", "get_crashes", "get_anrs", "get_cpu_usage",
         "get_frame_timing", "get_performance_snapshot",
         "get_battery_diagnostics", "get_memory_pressure", "get_wakelock_usage",
-        "get_screen_off_baseline", "get_screen_off_report")
+        "get_screen_off_baseline", "get_screen_off_report",
+        "get_surfaceflinger_layers")
 
     internal fun builtInToolNames(): List<String> = names.toList()
 
@@ -80,6 +81,7 @@ internal object LocalMcpProtocol {
             "Read currently held partial wakelocks plus per-UID partial hold times since charge",
             "Store an in-memory battery/wakelock baseline for a later screen-off comparison; no polling",
             "Read delta wake-lock durations and actual reported screen-off duration since the baseline",
+            "List app-associated SurfaceFlinger layers (not per-app CPU or GPU); private layer titles omitted",
             "Read sanitized, paginated MCP audit history (requires local owner opt-in)"
         )
         return JSONArray().apply {
@@ -87,11 +89,11 @@ internal object LocalMcpProtocol {
                 val fields = JSONObject()
                 if (name in setOf("list_installed_apps", "get_live_logs", "search_logs",
                         "get_crashes", "get_anrs", "get_cpu_usage", "get_wakelock_usage",
-                        "get_screen_off_report", "get_mcp_audits")) {
+                        "get_screen_off_report", "get_surfaceflinger_layers", "get_mcp_audits")) {
                     fields.put("limit", JSONObject().put("type", "integer")
                         .put("description", if (name == "get_mcp_audits") "1-25"
                             else if (name in setOf("get_cpu_usage", "get_wakelock_usage",
-                                    "get_screen_off_report")) "1-50" else "1-500"))
+                                    "get_screen_off_report", "get_surfaceflinger_layers")) "1-50" else "1-500"))
                 }
                 if (name == "get_live_logs") {
                     fields.put("after_cursor", JSONObject().put("type", "integer"))
@@ -161,7 +163,8 @@ internal object LocalMcpProtocol {
             }
             "get_cpu_usage", "get_frame_timing", "get_performance_snapshot",
             "get_battery_diagnostics", "get_memory_pressure", "get_wakelock_usage",
-            "get_screen_off_baseline", "get_screen_off_report" -> {
+            "get_screen_off_baseline", "get_screen_off_report",
+            "get_surfaceflinger_layers" -> {
                 val performance = name in setOf("get_cpu_usage", "get_frame_timing",
                     "get_performance_snapshot")
                 val pkg = if (performance) args.optString("package_name", "") else ""
