@@ -125,9 +125,8 @@ class SurfaceActivityDiagnosticsTest {
         assertTrue(src.contains("sched/sched_switch"))
         assertTrue(src.contains("trace_processor_shell"))
         // Perfetto classic CLI -q reads a file. -Q executes a query string.
-        assertTrue(src.contains("-Q \\"\\$frameSql"))
-        assertTrue(src.contains("-Q \\"\\$cpuSql"))
-        assertFalse(src.contains("-q \\"\\$frameSql"))
+        assertEquals(2, Regex(" -Q ").findAll(src).count())
+        assertFalse(src.contains(" -q "))
         assertTrue(src.contains("captureMs < seconds * 1000L"))
         assertTrue(src.contains("timestats_unavailable"))
         assertTrue(src.contains("timestats_status"))
