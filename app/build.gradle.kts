@@ -21,6 +21,7 @@ android {
         jniLibs {
             useLegacyPackaging = true
             keepDebugSymbols += "**/libcloudflared.so"
+            keepDebugSymbols += "**/libtraceprocessor.so"
         }
     }
     compileOptions {
