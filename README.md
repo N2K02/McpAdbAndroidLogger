@@ -517,3 +517,23 @@ to update its exposed command definitions. If the status response lacks the
 `mcp_catalog_revision` field, the app running on the phone is an older build
 or the connector is pointed at another server; verify installed APK and MCP URL.
 No access keys, OAuth tokens or raw log payloads are included in this status.
+
+
+## Authorized MCP agents: registration dates and duplicates
+
+The **Authorized MCP agents** section on the Connection page now displays each
+active agent's **Added** date/time (the first successful OAuth authorization)
+and a short client ID suffix to distinguish similarly named registrations.
+Existing authorizations that predate date tracking are labeled
+**Unavailable (authorized before update)** rather than assigned a fake date.
+
+Dynamic OAuth client registration (DCR) can legitimately create a new client
+ID every time an agent is re-added. After the **new** registration successfully
+exchanges an approved authorization code, the server automatically retires
+older registrations with the same agent name, callback domain **and full set of
+redirect URIs**, including their access/refresh tokens and pending codes.
+Registering without completing authorization does **not** revoke an existing
+working connection. Different callback URL sets or other providers are kept.
+Existing duplicate entries with unknown dates can be identified by their short
+client IDs and individually revoked; the app does not arbitrarily guess which
+legacy authorization is newest. OAuth secret values remain hidden.
