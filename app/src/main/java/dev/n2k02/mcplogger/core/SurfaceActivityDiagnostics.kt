@@ -49,7 +49,7 @@ internal object SurfaceActivityDiagnostics {
 
     suspend fun perfetto(
         seconds: Int = 5, limit: Int = 15, nativeLibraryDir: String? = null
-    ): JSONObject = sample(seconds, limit, usePerfetto = true, nativeLibraryDir)
+    ): JSONObject = sample(seconds, limit, usePerfetto = true, nativeLibraryDir = nativeLibraryDir)
 
     private suspend fun sample(seconds: Int, limit: Int, usePerfetto: Boolean,
                                nativeLibraryDir: String? = null): JSONObject {
