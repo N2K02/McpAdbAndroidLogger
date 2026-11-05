@@ -95,7 +95,7 @@ class DeviceDiagnosticsTest {
             cat: /proc/pressure/memory: No such file or directory
         """.trimIndent())
         assertEquals("not_supported", unsupported.getString("psi_status"))
-        assertEquals("unavailable_or_unrecognized",
+        assertEquals("unavailable",
             DeviceDiagnostics.parseMemory("MemTotal: 100 kB")
                 .getString("psi_status"))
     }
