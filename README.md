@@ -491,3 +491,25 @@ persisted. Existing logging/OAuth behavior is retained.
 
 **Install the updated APK and refresh/reconnect the MCP integration** to
 discover the new tools; older APKs can still advertise just the original six.
+
+
+### Verify the MCP tool catalog after an APK update
+
+The **existing** `get_device_status` tool reports
+`mcp_catalog_revision`, `mcp_tool_count`,
+`mcp_tool_names`, `on_demand_health_available`, and
+`on_demand_health_ready` without running any ADB diagnostics.
+The new catalog should report **14 built-in tools**, plus the optional audit
+tool if locally authorized. Home → Connection shows the same built-in
+catalog revision and the recommended client refresh steps.
+
+If ChatGPT still offers only the original six tool names but
+`get_device_status` reports 14 built-in tools, the phone server is updated
+and the *ChatGPT MCP integration's cached tool schema* is out of date.
+Reconnect or re-add the existing MCP integration (using the same public MCP URL
+and authorized access) to force tool rediscovery. Merely rebuilding or
+restarting the Android app cannot force a client that cached `tools/list`
+to update its exposed command definitions. If the status response lacks the
+`mcp_catalog_revision` field, the app running on the phone is an older build
+or the connector is pointed at another server; verify installed APK and MCP URL.
+No access keys, OAuth tokens or raw log payloads are included in this status.
