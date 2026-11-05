@@ -116,8 +116,8 @@ internal object SurfaceActivityDiagnostics {
                 "no_app_layers" else "ok")
             val traceStatus = traceResult?.let {
                 when {
-                    it.captureStatus != "ok" -> "capture_unavailable"
                     it.processorStatus != "ok" -> "processor_unavailable"
+                    it.captureStatus != "ok" -> "capture_unavailable"
                     it.frameStatus == "ok" && it.schedStatus == "ok" -> "ok"
                     it.frameStatus == "no_frames" && it.schedStatus == "no_sched_data" ->
                         "trace_has_no_events"
