@@ -144,34 +144,66 @@ class LocalMcpProtocolTest {
         }
     }
 
-    @Test fun latestMcpLogRequestUpdatesUiFiltersAndExactReturnedSubset() {
-        MonitorState.packageUids.value = mapOf("com.example" to "10001")
+    @Test fun remoteMcpLogRequestsNeverChangeLocalFiltersOrManualSelection() {
+        val originalFilter = MonitorState.logFilter.value
+        val originalSelectedPackage = MonitorState.selectedPackage.value
+        val originalRecentRequest = MonitorState.recentLogRequest.value
+        val originalUidMap = MonitorState.packageUids.value
+        val localFilter = LogViewFilter(packageName = "com.other.app",
+            search = "warning", selectedLevels = setOf("W"))
+        val previousManual = RecentLogRequest(LogReadOrigin.MANUAL,
+            "Manual refresh", 1234567L)
         val events = listOf(
-            LogEvent(1, 600_000L, "10001", "101", "E", "Crash", "fatal event", ""),
+            LogEvent(1, 600_000L, "10001", "101", "E", "Crash", "FATAL EXCEPTION", ""),
             LogEvent(2, 600_000L, "10001", "101", "W", "App", "warning event", ""),
             LogEvent(3, 600_000L, "10002", "102", "E", "Crash", "fatal elsewhere", ""),
+            LogEvent(4, 600_000L, "10001", "101", "W", "ActivityManager",
+                "ANR in com.example", ""),
         )
+        MonitorState.logFilter.value = localFilter
+        MonitorState.selectedPackage.value = localFilter.packageName
+        MonitorState.recentLogRequest.value = previousManual
+        MonitorState.packageUids.value = mapOf("com.example" to "10001",
+            "com.other.app" to "10002")
         try {
-            val req = JSONObject("""{"jsonrpc":"2.0","method":"tools/call","id":10,
-                "params":{"name":"get_live_logs","arguments":{
-                    "package_name":"com.example","level":"E","query":"fatal","limit":1}}}""")
-            val reply = LocalMcpProtocol.execute(req, logsReader = { events })!!
-            assertFalse(reply.has("error"))
-            val recent = MonitorState.recentLogRequest.value!!
-            assertEquals(LogReadOrigin.MCP, recent.origin)
-            assertEquals("get_live_logs", recent.tool)
-            assertEquals("com.example", MonitorState.logFilter.value.packageName)
-            assertEquals(setOf("E"), MonitorState.logFilter.value.selectedLevels)
-            assertEquals("fatal", MonitorState.logFilter.value.search)
-            assertEquals(setOf(1L), recent.entryIds)
-            assertTrue(recent.isMcpSelection(MonitorState.logFilter.value))
-            assertFalse(recent.isMcpSelection(MonitorState.logFilter.value.copy(search = "")))
-            assertEquals(1, LogViewPolicy.select(events,
-                MonitorState.logFilter.value, MonitorState.packageUids.value, 600_000L).size)
+            val requests = listOf(
+                "get_live_logs" to """{"package_name":"com.example","level":"E",
+                    "query":"FATAL","limit":1}""",
+                "search_logs" to """{"package_name":"com.example",
+                    "query":"warning","limit":1}""",
+                "get_crashes" to """{"package_name":"com.example","limit":1}""",
+                "get_anrs" to """{"package_name":"com.example","limit":1}""",
+            )
+            val expectedIds = listOf(1L, 2L, 1L, 4L)
+            requests.forEachIndexed { index, (tool, args) ->
+                val request = JSONObject().put("jsonrpc", "2.0").put("id", index + 1)
+                    .put("method", "tools/call")
+                    .put("params", JSONObject().put("name", tool)
+                        .put("arguments", JSONObject(args)))
+                val reply = LocalMcpProtocol.execute(request, logsReader = { events })!!
+                assertFalse("$tool error: $reply", reply.has("error"))
+                val returned = org.json.JSONArray(reply.getJSONObject("result")
+                    .getJSONArray("content").getJSONObject(0).getString("text"))
+                assertEquals("$tool response size", 1, returned.length())
+                assertEquals("$tool result", expectedIds[index],
+                    returned.getJSONObject(0).getLong("cursor"))
+
+                // Remote arguments must affect only the response, never device UI.
+                assertEquals("$tool changed Logs filter", localFilter,
+                    MonitorState.logFilter.value)
+                assertEquals("$tool changed selected app", localFilter.packageName,
+                    MonitorState.selectedPackage.value)
+                assertEquals("$tool replaced last manual request", previousManual,
+                    MonitorState.recentLogRequest.value)
+                assertEquals("$tool changed UI visible subset", listOf(3L),
+                    LogViewPolicy.select(events, MonitorState.logFilter.value,
+                        MonitorState.packageUids.value, 600_000L).map { it.id })
+            }
         } finally {
-            MonitorState.recentLogRequest.value = null
-            MonitorState.logFilter.value = LogViewFilter()
-            MonitorState.packageUids.value = emptyMap()
+            MonitorState.logFilter.value = originalFilter
+            MonitorState.selectedPackage.value = originalSelectedPackage
+            MonitorState.recentLogRequest.value = originalRecentRequest
+            MonitorState.packageUids.value = originalUidMap
         }
     }
 
