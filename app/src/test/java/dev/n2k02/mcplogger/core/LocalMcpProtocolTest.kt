@@ -159,6 +159,8 @@ class LocalMcpProtocolTest {
             LogEvent(3, 600_000L, "10002", "102", "E", "Crash", "fatal elsewhere", ""),
             LogEvent(4, 600_000L, "10001", "101", "W", "ActivityManager",
                 "ANR in com.example", ""),
+            LogEvent(5, 600_000L, "10002", "102", "W", "App",
+                "warning for local UI", ""),
         )
         MonitorState.logFilter.value = localFilter
         MonitorState.selectedPackage.value = localFilter.packageName
@@ -195,7 +197,7 @@ class LocalMcpProtocolTest {
                     MonitorState.selectedPackage.value)
                 assertEquals("$tool replaced last manual request", previousManual,
                     MonitorState.recentLogRequest.value)
-                assertEquals("$tool changed UI visible subset", listOf(3L),
+                assertEquals("$tool changed UI visible subset", listOf(5L),
                     LogViewPolicy.select(events, MonitorState.logFilter.value,
                         MonitorState.packageUids.value, 600_000L).map { it.id })
             }
