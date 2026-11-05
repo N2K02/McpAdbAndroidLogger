@@ -8,6 +8,74 @@ import java.nio.charset.StandardCharsets
 import java.util.Base64
 
 class LocalMcpOAuthPolicyTest {
+    private fun oauthAgent(name: String, domain: String, redirects: List<String>,
+                           authorizedAt: Long = 0L): JSONObject =
+        JSONObject().put("name", name).put("domain", domain)
+            .put("authorized_at", authorizedAt)
+            .put("redirects", org.json.JSONArray(redirects))
+
+    @Test fun identicalAgentRegistrationsRequireMatchingNameDomainAndAllCallbackUrls() {
+        val a = oauthAgent("ChatGPT", "chatgpt.com",
+            listOf("https://chatgpt.com/oauth/callback", "https://chatgpt.com/extra"))
+        val same = oauthAgent("chatgpt", "CHATGPT.COM",
+            listOf("https://chatgpt.com/extra", "https://chatgpt.com/oauth/callback"))
+        assertTrue(LocalMcpOAuth.sameRegistration(a, same))
+        assertFalse(LocalMcpOAuth.sameRegistration(a, oauthAgent("ChatGPT",
+            "chatgpt.com", listOf("https://chatgpt.com/other"))))
+        assertFalse(LocalMcpOAuth.sameRegistration(a, oauthAgent("ChatGPT",
+            "other.example", listOf("https://chatgpt.com/oauth/callback", "https://chatgpt.com/extra"))))
+        assertFalse(LocalMcpOAuth.sameRegistration(a, oauthAgent("Another agent",
+            "chatgpt.com", listOf("https://chatgpt.com/oauth/callback", "https://chatgpt.com/extra"))))
+        assertFalse(LocalMcpOAuth.sameRegistration(a, JSONObject().put("name", "ChatGPT")
+            .put("domain", "chatgpt.com")))
+    }
+
+    @Test fun successfulReplacementCanRemoveExactDuplicatesWithoutTouchingOtherAgents() {
+        val redirect = listOf("https://chatgpt.com/connector/oauth/callback")
+        val clients = JSONObject()
+            .put("old", oauthAgent("ChatGPT", "chatgpt.com", redirect, 100L))
+            .put("new", oauthAgent("ChatGPT", "chatgpt.com", redirect, 200L))
+            .put("other", oauthAgent("ChatGPT", "chatgpt.com",
+                listOf("https://chatgpt.com/different/callback"), 150L))
+        val records = JSONObject().put("clients", clients)
+            .put("tokens", JSONObject()
+                .put("access-old", JSONObject().put("client", "old"))
+                .put("refresh-old", JSONObject().put("client", "old"))
+                .put("access-new", JSONObject().put("client", "new"))
+                .put("access-other", JSONObject().put("client", "other")))
+            .put("codes", JSONObject()
+                .put("code-old", JSONObject().put("client", "old"))
+                .put("code-other", JSONObject().put("client", "other")))
+            .put("pending", JSONObject()
+                .put("pending-old", JSONObject().put("client", "old"))
+                .put("pending-other", JSONObject().put("client", "other")))
+        assertEquals(1, LocalMcpOAuth.retireSupersededRegistrations(records, "new", 300L))
+        assertFalse(clients.has("old"))
+        assertTrue(clients.has("new"))
+        assertTrue(clients.has("other"))
+        assertFalse(records.getJSONObject("tokens").has("access-old"))
+        assertFalse(records.getJSONObject("tokens").has("refresh-old"))
+        assertTrue(records.getJSONObject("tokens").has("access-new"))
+        assertTrue(records.getJSONObject("tokens").has("access-other"))
+        assertFalse(records.getJSONObject("codes").has("code-old"))
+        assertTrue(records.getJSONObject("codes").has("code-other"))
+        assertFalse(records.getJSONObject("pending").has("pending-old"))
+        assertTrue(records.getJSONObject("pending").has("pending-other"))
+        assertEquals("revoked", records.getJSONObject("approval_history")
+            .getJSONObject("pending-old").getString("result"))
+        assertEquals(0, LocalMcpOAuth.retireSupersededRegistrations(records, "new", 301L))
+        assertEquals(0, LocalMcpOAuth.retireSupersededRegistrations(records, "missing", 302L))
+        assertEquals(2, clients.length())
+    }
+
+    @Test fun legacyAgentsWithoutAnAuthorizationDateHaveUnknownNotInventedDate() {
+        val existing = oauthAgent("ChatGPT", "chatgpt.com",
+            listOf("https://chatgpt.com/oauth/callback"))
+        assertEquals(0L, existing.optLong("authorized_at"))
+        assertEquals(0L, LocalMcpOAuth.ConnectedClient("legacy", "ChatGPT", "chatgpt.com")
+            .authorizedAtMillis)
+    }
+
     @Test fun genericAgentsCanRegisterSecureRedirectsWithoutVendorAllowlist() {
         assertTrue(LocalMcpOAuth.validRedirect("https://my-agent.example/oauth/callback"))
         assertTrue(LocalMcpOAuth.validRedirect("https://chatgpt.com/oauth/callback"))
