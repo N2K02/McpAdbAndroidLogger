@@ -59,7 +59,8 @@ internal fun HomeDashboard(
         it in setOf("get_cpu_usage", "get_frame_timing", "get_performance_snapshot",
             "get_battery_diagnostics", "get_memory_pressure", "get_wakelock_usage",
             "get_screen_off_baseline", "get_screen_off_report",
-            "get_surfaceflinger_layers")
+            "get_surfaceflinger_layers", "get_surfaceflinger_activity",
+            "get_surfaceflinger_perfetto")
     }
     val adb by MonitorState.adb.collectAsState()
     val tunnel by MonitorState.tunnel.collectAsState()
@@ -279,6 +280,24 @@ internal fun HomeDashboard(
                     modifier = Modifier.fillMaxWidth()) { Text("SurfaceFlinger layers") }
                 Text("Lists app-associated display layers, not per-app compositor CPU " +
                     "or GPU usage. Raw window titles stay private.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = {
+                        runHealth { dev.n2k02.mcplogger.core.SurfaceActivityDiagnostics.activity() }
+                    }, enabled = verified && !healthBusy, modifier = Modifier.weight(1f)) {
+                        Text("Render activity")
+                    }
+                    OutlinedButton(onClick = {
+                        runHealth { dev.n2k02.mcplogger.core.SurfaceActivityDiagnostics.perfetto() }
+                    }, enabled = verified && !healthBusy, modifier = Modifier.weight(1f)) {
+                        Text("Deep Perfetto")
+                    }
+                }
+                Text("Five-second manual capture. Render activity ranks app layers by frames " +
+                    "and shows shared SurfaceFlinger CPU. Deep Perfetto also queries " +
+                    "FrameTimeline/jank and CPU scheduling when supported. No raw trace " +
+                    "is shared; TimeStats counters are briefly reset and disabled.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 HorizontalDivider()
