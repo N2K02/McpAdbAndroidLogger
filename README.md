@@ -475,8 +475,10 @@ require verified ADB shell UID 2000:
 - get_memory_pressure: /proc/meminfo RAM and swap plus Linux memory PSI
   10/60/300-second stall percentages when accessible.
 - get_wakelock_usage: currently held partial CPU wakelocks from dumpsys power,
-  plus cumulative per-UID partial-held time from batterystats checkin. Shared
-  UIDs are labeled conservatively; raw wakelock names/tags never leave the phone.
+  plus cumulative per-UID partial-held time from batterystats checkin. Modern
+  Android `awl` aggregate counters are preferred; `wl` tag-level counters
+  are the fallback, with version-tolerant parsing. Shared UIDs are labeled
+  conservatively; raw wakelock names/tags never leave the phone.
 - get_screen_off_baseline: explicit in-memory counter snapshot. Turn off the
   screen after invoking it. **No timer, sampler or wakelock is started.**
 - get_screen_off_report: explicit second read showing the delta in the
@@ -486,7 +488,17 @@ require verified ADB shell UID 2000:
 
 These tools do not alone establish why a phone is hot. An active wakelock
 is not proof of CPU load. OEM builds may restrict batterystats data; missing
-metrics are explicitly reported as unavailable.
+metrics are explicitly reported as unavailable. When `/proc/pressure/memory`
+cannot be read, `get_memory_pressure` preserves the RAM/swap figures and
+reports the PSI reason as `permission_denied`, `not_supported`, or
+`unavailable_or_unrecognized` rather than silently replacing it with zero.
+PSI cannot be reconstructed accurately from swap or available RAM alone.
+
+SurfaceFlinger is Android's shared display compositor, not a package. Its
+individual CPU usage cannot identify an app at fault. For activity visible
+on the screen, Android's `dumpsys SurfaceFlinger --list` and `--timestats`
+can identify app-associated layers; the safe MCP tools do not yet provide
+a compositor-layer listing or GPU hardware utilization.
 
 Commands are fixed read-only shell literals, bounded in time and output,
 and executed only for authenticated, explicit user requests. MCP cannot send
