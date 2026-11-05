@@ -6,11 +6,16 @@ import org.json.JSONObject
 /** Stateless, read-only MCP Streamable HTTP over JSON-RPC. No remote shell access. */
 internal object LocalMcpProtocol {
     const val VERSION = "2025-11-25"
+    // Readable through the original get_device_status tool even when an MCP client
+    // still has an old tools/list cache. Never starts a shell diagnostic.
+    const val CATALOG_REVISION = "2026-11-05-health-2"
     private val names = listOf("get_device_status", "list_installed_apps", "get_live_logs",
         "search_logs", "get_crashes", "get_anrs", "get_cpu_usage",
         "get_frame_timing", "get_performance_snapshot",
         "get_battery_diagnostics", "get_memory_pressure", "get_wakelock_usage",
         "get_screen_off_baseline", "get_screen_off_report")
+
+    internal fun builtInToolNames(): List<String> = names.toList()
 
     fun invalidJson() = error(JSONObject.NULL, -32700, "Parse error")
     private fun error(id: Any, code: Int, text: String) =
@@ -32,7 +37,7 @@ internal object LocalMcpProtocol {
                 "initialize" -> JSONObject().put("protocolVersion", VERSION)
                     .put("capabilities", JSONObject().put("tools", JSONObject().put("listChanged", false)))
                     .put("serverInfo", JSONObject().put("name", "MCP ADB Android Logger")
-                        .put("version", "1.0"))
+                        .put("version", CATALOG_REVISION))
                 "ping" -> JSONObject()
                 "tools/list" -> JSONObject().put("tools", toolList(auditReader != null))
                 "tools/call" -> {
@@ -139,6 +144,14 @@ internal object LocalMcpProtocol {
                 .put("local_mcp", MonitorState.localMcp.value)
                 .put("package", MonitorState.selectedPackage.value)
                 .put("buffered_logs", MonitorState.logs.value.size)
+                .put("mcp_catalog_revision", CATALOG_REVISION)
+                .put("mcp_tool_count", names.size)
+                .put("mcp_tool_names", JSONArray(names))
+                .put("on_demand_health_available", names.containsAll(listOf(
+                    "get_cpu_usage", "get_battery_diagnostics", "get_memory_pressure",
+                    "get_wakelock_usage", "get_screen_off_baseline", "get_screen_off_report")))
+                .put("on_demand_health_ready", MonitorState.adb.value.startsWith(
+                    "UID 2000 verified"))
             "list_installed_apps" -> JSONArray((appsReader?.invoke() ?: MonitorState.packages.value).take(limit))
             "get_mcp_audits" -> {
                 val reader = auditReader ?: throw IllegalArgumentException(
