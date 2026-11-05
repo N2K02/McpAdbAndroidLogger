@@ -127,7 +127,7 @@ internal object SurfaceActivityDiagnostics {
                     else -> "analysis_unavailable"
                 }
             } ?: if (usePerfetto) "processor_unavailable" else "not_requested"
-            result.put("perfetto_processor_source", processorSource)
+            result.put("perfetto_processor_source", traceResult?.effectiveSource ?: processorSource)
                 .put("perfetto_status", traceStatus)
                 .put("perfetto_capture_status", traceResult?.captureStatus
                     ?: if (usePerfetto) "not_attempted" else "not_requested")
@@ -295,7 +295,8 @@ internal object SurfaceActivityDiagnostics {
         val processorStatus: String = "not_attempted",
         val frameStatus: String = "not_attempted",
         val schedStatus: String = "not_attempted",
-        val traceBytes: Long? = null
+        val traceBytes: Long? = null,
+        val effectiveSource: String? = null
     )
 
     private suspend fun checkedShell(command: String, maxBytes: Int = 4096,
@@ -318,8 +319,12 @@ internal object SurfaceActivityDiagnostics {
         seconds: Int, executable: String, known: Set<String>,
         onCaptured: suspend () -> Unit
     ): TraceOutcome {
-        val file = "/data/misc/perfetto-traces/n2k02_sf_" +
-            UUID.randomUUID().toString().replace("-", "") + ".perfetto-trace"
+        val traceId = UUID.randomUUID().toString().replace("-", "")
+        val file = "/data/misc/perfetto-traces/n2k02_sf_$traceId.perfetto-trace"
+        val stagedProcessor = "/data/local/tmp/n2k02_tp_$traceId"
+        var staged = false
+        var activeProcessor = executable
+        var effectiveSource: String? = null
         val config = "duration_ms: ${seconds * 1000} " +
             "buffers { size_kb: 4096 fill_policy: RING_BUFFER } " +
             "data_sources { config { name: \"android.surfaceflinger.frametimeline\" } } " +
@@ -342,9 +347,32 @@ internal object SurfaceActivityDiagnostics {
         try {
             // The app can execute its installed native lib even if shell UID
             // 2000 cannot; probe actual shell execution, not File.canExecute.
-            val processorCheck = checkedShell("$executable --version", 2048)
-            val processorStatus =
+            var processorCheck = checkedShell("$activeProcessor --version", 2048)
+            var processorStatus =
                 PerfettoStageDiagnostics.executionStatus(processorCheck)
+            if (processorStatus != "ok" &&
+                executable.endsWith("/libtraceprocessor.so") &&
+                processorStatus in setOf("permission_denied", "binary_missing",
+                    "execution_failed")) {
+                // SELinux may prevent shell UID 2000 from executing a lib in
+                // /data/app even though the app itself can use it. A temporary
+                // 0700 executable owned by shell is a fallback, never a
+                // permanent install or a user-supplied executable.
+                val copy = checkedShell(
+                    "umask 077; cp $executable $stagedProcessor && chmod 700 $stagedProcessor",
+                    512, 20_000L)
+                if (copy.succeeded) {
+                    staged = true
+                    val retry = checkedShell("$stagedProcessor --version", 2048)
+                    val retryStatus =
+                        PerfettoStageDiagnostics.executionStatus(retry)
+                    if (retryStatus == "ok") {
+                        activeProcessor = stagedProcessor
+                        effectiveSource = "bundled_arm64_shell_copy"
+                        processorStatus = "ok"
+                    } else processorStatus = retryStatus
+                }
+            }
             if (processorStatus != "ok")
                 return TraceOutcome(processorStatus = processorStatus)
             val capture = checkedShell(captureCommand, 2048, 40_000L)
@@ -363,14 +391,14 @@ internal object SurfaceActivityDiagnostics {
             // CSV-producing documented interface, with legacy system fallback.
             suspend fun query(sql: String, maxBytes: Int): PerfettoStageDiagnostics.ShellResult {
                 val primary = checkedShell(
-                    "$executable query --format csv --no-progress $file \"$sql\"",
+                    "$activeProcessor query --format csv --no-progress $file \"$sql\"",
                     maxBytes, 40_000L)
                 if (PerfettoStageDiagnostics.queryStatus(primary) == "ok")
                     return primary
                 val lower = primary.output.lowercase()
                 if ("unknown command" !in lower && "invalid command" !in lower &&
                     "unrecognized command" !in lower) return primary
-                return checkedShell("$executable -Q \"$sql\" $file", maxBytes, 40_000L)
+                return checkedShell("$activeProcessor -Q \"$sql\" $file", maxBytes, 40_000L)
             }
             val frames = query(frameSql, 32768)
             val frameCode = PerfettoStageDiagnostics.queryStatus(frames)
@@ -389,10 +417,13 @@ internal object SurfaceActivityDiagnostics {
             return TraceOutcome(rows = parsedFrames, cpuMs = cpuMs,
                 captureStatus = "ok", processorStatus = "ok",
                 frameStatus = frameStatus, schedStatus = schedStatus,
-                traceBytes = bytes)
+                traceBytes = bytes, effectiveSource = effectiveSource)
         } finally {
             withContext(NonCancellable) {
                 runCatching { AdbTransport.exec("rm -f $file", timeoutMs = TIMEOUT_MS) }
+                if (staged) runCatching {
+                    AdbTransport.exec("rm -f $stagedProcessor", timeoutMs = TIMEOUT_MS)
+                }
             }
         }
     }
