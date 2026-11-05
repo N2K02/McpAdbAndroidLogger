@@ -287,15 +287,37 @@ internal object SurfaceActivityDiagnostics {
             .put("rank_basis", "frame counts (TimeStats and/or FrameTimeline); no CPU attribution")
     }
 
-    /**
-     * Perfetto output stays in a temporary shell-only trace file and is deleted
-     * even on parse errors. No trace content, slices, titles or arbitrary SQL
-     * reaches an MCP client.
-     */
+    /** Only safe, fixed status enums and aggregates can enter an MCP response. */
+    internal data class TraceOutcome(
+        val rows: List<TraceRow> = emptyList(),
+        val cpuMs: Double? = null,
+        val captureStatus: String = "not_attempted",
+        val processorStatus: String = "not_attempted",
+        val frameStatus: String = "not_attempted",
+        val schedStatus: String = "not_attempted",
+        val traceBytes: Long? = null
+    )
+
+    private suspend fun checkedShell(command: String, maxBytes: Int = 4096,
+                                     timeout: Long = TIMEOUT_MS):
+        PerfettoStageDiagnostics.ShellResult {
+        return try {
+            val output = AdbTransport.exec(
+                PerfettoStageDiagnostics.checked(command, maxBytes),
+                timeoutMs = timeout).getOrThrow()
+            PerfettoStageDiagnostics.parse(output)
+        } catch (cancel: kotlinx.coroutines.CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            PerfettoStageDiagnostics.ShellResult("", null)
+        }
+    }
+
+    /** Fixed commands and SQL only. Traces never leave device storage. */
     private suspend fun runTrace(
         seconds: Int, executable: String, known: Set<String>,
         onCaptured: suspend () -> Unit
-    ): Triple<List<TraceRow>, Double?, String> {
+    ): TraceOutcome {
         val file = "/data/misc/perfetto-traces/n2k02_sf_" +
             UUID.randomUUID().toString().replace("-", "") + ".perfetto-trace"
         val config = "duration_ms: ${seconds * 1000} " +
@@ -305,40 +327,69 @@ internal object SurfaceActivityDiagnostics {
             "ftrace_events: \"sched/sched_switch\" atrace_categories: \"gfx\" } } } " +
             "data_sources { config { name: \"linux.process_stats\" " +
             "process_stats_config { scan_all_processes_on_start: true } } }"
-        val traceCommand = "printf '%s\\n' '$config' | " +
-            "perfetto -c - --txt -o $file 2>&1 | head -c 2048"
-        val frameSql = "SELECT p.name, COUNT(*), " +
-            "SUM(CASE WHEN a.jank_type = 'None' THEN 0 ELSE 1 END) " +
+        val captureCommand = "printf '%s\\n' '$config' | " +
+            "perfetto -c - --txt -o $file"
+        val frameSql = "SELECT p.name AS package_name, COUNT(*) AS frame_count, " +
+            "COALESCE(SUM(CASE WHEN a.jank_type IS NULL OR " +
+            "a.jank_type = 'None' THEN 0 ELSE 1 END),0) AS jank_count " +
             "FROM actual_frame_timeline_slice a JOIN process p ON a.upid=p.upid " +
             "WHERE p.name NOT LIKE '%surfaceflinger%' GROUP BY p.name " +
-            "ORDER BY COUNT(*) DESC LIMIT 100"
-        val cpuSql = "SELECT ROUND(SUM(s.dur)/1000000.0,1) " +
+            "ORDER BY frame_count DESC LIMIT 100"
+        val cpuSql = "SELECT ROUND(COALESCE(SUM(s.dur),0)/1000000.0,1) AS sf_cpu_ms " +
             "FROM sched s JOIN thread t ON s.utid=t.utid " +
             "JOIN process p ON t.upid=p.upid " +
-            "WHERE p.name LIKE '%surfaceflinger%'"
+            "WHERE p.name LIKE '%surfaceflinger%' AND s.dur > 0"
         try {
-            val outcome = AdbTransport.exec(traceCommand, timeoutMs = 40_000L).getOrThrow()
-            if (denied(outcome) || outcome.contains("Failed to", ignoreCase = true) ||
-                outcome.contains("ERROR", ignoreCase = true))
-                return Triple(emptyList(), null, "capture_unavailable")
-            // Stop TimeStats and record the CPU endpoint BEFORE SQL parsing.
+            // The app can execute its installed native lib even if shell UID
+            // 2000 cannot; probe actual shell execution, not File.canExecute.
+            val processorCheck = checkedShell("$executable --version", 2048)
+            val processorStatus =
+                PerfettoStageDiagnostics.executionStatus(processorCheck)
+            if (processorStatus != "ok")
+                return TraceOutcome(processorStatus = processorStatus)
+            val capture = checkedShell(captureCommand, 2048, 40_000L)
+            val captureStatus = PerfettoStageDiagnostics.traceStatus(capture)
+            if (captureStatus != "ok")
+                return TraceOutcome(captureStatus = captureStatus, processorStatus = "ok")
             onCaptured()
-            val size = AdbTransport.exec("stat -c %s $file 2>/dev/null",
-                timeoutMs = TIMEOUT_MS).getOrThrow().trim().toLongOrNull()
-            if (size == null || size <= 0 || size > 16L * 1024 * 1024)
-                return Triple(emptyList(), null, "trace_missing_or_too_large")
-            val frameRaw = AdbTransport.exec(
-                "$executable -Q \"$frameSql\" $file 2>&1 | head -c 32768",
-                timeoutMs = 40_000L).getOrThrow()
-            val cpuRaw = AdbTransport.exec(
-                "$executable -Q \"$cpuSql\" $file 2>&1 | head -c 2048",
-                timeoutMs = 40_000L).getOrThrow()
-            val rows = parseTraceRows(frameRaw, known)
-            val cpu = cpuRaw.lineSequence().mapNotNull {
-                it.trim().trim('"').toDoubleOrNull()
-            }.firstOrNull { it >= 0 && it < 100000 }
-            return Triple(rows, cpu,
-                if (rows.isEmpty() && cpu == null) "processor_unavailable" else "ok")
+            val stat = checkedShell("stat -c %s $file", 128)
+            val bytes = stat.output.trim().toLongOrNull()
+            if (!stat.succeeded || bytes == null || bytes <= 0L)
+                return TraceOutcome(captureStatus = "trace_missing", processorStatus = "ok")
+            if (bytes > 16L * 1024L * 1024L)
+                return TraceOutcome(captureStatus = "trace_too_large",
+                    processorStatus = "ok", traceBytes = bytes)
+
+            // CSV-producing documented interface, with legacy system fallback.
+            suspend fun query(sql: String, maxBytes: Int): PerfettoStageDiagnostics.ShellResult {
+                val primary = checkedShell(
+                    "$executable query --format csv --no-progress $file \"$sql\"",
+                    maxBytes, 40_000L)
+                if (PerfettoStageDiagnostics.queryStatus(primary) == "ok")
+                    return primary
+                val lower = primary.output.lowercase()
+                if ("unknown command" !in lower && "invalid command" !in lower &&
+                    "unrecognized command" !in lower) return primary
+                return checkedShell("$executable -Q \"$sql\" $file", maxBytes, 40_000L)
+            }
+            val frames = query(frameSql, 32768)
+            val frameCode = PerfettoStageDiagnostics.queryStatus(frames)
+            val parsedFrames = if (frameCode == "ok")
+                parseTraceRows(frames.output, known) else emptyList()
+            val frameStatus = if (frameCode == "ok" && parsedFrames.isEmpty())
+                "no_frames" else frameCode
+
+            val sched = query(cpuSql, 2048)
+            val schedCode = PerfettoStageDiagnostics.queryStatus(sched)
+            val cpuMs = if (schedCode == "ok")
+                PerfettoStageDiagnostics.parseCpuMillis(sched.output) else null
+            val schedStatus = if (schedCode == "ok" && cpuMs == null)
+                "no_sched_data" else schedCode
+
+            return TraceOutcome(rows = parsedFrames, cpuMs = cpuMs,
+                captureStatus = "ok", processorStatus = "ok",
+                frameStatus = frameStatus, schedStatus = schedStatus,
+                traceBytes = bytes)
         } finally {
             withContext(NonCancellable) {
                 runCatching { AdbTransport.exec("rm -f $file", timeoutMs = TIMEOUT_MS) }
