@@ -485,6 +485,14 @@ require verified ADB shell UID 2000:
   system-reported screen-off time and the largest per-UID partial wakelock
   hold deltas. Durations can overlap and exceed elapsed time. Counters
   that reset are reported as unavailable, not as zero.
+- get_surfaceflinger_layers: one bounded `dumpsys SurfaceFlinger --list`
+  snapshot, matched against actual installed Android packages to return
+  **per-package layer counts only**. The raw layer/window names can include
+  private activity or notification text and are intentionally discarded.
+  Package layer counts are not per-app rendering rates, compositor CPU or
+  hardware GPU usage. ADB permission limitations are reported explicitly.
+  A matching read-only button is available under Home → Performance →
+  Device health.
 
 These tools do not alone establish why a phone is hot. An active wakelock
 is not proof of CPU load. OEM builds may restrict batterystats data; missing
@@ -495,10 +503,11 @@ reports the PSI reason as `permission_denied`, `not_supported`, or
 PSI cannot be reconstructed accurately from swap or available RAM alone.
 
 SurfaceFlinger is Android's shared display compositor, not a package. Its
-individual CPU usage cannot identify an app at fault. For activity visible
-on the screen, Android's `dumpsys SurfaceFlinger --list` and `--timestats`
-can identify app-associated layers; the safe MCP tools do not yet provide
-a compositor-layer listing or GPU hardware utilization.
+individual CPU usage cannot identify an app at fault. The new
+`get_surfaceflinger_layers` tool shows a **single point-in-time list of
+package-associated surface counts**, with no private layer names. Neither
+that list nor existing `dumpsys gfxinfo` frame timings measures per-app
+compositor CPU or GPU hardware utilization.
 
 Commands are fixed read-only shell literals, bounded in time and output,
 and executed only for authenticated, explicit user requests. MCP cannot send
@@ -515,12 +524,12 @@ The **existing** `get_device_status` tool reports
 `mcp_catalog_revision`, `mcp_tool_count`,
 `mcp_tool_names`, `on_demand_health_available`, and
 `on_demand_health_ready` without running any ADB diagnostics.
-The new catalog should report **14 built-in tools**, plus the optional audit
+The new catalog should report **15 built-in tools**, plus the optional audit
 tool if locally authorized. Home → Connection shows the same built-in
 catalog revision and the recommended client refresh steps.
 
 If ChatGPT still offers only the original six tool names but
-`get_device_status` reports 14 built-in tools, the phone server is updated
+`get_device_status` reports 15 built-in tools, the phone server is updated
 and the *ChatGPT MCP integration's cached tool schema* is out of date.
 Reconnect or re-add the existing MCP integration (using the same public MCP URL
 and authorized access) to force tool rediscovery. Merely rebuilding or
