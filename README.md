@@ -493,6 +493,23 @@ require verified ADB shell UID 2000:
   hardware GPU usage. ADB permission limitations are reported explicitly.
   A matching read-only button is available under Home → Performance →
   Device health.
+- get_surfaceflinger_activity: one explicit 3–10-second TimeStats window (default
+  5 seconds), returning installed-package frame counts, dropped frames, FPS
+  estimates, and a **shared SurfaceFlinger process CPU percentage** across that
+  interval. Rankings reflect frame activity and *cannot allocate compositor CPU
+  to any one app*. TimeStats `-clear -enable` resets device-wide TimeStats at
+  the start and `-disable` is called on completion or cancellation.
+- get_surfaceflinger_perfetto: the same short TimeStats/CPU snapshot plus a
+  temporary Perfetto trace with `android.surfaceflinger.frametimeline`,
+  `sched/sched_switch` and process metadata. When an on-device
+  `trace_processor_shell` executable is available, only aggregated,
+  verified-package frame/jank counts and shared compositor scheduled CPU time
+  are returned. If the device lacks trace processor, the tool explicitly
+  returns `processor_unavailable` while still providing TimeStats/CPU results.
+  Neither the raw trace nor layer titles are sent via MCP. Trace files are
+  bounded (16 MiB) and deleted in the cleanup path. No background tracing,
+  polling or remote arbitrary shell is introduced.
+  Two buttons (Render activity / Deep Perfetto) appear in Home → Performance.
 
 These tools do not alone establish why a phone is hot. An active wakelock
 is not proof of CPU load. OEM builds may restrict batterystats data; missing
@@ -503,11 +520,14 @@ reports the PSI reason as `permission_denied`, `not_supported`, or
 PSI cannot be reconstructed accurately from swap or available RAM alone.
 
 SurfaceFlinger is Android's shared display compositor, not a package. Its
-individual CPU usage cannot identify an app at fault. The new
+individual CPU usage cannot identify an app at fault. The
 `get_surfaceflinger_layers` tool shows a **single point-in-time list of
-package-associated surface counts**, with no private layer names. Neither
-that list nor existing `dumpsys gfxinfo` frame timings measures per-app
-compositor CPU or GPU hardware utilization.
+package-associated surface counts**, with no private layer names. The new
+TimeStats and Perfetto tools improve **frame activity attribution**, and
+synchronize a compositor CPU sample over the same interval, but they still
+cannot provide an exact per-app share of SurfaceFlinger CPU. Actual correlated
+FrameTimeline records require an on-device trace processor, which is not
+shipped by this app. AOSP devices vary in trace processor support.
 
 Commands are fixed read-only shell literals, bounded in time and output,
 and executed only for authenticated, explicit user requests. MCP cannot send
@@ -524,12 +544,12 @@ The **existing** `get_device_status` tool reports
 `mcp_catalog_revision`, `mcp_tool_count`,
 `mcp_tool_names`, `on_demand_health_available`, and
 `on_demand_health_ready` without running any ADB diagnostics.
-The new catalog should report **15 built-in tools**, plus the optional audit
+The new catalog should report **17 built-in tools**, plus the optional audit
 tool if locally authorized. Home → Connection shows the same built-in
 catalog revision and the recommended client refresh steps.
 
 If ChatGPT still offers only the original six tool names but
-`get_device_status` reports 15 built-in tools, the phone server is updated
+`get_device_status` reports 17 built-in tools, the phone server is updated
 and the *ChatGPT MCP integration's cached tool schema* is out of date.
 Reconnect or re-add the existing MCP integration (using the same public MCP URL
 and authorized access) to force tool rediscovery. Merely rebuilding or
