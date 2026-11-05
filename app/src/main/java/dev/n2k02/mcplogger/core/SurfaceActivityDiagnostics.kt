@@ -358,11 +358,13 @@ internal object SurfaceActivityDiagnostics {
                 // /data/app even though the app itself can use it. A temporary
                 // 0700 executable owned by shell is a fallback, never a
                 // permanent install or a user-supplied executable.
+                // Mark cleanup before copying: even a partial copy must be
+                // deleted if chmod or transport fails.
+                staged = true
                 val copy = checkedShell(
                     "umask 077; cp $executable $stagedProcessor && chmod 700 $stagedProcessor",
                     512, 20_000L)
                 if (copy.succeeded) {
-                    staged = true
                     val retry = checkedShell("$stagedProcessor --version", 2048)
                     val retryStatus =
                         PerfettoStageDiagnostics.executionStatus(retry)
