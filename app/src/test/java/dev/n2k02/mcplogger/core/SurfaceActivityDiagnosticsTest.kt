@@ -113,6 +113,39 @@ class SurfaceActivityDiagnosticsTest {
             .none { it.frames > 100000000L })
     }
 
+    @Test fun processorSelectionPrefersSystemOrVerifiedInstalledNativeLibrary() {
+        val system = SurfaceActivityDiagnostics.resolveProcessor(
+            "/system/bin/trace_processor_shell", null)
+        assertEquals("system", system?.second)
+        assertEquals("/system/bin/trace_processor_shell", system?.first)
+        assertNull(SurfaceActivityDiagnostics.resolveProcessor(
+            "/data/local/tmp/unverified_processor", null))
+        assertNull(SurfaceActivityDiagnostics.resolveProcessor(
+            "", "/data/user/0/com.example/files"))
+        assertNull(SurfaceActivityDiagnostics.resolveProcessor(
+            "", "/data/app/abc;touch /data/local/tmp/unwanted/lib/arm64"))
+        assertNull(SurfaceActivityDiagnostics.resolveProcessor(
+            "", "/data/app/~~abc/com.example/base/lib/arm64"))
+    }
+
+    @Test fun perfettoArtifactIsPinnedAndRunsOnlyOnExplicitCapture() {
+        val root = ".github/"
+        fun file(p: String) = listOf(File(root + p), File("../" + root + p))
+            .first { it.isFile }.readText()
+        val helper = file("scripts/prepare-perfetto-processor.sh")
+        val workflow = file("workflows/build.yml")
+        assertTrue(helper.contains("v${VERSION}/android-arm64/trace_processor_shell"))
+        assertTrue(helper.contains(
+            "05e95758a26cf57fb8d552d3c1d532486681a6ecc4ee705a484a8deb4d092d09"))
+        assertTrue(helper.contains("EXPECTED_SIZE=13098064"))
+        assertTrue(helper.contains("sha256sum --check"))
+        assertTrue(helper.contains("app/src/main/jniLibs/arm64-v8a/libtraceprocessor.so"))
+        assertTrue(workflow.contains("prepare-perfetto-processor.sh"))
+        val build = listOf(File("app/build.gradle.kts"), File("../app/build.gradle.kts"))
+            .first { it.isFile }.readText()
+        assertTrue(build.contains("keepDebugSymbols += \"**/libtraceprocessor.so\""))
+    }
+
     @Test fun activityAndPerfettoRemainExplicitBoundedAndNoRawTracesLeaveTheServer() {
         val root = "app/src/main/java/dev/n2k02/mcplogger/"
         fun source(path: String) = listOf(File(root + path), File("../" + root + path))
@@ -138,6 +171,10 @@ class SurfaceActivityDiagnosticsTest {
         assertFalse(src.contains("Runtime.getRuntime()"))
         assertTrue(server.contains("SurfaceActivityDiagnostics.activity("))
         assertTrue(server.contains("SurfaceActivityDiagnostics.perfetto("))
+        assertTrue(server.contains("context.applicationInfo.nativeLibraryDir"))
+        assertTrue(src.contains("resolveProcessor(systemPath, nativeLibraryDir)"))
+        assertTrue(src.contains("libtraceprocessor.so"))
+        assertTrue(src.contains("bundled_arm64"))
         assertTrue(dashboard.contains("Render activity"))
         assertTrue(dashboard.contains("Deep Perfetto"))
     }
