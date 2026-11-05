@@ -289,7 +289,8 @@ internal fun HomeDashboard(
                         Text("Render activity")
                     }
                     OutlinedButton(onClick = {
-                        runHealth { dev.n2k02.mcplogger.core.SurfaceActivityDiagnostics.perfetto() }
+                        runHealth { dev.n2k02.mcplogger.core.SurfaceActivityDiagnostics.perfetto(
+                            nativeLibraryDir = context.applicationInfo.nativeLibraryDir) }
                     }, enabled = verified && !healthBusy, modifier = Modifier.weight(1f)) {
                         Text("Deep Perfetto")
                     }
