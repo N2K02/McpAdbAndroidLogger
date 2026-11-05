@@ -491,7 +491,7 @@ is not proof of CPU load. OEM builds may restrict batterystats data; missing
 metrics are explicitly reported as unavailable. When `/proc/pressure/memory`
 cannot be read, `get_memory_pressure` preserves the RAM/swap figures and
 reports the PSI reason as `permission_denied`, `not_supported`, or
-`unavailable_or_unrecognized` rather than silently replacing it with zero.
+`unavailable` rather than silently replacing it with zero.
 PSI cannot be reconstructed accurately from swap or available RAM alone.
 
 SurfaceFlinger is Android's shared display compositor, not a package. Its
