@@ -181,7 +181,7 @@ internal fun HomeDashboard(
                     onClick = { selectHomeTab(HomeTab.CONNECTION) })
                 HomeStatusCard(Icons.Rounded.Speed, "Performance tools",
                     "CPU, RAM, battery and wakelocks · on demand",
-                    HomeBadgePolicy.performance(perfBusy || mcpPerformanceReading),
+                    HomeBadgePolicy.performance(perfBusy || healthBusy || mcpPerformanceReading),
                     sourceBadge = HomeBadgePolicy.mcpSource(mcpPerformanceReading),
                     onClick = { selectHomeTab(HomeTab.PERFORMANCE) })
                 }
