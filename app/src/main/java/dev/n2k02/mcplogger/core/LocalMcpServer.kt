@@ -11,8 +11,10 @@ import java.net.SocketException
 import java.util.concurrent.RejectedExecutionException
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
-import java.util.concurrent.Executors
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ExecutorService
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import org.json.JSONObject
 
 /** Loopback-only authenticated local MCP endpoint. Owned by LogMonitorService. */
@@ -22,9 +24,14 @@ object LocalMcpServer {
     private const val MAX_BODY = 131072
     private val allowedOrigins = setOf("https://claude.ai", "https://chatgpt.com",
         "https://chat.openai.com")
-    private fun newWorkers(): ExecutorService = Executors.newFixedThreadPool(4) { task ->
-        Thread(task, "mcp-local-client").apply { isDaemon = true }
-    }
+    // A long on-demand Perfetto query must not starve connection health,
+    // OAuth or ordinary diagnostic requests. Fixed six-worker capacity and a
+    // bounded queue prevent unlimited pending sockets on a busy phone.
+    private fun newWorkers(): ExecutorService = ThreadPoolExecutor(
+        6, 6, 30L, TimeUnit.SECONDS, ArrayBlockingQueue(16),
+        { task -> Thread(task, "mcp-local-client").apply { isDaemon = true } },
+        ThreadPoolExecutor.AbortPolicy()
+    )
     private var workers: ExecutorService? = null
     @Volatile private var listener: ServerSocket? = null
     @Volatile private var active = false
