@@ -33,6 +33,27 @@ object QuickMcpTunnel {
     @Volatile private var starting = false
     @Volatile private var stopped = false
     @Volatile private var config: File? = null
+    /** True only after cloudflared reports an active edge registration. */
+    fun isEdgeConnected(): Boolean = edgeConnected
+
+    /**
+     * Reuse the existing once-per-minute route heartbeat to recover a stalled
+     * tunnel. Three consecutive offline observations are required; transient
+     * network handoffs must not constantly restart the tunnel or rotate its URL.
+     * Does not schedule background polling itself.
+     */
+    internal class OfflineHeartbeatGate(private val missesToRestart: Int = 3) {
+        init { require(missesToRestart >= 2) }
+        private var misses = 0
+        fun onHeartbeat(edgeLive: Boolean): Boolean {
+            if (edgeLive) { misses = 0; return false }
+            misses++
+            if (misses < missesToRestart) return false
+            misses = 0
+            return true
+        }
+    }
+
 
     /** Saved registration. [confirmed] once Cloudflare accepted a connection for it. */
     internal data class Registration(
