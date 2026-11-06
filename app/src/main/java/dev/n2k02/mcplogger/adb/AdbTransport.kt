@@ -188,7 +188,9 @@ object AdbTransport {
                     // can hang too, and then only closing the whole
                     // connection lets it go.
                     var session: ShellSession? = shell
-                    val watchdog = launch {
+                    // Cancellation must not cancel the watchdog before a native
+                    // readLine/openStream unblocks; its deadline owns teardown.
+                    val watchdog = kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
                         kotlinx.coroutines.delay(timeoutMs)
                         // The command's first word only: the daemon's launch
                         // line carries its token.
