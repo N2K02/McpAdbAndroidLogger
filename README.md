@@ -536,6 +536,21 @@ require verified ADB shell UID 2000:
   The response then uses `perfetto_processor_source: bundled_arm64_shell_copy`.
   Only categorical error codes are returned; no raw trace, CLI error strings,
   window titles, paths or SQL are sent to ChatGPT.
+  The follow-up reliability pass differentiates `source_table_missing`,
+  `source_column_missing`, `sql_syntax_error`, and `cli_unsupported`
+  rather than attributing all of these to the processor itself. Trace Processor
+  queries now limit output rows and bytes and use `--no-ftrace-raw` to reduce
+  temporary analysis memory. The system CLI fallback is attempted only for
+  unsupported CLI flags, not for unavailable device trace data. These are
+  bounded best-effort diagnostics; an Android build that does not expose a
+  trace source cannot be made to produce that source by Shizuku or shell UID
+  2000. Partial captures continue to return TimeStats and process CPU.
+  MCP socket handling now uses a bounded worker queue with capacity for
+  independent health requests. The existing once-per-minute stable relay
+  heartbeat also triggers a debounced tunnel restart after three successive
+  observations with no Cloudflare edge registration, while retaining the
+  configured URL and credentials. No additional polling loop is introduced.
+
 
 
 These tools do not alone establish why a phone is hot. An active wakelock
