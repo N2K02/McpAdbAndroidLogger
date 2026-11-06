@@ -390,17 +390,20 @@ internal object SurfaceActivityDiagnostics {
                 return TraceOutcome(captureStatus = "trace_too_large",
                     processorStatus = "ok", traceBytes = bytes)
 
-            // CSV-producing documented interface, with legacy system fallback.
+            // Both v57 CLI forms are supported, but stock system builds can
+            // differ. Retry only CLI incompatibility (never missing data tables
+            // or SQL errors). --no-ftrace-raw reduces temporary memory use while
+            // preserving typed sched events. Bound output, time and rows.
             suspend fun query(sql: String, maxBytes: Int): PerfettoStageDiagnostics.ShellResult {
                 val primary = checkedShell(
-                    "$activeProcessor query --format csv --no-progress $file \"$sql\"",
-                    maxBytes, 40_000L)
-                if (PerfettoStageDiagnostics.queryStatus(primary) == "ok")
+                    "$activeProcessor query --format csv --no-progress --no-ftrace-raw " +
+                        "--max-rows 100 --max-bytes $maxBytes $file \"$sql\"",
+                    maxBytes, 18_000L)
+                if (PerfettoStageDiagnostics.queryStatus(primary) != "cli_unsupported")
                     return primary
-                val lower = primary.output.lowercase()
-                if ("unknown command" !in lower && "invalid command" !in lower &&
-                    "unrecognized command" !in lower) return primary
-                return checkedShell("$activeProcessor -Q \"$sql\" $file", maxBytes, 40_000L)
+                return checkedShell(
+                    "$activeProcessor --no-ftrace-raw -Q \"$sql\" $file",
+                    maxBytes, 18_000L)
             }
             val frames = query(frameSql, 32768)
             val frameCode = PerfettoStageDiagnostics.queryStatus(frames)
