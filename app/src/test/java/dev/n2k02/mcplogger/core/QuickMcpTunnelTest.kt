@@ -73,6 +73,34 @@ class QuickMcpTunnelTest {
         assertTrue(ui.contains("MCP client access key"))
     }
 
+    @Test fun offlineHeartbeatRestartsOnlyAfterThreeMissesAndResetsOnRecovery() {
+        val gate = QuickMcpTunnel.OfflineHeartbeatGate()
+        assertFalse(gate.onHeartbeat(edgeLive = false))
+        assertFalse(gate.onHeartbeat(edgeLive = false))
+        assertFalse(gate.onHeartbeat(edgeLive = true))
+        assertFalse(gate.onHeartbeat(edgeLive = false))
+        assertFalse(gate.onHeartbeat(edgeLive = false))
+        assertTrue(gate.onHeartbeat(edgeLive = false))
+        assertFalse(gate.onHeartbeat(edgeLive = false))
+        assertFalse(gate.onHeartbeat(edgeLive = true))
+        assertFalse(gate.onHeartbeat(edgeLive = false))
+        assertFalse(gate.onHeartbeat(edgeLive = false))
+        assertTrue(gate.onHeartbeat(edgeLive = false))
+    }
+
+    @Test fun stalledTunnelRecoveryIsDebouncedAndPreservesRegistration() {
+        val root = "app/src/main/java/dev/n2k02/mcplogger/core/"
+        fun file(name: String) = listOf(File(root + name), File("../" + root + name))
+            .first { it.isFile }.readText()
+        val service = file("LogMonitorService.kt")
+        val tunnel = file("QuickMcpTunnel.kt")
+        assertTrue(service.contains("recovery.onHeartbeat(QuickMcpTunnel.isEdgeConnected())"))
+        assertTrue(service.contains("action = TUNNEL_RESTART"))
+        assertTrue(tunnel.contains("fun isEdgeConnected(): Boolean = edgeConnected"))
+        assertTrue(service.contains("delay(60_000L)"))
+        assertFalse(service.contains("QuickMcpTunnel.forget(applicationContext)"))
+    }
+
     @Test fun firstInitializationRetainsPersistedClientToken() {
         val root = "app/src/main/java/dev/n2k02/mcplogger/core/"
         val src = listOf(File(root + "BridgeClient.kt"), File("../$root" + "BridgeClient.kt"))
