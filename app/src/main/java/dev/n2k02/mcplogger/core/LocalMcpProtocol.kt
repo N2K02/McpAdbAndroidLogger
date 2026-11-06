@@ -6,9 +6,18 @@ import org.json.JSONObject
 /** Stateless, read-only MCP Streamable HTTP over JSON-RPC. No remote shell access. */
 internal object LocalMcpProtocol {
     const val VERSION = "2025-11-25"
+    // Readable through the original get_device_status tool even when an MCP client
+    // still has an old tools/list cache. Never starts a shell diagnostic.
+    const val CATALOG_REVISION = "2026-11-06-perfetto-reliability-3"
     private val names = listOf("get_device_status", "list_installed_apps", "get_live_logs",
         "search_logs", "get_crashes", "get_anrs", "get_cpu_usage",
-        "get_frame_timing", "get_performance_snapshot")
+        "get_frame_timing", "get_performance_snapshot",
+        "get_battery_diagnostics", "get_memory_pressure", "get_wakelock_usage",
+        "get_screen_off_baseline", "get_screen_off_report",
+        "get_surfaceflinger_layers", "get_surfaceflinger_activity",
+        "get_surfaceflinger_perfetto")
+
+    internal fun builtInToolNames(): List<String> = names.toList()
 
     fun invalidJson() = error(JSONObject.NULL, -32700, "Parse error")
     private fun error(id: Any, code: Int, text: String) =
@@ -30,7 +39,7 @@ internal object LocalMcpProtocol {
                 "initialize" -> JSONObject().put("protocolVersion", VERSION)
                     .put("capabilities", JSONObject().put("tools", JSONObject().put("listChanged", false)))
                     .put("serverInfo", JSONObject().put("name", "MCP ADB Android Logger")
-                        .put("version", "1.0"))
+                        .put("version", CATALOG_REVISION))
                 "ping" -> JSONObject()
                 "tools/list" -> JSONObject().put("tools", toolList(auditReader != null))
                 "tools/call" -> {
@@ -68,13 +77,34 @@ internal object LocalMcpProtocol {
             "Read one bounded top CPU process snapshot; optional exact package_name filter",
             "Read recent UI frame timing and GPU completion latency (not GPU utilization) for one app",
             "Read CPU plus optional app UI frame timing in a bounded on-demand request",
+            "Read battery temperature, charge state and estimated per-UID energy since charge on demand",
+            "Read RAM, swap and kernel PSI memory stall metrics in a bounded on-demand snapshot",
+            "Read currently held partial wakelocks plus per-UID partial hold times since charge",
+            "Store an in-memory battery/wakelock baseline for a later screen-off comparison; no polling",
+            "Read delta wake-lock durations and actual reported screen-off duration since the baseline",
+            "List app-associated SurfaceFlinger layers (not per-app CPU or GPU); private layer titles omitted",
+            "Sample 3-10 seconds of SurfaceFlinger TimeStats frames and compositor CPU, rank likely app render contributors; momentarily resets TimeStats",
+            "Collect a 3-10 second Perfetto FrameTimeline and scheduling trace where an on-device processor is available; returns sanitized per-app counts and shared compositor CPU only",
             "Read sanitized, paginated MCP audit history (requires local owner opt-in)"
         )
         return JSONArray().apply {
             toolNames.forEachIndexed { index, name ->
-                val fields = JSONObject().put("limit",
-                    JSONObject().put("type", "integer").put("description",
-                        if (name == "get_mcp_audits") "1-25" else if (name == "get_cpu_usage") "1-50" else "1-500"))
+                val fields = JSONObject()
+                if (name in setOf("list_installed_apps", "get_live_logs", "search_logs",
+                        "get_crashes", "get_anrs", "get_cpu_usage", "get_wakelock_usage",
+                        "get_screen_off_report", "get_surfaceflinger_layers",
+                        "get_surfaceflinger_activity", "get_surfaceflinger_perfetto",
+                        "get_mcp_audits")) {
+                    fields.put("limit", JSONObject().put("type", "integer")
+                        .put("description", if (name == "get_mcp_audits") "1-25"
+                            else if (name in setOf("get_cpu_usage", "get_wakelock_usage",
+                                    "get_screen_off_report", "get_surfaceflinger_layers",
+                                    "get_surfaceflinger_activity", "get_surfaceflinger_perfetto")) "1-50" else "1-500"))
+                }
+                if (name in setOf("get_surfaceflinger_activity", "get_surfaceflinger_perfetto")) {
+                    fields.put("duration_seconds", JSONObject().put("type", "integer")
+                        .put("description", "Explicit capture duration 3-10 seconds, default 5."))
+                }
                 if (name == "get_live_logs") {
                     fields.put("after_cursor", JSONObject().put("type", "integer"))
                     fields.put("level", JSONObject().put("type", "string"))
@@ -126,6 +156,14 @@ internal object LocalMcpProtocol {
                 .put("local_mcp", MonitorState.localMcp.value)
                 .put("package", MonitorState.selectedPackage.value)
                 .put("buffered_logs", MonitorState.logs.value.size)
+                .put("mcp_catalog_revision", CATALOG_REVISION)
+                .put("mcp_tool_count", names.size)
+                .put("mcp_tool_names", JSONArray(names))
+                .put("on_demand_health_available", names.containsAll(listOf(
+                    "get_cpu_usage", "get_battery_diagnostics", "get_memory_pressure",
+                    "get_wakelock_usage", "get_screen_off_baseline", "get_screen_off_report")))
+                .put("on_demand_health_ready", MonitorState.adb.value.startsWith(
+                    "UID 2000 verified"))
             "list_installed_apps" -> JSONArray((appsReader?.invoke() ?: MonitorState.packages.value).take(limit))
             "get_mcp_audits" -> {
                 val reader = auditReader ?: throw IllegalArgumentException(
@@ -133,15 +171,28 @@ internal object LocalMcpProtocol {
                 McpAuditPolicy.agentPage(reader(), args.optInt("limit", 20),
                     args.optString("before_id"), args.optBoolean("include_payloads", false))
             }
-            "get_cpu_usage", "get_frame_timing", "get_performance_snapshot" -> {
-                val pkg = args.optString("package_name", "")
-                require((pkg.isBlank() && name != "get_frame_timing") ||
-                    PerformanceDiagnostics.validPackage(pkg))
+            "get_cpu_usage", "get_frame_timing", "get_performance_snapshot",
+            "get_battery_diagnostics", "get_memory_pressure", "get_wakelock_usage",
+            "get_screen_off_baseline", "get_screen_off_report",
+            "get_surfaceflinger_layers", "get_surfaceflinger_activity",
+            "get_surfaceflinger_perfetto" -> {
+                val performance = name in setOf("get_cpu_usage", "get_frame_timing",
+                    "get_performance_snapshot")
+                val pkg = if (performance) args.optString("package_name", "") else ""
+                if (performance) {
+                    require((pkg.isBlank() && name != "get_frame_timing") ||
+                        PerformanceDiagnostics.validPackage(pkg))
+                }
                 val budget = args.optDouble("frame_budget_ms", 16.67)
-                if (name != "get_cpu_usage") require(budget.isFinite() && budget in 5.0..50.0)
+                if (performance && name != "get_cpu_usage")
+                    require(budget.isFinite() && budget in 5.0..50.0)
+                val duration = args.optInt("duration_seconds", 5)
+                if (name in setOf("get_surfaceflinger_activity", "get_surfaceflinger_perfetto"))
+                    require(duration in 3..10)
                 val limitCpu = args.optInt("limit", 20).coerceIn(1, 50)
                 val safeArgs = JSONObject().put("package_name", pkg)
                     .put("limit", limitCpu).put("frame_budget_ms", budget)
+                    .put("duration_seconds", duration)
                 performanceReader?.invoke(name, safeArgs)
                     ?: throw IllegalStateException("Performance diagnostics unavailable")
             }
@@ -162,26 +213,8 @@ internal object LocalMcpProtocol {
                     level = level,
                     limit = limit,
                 )
-                // Mirror the most recent successful MCP request in the Logs screen.
-                // Store IDs rather than copying log messages, and preserve the tool's
-                // returned limit / cursor selection until the user edits UI filters.
-                val nextFilter = LogViewFilter(
-                    packageName = args.optString("package_name", "").trim(),
-                    search = query,
-                    selectedLevels = if (name == "get_live_logs" &&
-                        level.uppercase() in setOf("V", "D", "I", "W", "E", "F"))
-                        setOf(level.uppercase()) else emptySet(),
-                    crashesOnly = name == "get_crashes" || name == "get_anrs",
-                )
-                MonitorState.logFilter.value = nextFilter
-                MonitorState.selectedPackage.value = nextFilter.packageName
-                MonitorState.recentLogRequest.value = RecentLogRequest(
-                    origin = LogReadOrigin.MCP,
-                    tool = name,
-                    atMillis = System.currentTimeMillis(),
-                    filter = nextFilter,
-                    entryIds = logs.mapTo(mutableSetOf()) { it.id }
-                )
+                // Remote arguments scope only this MCP response. The on-device
+                // Logs filters, selected app, and manual review remain unchanged.
                 JSONArray().apply {
                     logs.forEach { e ->
                         put(JSONObject().put("cursor", e.id).put("time", e.epochMillis)

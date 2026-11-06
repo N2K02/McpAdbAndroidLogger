@@ -32,7 +32,14 @@ internal object LocalMcpOAuth {
     private const val FILE = "local-mcp-oauth.json"
     private val random = SecureRandom()
     private val lock = Any()
-    data class ConnectedClient(val id: String, val name: String, val domain: String)
+    /** Dates are on the successful OAuth authorization, not arbitrary DCR registration.
+     * Older records without timestamps are displayed as unknown, never guessed.
+     */
+    data class ConnectedClient(
+        val id: String, val name: String, val domain: String,
+        val authorizedAtMillis: Long = 0L,
+        val duplicateCount: Int = 1,
+    )
     val connected = MutableStateFlow<List<ConnectedClient>>(emptyList())
     data class Reply(
         val status: Int, val body: String,
@@ -195,6 +202,52 @@ internal object LocalMcpOAuth {
         "revoked" -> "Agent authorization was revoked. Start authorization again."
         else -> "Approval form missing or invalid. Start authorization again."
     }
+    /** Same named agent AND the same callback domain and complete redirect URI set.
+     * A display name alone is not enough to revoke an OAuth client.
+     */
+    internal fun sameRegistration(a: JSONObject, b: JSONObject): Boolean {
+        val name = a.optString("name").trim()
+        val domain = a.optString("domain").trim()
+        val redirects = a.optJSONArray("redirects") ?: return false
+        val otherRedirects = b.optJSONArray("redirects") ?: return false
+        if (name.isBlank() || domain.isBlank() || redirects.length() == 0 ||
+            otherRedirects.length() == 0) return false
+        fun values(array: JSONArray) =
+            (0 until array.length()).map { array.optString(it) }.sorted()
+        return name.equals(b.optString("name").trim(), ignoreCase = true) &&
+            domain.equals(b.optString("domain").trim(), ignoreCase = true) &&
+            values(redirects) == values(otherRedirects)
+    }
+
+    /** A newly approved replacement supersedes older, exactly matching
+     * registrations. Never revoke on DCR registration or a failed approval.
+     * Tokens and pending consents for different callback registrations survive.
+     */
+    internal fun retireSupersededRegistrations(
+        s: JSONObject, retainedId: String, now: Long
+    ): Int {
+        val clients = table(s, "clients")
+        val newest = clients.optJSONObject(retainedId) ?: return 0
+        val redundantIds = clients.keys().asSequence().toList()
+            .filter { it != retainedId &&
+                clients.optJSONObject(it)?.let { previous ->
+                    sameRegistration(newest, previous)
+                } == true }
+        if (redundantIds.isEmpty()) return 0
+        val ids = redundantIds.toSet()
+        for (tableName in listOf("tokens", "codes", "pending")) {
+            val entries = table(s, tableName)
+            for (key in entries.keys().asSequence().toList()) {
+                if (entries.optJSONObject(key)?.optString("client") in ids) {
+                    if (tableName == "pending") retire(s, key, "revoked", now)
+                    entries.remove(key)
+                }
+            }
+        }
+        redundantIds.forEach { clients.remove(it) }
+        return redundantIds.size
+    }
+
     private fun updateConnected(s: JSONObject) {
         val clientMap = table(s, "clients")
         val tokens = table(s, "tokens")
@@ -203,10 +256,18 @@ internal object LocalMcpOAuth {
             val t = tokens.optJSONObject(key) ?: continue
             if (t.optLong("expiry") > System.currentTimeMillis()) names += t.optString("client")
         }
-        connected.value = names.mapNotNull { id ->
+        val activeClients = names.mapNotNull { id ->
             val entry = clientMap.optJSONObject(id) ?: return@mapNotNull null
-            ConnectedClient(id, entry.optString("name"), entry.optString("domain"))
-        }.sortedBy { it.name }
+            id to entry
+        }
+        connected.value = activeClients.map { (id, entry) ->
+            ConnectedClient(id, entry.optString("name"), entry.optString("domain"),
+                entry.optLong("authorized_at").coerceAtLeast(0L),
+                activeClients.count { (otherId, otherEntry) ->
+                    otherId == id || sameRegistration(entry, otherEntry)
+                })
+        }.sortedWith(compareBy<ConnectedClient> { it.name.lowercase(java.util.Locale.ROOT) }
+            .thenByDescending { it.authorizedAtMillis })
     }
     fun refreshState(c: Context) = synchronized(lock) {
         runCatching {
@@ -367,6 +428,7 @@ internal object LocalMcpOAuth {
         val id = nonce()
         clients.put(id, JSONObject().put("name",label)
             .put("domain",URI(redirects.first()).host)
+            .put("registered_at",System.currentTimeMillis())
             .put("redirects",JSONArray(redirects)))
         save(c,s)
         reply(201,JSONObject().put("client_id",id).put("client_name",label)
@@ -569,6 +631,13 @@ internal object LocalMcpOAuth {
                 if (issue != null)
                     return@synchronized failure("invalid_grant", description = issue)
                 val response = issue(s,id,audience,record.optString("scope",SCOPE))
+                if (response.status == 200) {
+                    val now = System.currentTimeMillis()
+                    val authorizedClient = table(s, "clients").optJSONObject(id)
+                    if (authorizedClient != null && authorizedClient.optLong("authorized_at") <= 0L)
+                        authorizedClient.put("authorized_at", now)
+                    retireSupersededRegistrations(s, id, now)
+                }
                 save(c,s); updateConnected(s)
                 response
             }
@@ -608,7 +677,7 @@ internal object LocalMcpOAuth {
         val id = record.optString("client")
         val client = table(s,"clients").optJSONObject(id) ?: return@synchronized null
         ConnectedClient(id,client.optString("name").ifBlank { "MCP agent" },
-            client.optString("domain"))
+            client.optString("domain"), client.optLong("authorized_at").coerceAtLeast(0L))
     }
 
     fun validate(c: Context, token: String): Boolean = synchronized(lock) {

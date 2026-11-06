@@ -19,6 +19,10 @@ class SocketLifecycleContractTest {
         assertTrue(s.contains("runCatching { client.close() }"))
         assertTrue(s.contains("workers?.shutdownNow()"))
         assertTrue(s.contains("val workerPool = newWorkers().also { workers = it }"))
+        assertTrue(s.contains("ThreadPoolExecutor("))
+        assertTrue(s.contains("6, 6, 30L, TimeUnit.SECONDS, ArrayBlockingQueue(16)"))
+        assertTrue(s.contains("ThreadPoolExecutor.AbortPolicy()"))
+        assertFalse(s.contains("Executors.newFixedThreadPool(4)"))
     }
 
     @Test fun quitAwaitsAdbCloseBeforeServiceDestroy() {

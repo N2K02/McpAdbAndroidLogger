@@ -146,11 +146,8 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
     val apps by produceState(initialValue = emptyList<InstalledApp>(), key1 = packages) {
         value = withContext(Dispatchers.IO) { resolveApps(context, packages) }
     }
-    val filtered = remember(logs, filter, uids, stats.scanCycles, recentRequest) {
-        val matching = LogViewPolicy.select(logs, filter, uids, System.currentTimeMillis())
-        if (recentRequest?.isMcpSelection(filter) == true)
-            matching.filter { it.id in recentRequest!!.entryIds }
-        else matching
+    val filtered = remember(logs, filter, uids, stats.scanCycles) {
+        LogViewPolicy.select(logs, filter, uids, System.currentTimeMillis())
     }
     val currentApp = apps.firstOrNull { it.packageName == filter.packageName }
     val activeFilterCount = LogViewPolicy.activeFilterCount(filter)
@@ -354,13 +351,8 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                         val previous = recentRequest!!
                         val time = SimpleDateFormat("HH:mm:ss", Locale.ROOT)
                             .format(Date(previous.atMillis))
-                        Text("Last request: " +
-                            (if (previous.origin == LogReadOrigin.MCP)
-                                "MCP · " + previous.tool else "Manual") +
-                            " · " + time + " · " + filtered.size + " shown" +
-                            (if (previous.isMcpSelection(filter)) " · exact MCP results"
-                            else if (previous.origin == LogReadOrigin.MCP) " · filters modified"
-                            else ""),
+                        Text("Last manual refresh: " + time +
+                            " · " + filtered.size + " shown",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 2,

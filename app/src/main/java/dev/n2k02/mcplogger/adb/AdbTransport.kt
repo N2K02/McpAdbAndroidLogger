@@ -188,7 +188,9 @@ object AdbTransport {
                     // can hang too, and then only closing the whole
                     // connection lets it go.
                     var session: ShellSession? = shell
-                    val watchdog = launch {
+                    // Cancellation must not cancel the watchdog before a native
+                    // readLine/openStream unblocks; its deadline owns teardown.
+                    val watchdog = kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
                         kotlinx.coroutines.delay(timeoutMs)
                         // The command's first word only: the daemon's launch
                         // line carries its token.
@@ -198,19 +200,36 @@ object AdbTransport {
                         // fresh session key and verify UID 2000 before issuing commands.
                         runCatching { session?.close() }
                         runCatching { mgr.disconnect() }
-                        if (manager === mgr) manager = null
-                        shell = null
-                        lastKnownConnected = false
+                        synchronized(this@AdbTransport) {
+                            // A timed-out old command must not reset a newly verified session.
+                            if (manager === mgr) {
+                                manager = null
+                                lastKnownConnected = false
+                                shell = null
+                            } else if (shell === session) shell = null
+                        }
                     }
-                    session = session ?: ShellSession(mgr.openStream(SHELL_SERVICE)).also { shell = it }
                     try {
+                        // An openStream failure must reach the same catch/finally
+                        // as a broken read, otherwise the independent watchdog
+                        // can outlive a failed command and kill a fresh session.
+                        session = session ?: ShellSession(mgr.openStream(SHELL_SERVICE)).also { shell = it }
                         session!!.run(command)
                     } catch (t: Throwable) {
                         // A desynchronised session stays desynchronised, and a
                         // half-read one would mis-attribute the next command's
                         // output. Drop it; the next call opens a fresh one.
                         runCatching { session?.close() }
-                        shell = null
+                        synchronized(this@AdbTransport) {
+                            if (manager === mgr) {
+                                manager = null
+                                lastKnownConnected = false
+                                shell = null
+                            } else if (shell === session) shell = null
+                        }
+                        // Never reuse a poisoned shell manager after EOF.
+                        // A later reconnect must verify shell UID 2000 again.
+                        runCatching { mgr.disconnect() }
                         throw t
                     } finally {
                         watchdog.cancel()
@@ -249,6 +268,8 @@ object AdbTransport {
      * back. It is random per session so no command's own output can collide.
      */
     private class ShellSession(private val stream: AdbStream) {
+        @Volatile private var running = false
+        @Volatile private var closing = false
         private val marker = "__mcp_logger_" + java.util.UUID.randomUUID().toString().take(12) + "__"
         private val out = stream.openOutputStream()
         private val reader = stream.openInputStream().bufferedReader()
@@ -279,6 +300,9 @@ object AdbTransport {
         }
 
         fun run(command: String): String {
+            check(!closing) { "ADB shell is closing" }
+            running = true
+            try {
             val begin = "$marker-BEGIN"
             val end = "$marker-END"
 
@@ -331,13 +355,20 @@ object AdbTransport {
                 sb.appendLine(line)
             }
             return sb.toString().trimEnd()
+            } finally {
+                running = false
+                // Never close a BufferedReader from the watchdog while a
+                // concurrent readLine holds its internal lock.
+                if (closing) runCatching { reader.close() }
+            }
         }
 
         fun close() {
+            closing = true
             // Close transport first so a pending readLine can unblock.
             runCatching { if (!stream.isClosed) stream.close() }
-            runCatching { reader.close() }
             runCatching { out.close() }
+            if (!running) runCatching { reader.close() }
         }
 
         private companion object {

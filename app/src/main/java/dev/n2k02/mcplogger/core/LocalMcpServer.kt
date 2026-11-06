@@ -11,8 +11,10 @@ import java.net.SocketException
 import java.util.concurrent.RejectedExecutionException
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
-import java.util.concurrent.Executors
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ExecutorService
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import org.json.JSONObject
 
 /** Loopback-only authenticated local MCP endpoint. Owned by LogMonitorService. */
@@ -22,9 +24,14 @@ object LocalMcpServer {
     private const val MAX_BODY = 131072
     private val allowedOrigins = setOf("https://claude.ai", "https://chatgpt.com",
         "https://chat.openai.com")
-    private fun newWorkers(): ExecutorService = Executors.newFixedThreadPool(4) { task ->
-        Thread(task, "mcp-local-client").apply { isDaemon = true }
-    }
+    // A long on-demand Perfetto query must not starve connection health,
+    // OAuth or ordinary diagnostic requests. Fixed six-worker capacity and a
+    // bounded queue prevent unlimited pending sockets on a busy phone.
+    private fun newWorkers(): ExecutorService = ThreadPoolExecutor(
+        6, 6, 30L, TimeUnit.SECONDS, ArrayBlockingQueue(16),
+        { task -> Thread(task, "mcp-local-client").apply { isDaemon = true } },
+        ThreadPoolExecutor.AbortPolicy()
+    )
     private var workers: ExecutorService? = null
     @Volatile private var listener: ServerSocket? = null
     @Volatile private var active = false
@@ -99,6 +106,7 @@ object LocalMcpServer {
         runCatching { listener?.close() }
         listener = null
         MonitorState.localMcp.value = "Stopped"
+        DeviceDiagnostics.clearBaseline()
     }
 
     /** Never log OAuth parameters, headers, browser forms, access tokens or codes. */
@@ -318,6 +326,17 @@ object LocalMcpServer {
                                     pkg, arguments.optInt("limit", 20))
                                 "get_frame_timing" -> PerformanceDiagnostics.frames(pkg, budget)
                                 "get_performance_snapshot" -> PerformanceDiagnostics.summary(pkg, budget)
+                                "get_battery_diagnostics" -> DeviceDiagnostics.battery()
+                                "get_memory_pressure" -> DeviceDiagnostics.memory()
+                                "get_wakelock_usage" -> DeviceDiagnostics.wakelocks(arguments.optInt("limit", 20))
+                                "get_screen_off_baseline" -> DeviceDiagnostics.beginScreenOff()
+                                "get_screen_off_report" -> DeviceDiagnostics.reportScreenOff(arguments.optInt("limit", 20))
+                                "get_surfaceflinger_layers" -> SurfaceLayersDiagnostics.layers(arguments.optInt("limit", 20))
+                                "get_surfaceflinger_activity" -> SurfaceActivityDiagnostics.activity(
+                                    arguments.optInt("duration_seconds", 5), arguments.optInt("limit", 15))
+                                "get_surfaceflinger_perfetto" -> SurfaceActivityDiagnostics.perfetto(
+                                    arguments.optInt("duration_seconds", 5), arguments.optInt("limit", 15),
+                                    context.applicationInfo.nativeLibraryDir)
                                 else -> throw IllegalArgumentException()
                             }
                         }

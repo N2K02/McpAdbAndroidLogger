@@ -169,10 +169,14 @@ package-scoped query; omit the filter to investigate such records.
 All filtering is read-only: each MCP log query triggers one bounded Android Logcat
 snapshot, followed by filtering of the deduplicated 2,000-entry in-memory cache.
 This preserves cursor continuity and local review without continuous collection.
-It does not change the phone's on-screen app filter, permissions, public MCP URL,
-registration token or client access key. Update
-the experimental APK and reconnect/refresh MCP tools in your AI client for the
-new `package_name` schema to become visible.
+**MCP request arguments affect only that MCP response.** The server does not
+change the Logs screen's package picker, text search, severity, time/crash
+filters, selected app, or last manual-refresh marker. It does not narrow
+the on-device list to the events returned by the remote query. Logs fetched by
+an MCP request may enter the shared bounded cache, but the local UI continues
+to display them using only filters chosen on the phone.
+Permissions, public MCP URL, registration token, and client access key are
+unchanged. Update the experimental APK to receive this behavior.
 
 ## Home and Android Logcat redesign
 
@@ -456,3 +460,164 @@ The midnight task performs no shell commands. In-memory reuse avoids
 re-reading the audit JSON file for each request. Export needed audit
 history before the local midnight cutoff. This does not clear Android
 Logcat, stored exports or revoke MCP agent authorization.
+
+
+## On-demand device health and screen-off investigation
+
+**Home → Performance → Device health** includes Battery, RAM / PSI,
+Wakelock snapshot, Start baseline and Compare. Equivalent authenticated MCP tools
+require verified ADB shell UID 2000:
+
+- get_cpu_usage: already implemented; a single bounded top process sample.
+- get_battery_diagnostics: battery level, charging state, temperature and
+  available per-UID estimated mAh **since the last charge**. These estimates
+  are not current electrical power or guaranteed individual-app attribution.
+- get_memory_pressure: /proc/meminfo RAM and swap plus Linux memory PSI
+  10/60/300-second stall percentages when accessible.
+- get_wakelock_usage: currently held partial CPU wakelocks from dumpsys power,
+  plus cumulative per-UID partial-held time from batterystats checkin. Modern
+  Android `awl` aggregate counters are preferred; `wl` tag-level counters
+  are the fallback, with version-tolerant parsing. Shared UIDs are labeled
+  conservatively; raw wakelock names/tags never leave the phone.
+- get_screen_off_baseline: explicit in-memory counter snapshot. Turn off the
+  screen after invoking it. **No timer, sampler or wakelock is started.**
+- get_screen_off_report: explicit second read showing the delta in the
+  system-reported screen-off time and the largest per-UID partial wakelock
+  hold deltas. Durations can overlap and exceed elapsed time. Counters
+  that reset are reported as unavailable, not as zero.
+- get_surfaceflinger_layers: one bounded `dumpsys SurfaceFlinger --list`
+  snapshot, matched against actual installed Android packages to return
+  **per-package layer counts only**. The raw layer/window names can include
+  private activity or notification text and are intentionally discarded.
+  Package layer counts are not per-app rendering rates, compositor CPU or
+  hardware GPU usage. ADB permission limitations are reported explicitly.
+  A matching read-only button is available under Home → Performance →
+  Device health.
+- get_surfaceflinger_activity: one explicit 3–10-second TimeStats window (default
+  5 seconds), returning installed-package frame counts, dropped frames, FPS
+  estimates, and a **shared SurfaceFlinger process CPU percentage** across that
+  interval. Rankings reflect frame activity and *cannot allocate compositor CPU
+  to any one app*. TimeStats `-clear -enable` resets device-wide TimeStats at
+  the start and `-disable` is called on completion or cancellation.
+- get_surfaceflinger_perfetto: the same short TimeStats/CPU snapshot plus a
+  temporary Perfetto trace with `android.surfaceflinger.frametimeline`,
+  `sched/sched_switch` and process metadata. On ARM64 builds it uses a
+  **build-time SHA-256-verified official Perfetto Trace Processor v57.2** bundled
+  as an executable installed native library, when Android has no system
+  `trace_processor_shell`. It runs through the existing verified ADB shell
+  UID 2000, only during an explicit deep diagnostic. The binary is 13.1 MB
+  uncompressed, so the APK becomes larger; it is never downloaded at runtime.
+  Other ABIs and devices that reject native binary execution safely report
+  `processor_unavailable`/`capture_unavailable` with TimeStats fallback.
+  No Shizuku dependency or elevated/root permissions are added.
+  The CPU/TimeStats endpoint is captured before SQL trace analysis for
+  consistent timing. Only aggregate verified-package frame/jank counts and
+  shared compositor scheduled CPU time are returned; raw trace data, window
+  titles and layer names never leave the phone. Trace files are bounded
+  (16 MiB) and deleted on normal or exceptional termination; abnormal
+  process death may prevent immediate cleanup. No background tracing,
+  polling or remote arbitrary shell is introduced.
+  Two buttons (Render activity / Deep Perfetto) appear in Home → Performance.
+  The deep analysis now performs an actual shell UID 2000 processor execution
+  probe before recording, preserves the original shell command exit codes, and
+  returns privacy-safe statuses independently for capture, processor execution,
+  FrameTimeline SQL and scheduling SQL:
+  `perfetto_capture_status`, `perfetto_processor_status`,
+  `perfetto_frame_status`, `perfetto_scheduler_status`,
+  `perfetto_trace_bytes` and `perfetto_processor_source`.
+  SQL uses a CSV-producing Trace Processor `query` command (with `-Q`
+  compatibility fallback for older processors). Unsupported SQL schemas,
+  missing data sources, shell execution restrictions, empty frame results and
+  missing scheduling events are distinct outcomes, not all reported as
+  `processor_unavailable`. If shell UID 2000 cannot execute the bundled
+  library in place, an optional fallback copies the same verified executable
+  to a random-named `/data/local/tmp` shell-only path (0700), probes it and
+  deletes that copy in noncancellable cleanup; no persistent daemon is started.
+  The response then uses `perfetto_processor_source: bundled_arm64_shell_copy`.
+  Only categorical error codes are returned; no raw trace, CLI error strings,
+  window titles, paths or SQL are sent to ChatGPT.
+  The follow-up reliability pass differentiates `source_table_missing`,
+  `source_column_missing`, `sql_syntax_error`, and `cli_unsupported`
+  rather than attributing all of these to the processor itself. Trace Processor
+  queries now limit output rows and bytes and use `--no-ftrace-raw` to reduce
+  temporary analysis memory. The system CLI fallback is attempted only for
+  unsupported CLI flags, not for unavailable device trace data. These are
+  bounded best-effort diagnostics; an Android build that does not expose a
+  trace source cannot be made to produce that source by Shizuku or shell UID
+  2000. Partial captures continue to return TimeStats and process CPU.
+  MCP socket handling now uses a bounded worker queue with capacity for
+  independent health requests. The existing once-per-minute stable relay
+  heartbeat also triggers a debounced tunnel restart after three successive
+  observations with no Cloudflare edge registration, while retaining the
+  configured URL and credentials. No additional polling loop is introduced.
+
+
+
+These tools do not alone establish why a phone is hot. An active wakelock
+is not proof of CPU load. OEM builds may restrict batterystats data; missing
+metrics are explicitly reported as unavailable. When `/proc/pressure/memory`
+cannot be read, `get_memory_pressure` preserves the RAM/swap figures and
+reports the PSI reason as `permission_denied`, `not_supported`, or
+`unavailable` rather than silently replacing it with zero.
+PSI cannot be reconstructed accurately from swap or available RAM alone.
+
+SurfaceFlinger is Android's shared display compositor, not a package. Its
+individual CPU usage cannot identify an app at fault. The
+`get_surfaceflinger_layers` tool shows a **single point-in-time list of
+package-associated surface counts**, with no private layer names. The new
+TimeStats and Perfetto tools improve **frame activity attribution**, and
+synchronize a compositor CPU sample over the same interval, but they still
+cannot provide an exact per-app share of SurfaceFlinger CPU. Actual correlated
+FrameTimeline records require a compatible trace processor; the verified
+ARM64 processor is now bundled at build time and selected only on demand.
+Device SELinux, trace permissions and hardware/ABI support still vary.
+
+Commands are fixed read-only shell literals, bounded in time and output,
+and executed only for authenticated, explicit user requests. MCP cannot send
+arbitrary shell commands. In-memory baselines clear on Stop/Quit and are not
+persisted. Existing logging/OAuth behavior is retained.
+
+**Install the updated APK and refresh/reconnect the MCP integration** to
+discover the new tools; older APKs can still advertise just the original six.
+
+
+### Verify the MCP tool catalog after an APK update
+
+The **existing** `get_device_status` tool reports
+`mcp_catalog_revision`, `mcp_tool_count`,
+`mcp_tool_names`, `on_demand_health_available`, and
+`on_demand_health_ready` without running any ADB diagnostics.
+The new catalog should report **17 built-in tools**, plus the optional audit
+tool if locally authorized. Home → Connection shows the same built-in
+catalog revision and the recommended client refresh steps.
+
+If ChatGPT still offers only the original six tool names but
+`get_device_status` reports 17 built-in tools, the phone server is updated
+and the *ChatGPT MCP integration's cached tool schema* is out of date.
+Reconnect or re-add the existing MCP integration (using the same public MCP URL
+and authorized access) to force tool rediscovery. Merely rebuilding or
+restarting the Android app cannot force a client that cached `tools/list`
+to update its exposed command definitions. If the status response lacks the
+`mcp_catalog_revision` field, the app running on the phone is an older build
+or the connector is pointed at another server; verify installed APK and MCP URL.
+No access keys, OAuth tokens or raw log payloads are included in this status.
+
+
+## Authorized MCP agents: registration dates and duplicates
+
+The **Authorized MCP agents** section on the Connection page now displays each
+active agent's **Added** date/time (the first successful OAuth authorization)
+and a short client ID suffix to distinguish similarly named registrations.
+Existing authorizations that predate date tracking are labeled
+**Unavailable (authorized before update)** rather than assigned a fake date.
+
+Dynamic OAuth client registration (DCR) can legitimately create a new client
+ID every time an agent is re-added. After the **new** registration successfully
+exchanges an approved authorization code, the server automatically retires
+older registrations with the same agent name, callback domain **and full set of
+redirect URIs**, including their access/refresh tokens and pending codes.
+Registering without completing authorization does **not** revoke an existing
+working connection. Different callback URL sets or other providers are kept.
+Existing duplicate entries with unknown dates can be identified by their short
+client IDs and individually revoked; the app does not arbitrarily guess which
+legacy authorization is newest. OAuth secret values remain hidden.

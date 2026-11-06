@@ -25,17 +25,12 @@ data class LogCaptureStats(
 
 enum class LogReadOrigin { MANUAL, MCP }
 
-/** Metadata for the last successful request. Event IDs are references into the bounded cache. */
+/** UI-only record of the last manual Logs refresh; remote MCP reads do not alter it. */
 data class RecentLogRequest(
     val origin: LogReadOrigin,
     val tool: String,
-    val atMillis: Long,
-    val filter: LogViewFilter,
-    val entryIds: Set<Long> = emptySet()
-) {
-    fun isMcpSelection(current: LogViewFilter) =
-        origin == LogReadOrigin.MCP && current == filter
-}
+    val atMillis: Long
+)
 
 
 object MonitorState {

@@ -40,6 +40,8 @@ import dev.n2k02.updater.N2K02UpdatePage
 import dev.n2k02.updater.N2K02UpdateBadge
 import dev.n2k02.updater.N2K02UpdateBadgedIcon
 import kotlinx.coroutines.launch
+import java.text.DateFormat
+import java.util.Date
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -360,7 +362,8 @@ private fun BridgePage(modifier: Modifier) {
         onDismissRequest = { revokeAgent = null },
         title = { Text("Revoke this agent?") },
         text = { Text(requestedRevoke.name + " (" + requestedRevoke.domain +
-            ") will lose access immediately. It can only reconnect by getting your approval again.") },
+            ") · Client ID …" + requestedRevoke.id.takeLast(8) +
+            " will lose access immediately. It can only reconnect by getting your approval again.") },
         confirmButton = {
             TextButton(onClick = {
                 dev.n2k02.mcplogger.core.LocalMcpOAuth.revokeClient(context, requestedRevoke.id)
@@ -547,6 +550,10 @@ private fun BridgePage(modifier: Modifier) {
         }
         HorizontalDivider()
         Text("Authorized MCP agents", style = MaterialTheme.typography.titleSmall)
+        Text("Added dates identify registrations. Exact matching agent registrations " +
+            "are automatically cleaned up after a replacement is successfully authorized.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (agents.isEmpty()) {
             Text("No agents connected by OAuth yet.",
                 style = MaterialTheme.typography.bodySmall)
@@ -558,6 +565,21 @@ private fun BridgePage(modifier: Modifier) {
                         Text(agent.name, style = MaterialTheme.typography.bodyMedium)
                         Text(agent.domain, style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        val dateLabel = if (agent.authorizedAtMillis > 0L)
+                            DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                                .format(Date(agent.authorizedAtMillis))
+                        else "Unavailable (authorized before update)"
+                        Text("Added: " + dateLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Client ID: …" + agent.id.takeLast(8),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (agent.duplicateCount > 1)
+                            Text("Matching registrations: " + agent.duplicateCount +
+                                " · revoke older entries individually",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error)
                     }
                     TextButton(onClick = { revokeAgent = agent }) { Text("Revoke") }
                 }
