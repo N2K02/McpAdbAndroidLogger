@@ -55,12 +55,23 @@ internal object PerfettoStageDiagnostics {
     internal fun queryStatus(result: ShellResult): String {
         if (result.exitCode == null) return "no_exit_code"
         val lower = result.output.lowercase()
-        if ("no such table" in lower || "no such column" in lower ||
-            "parse error" in lower || "sql error" in lower ||
-            "syntax error" in lower) return "sql_schema_error"
+        // Distinguish missing Android data-source tables from invalid queries
+        // and unsupported trace-processor flags. Never return raw SQL or stderr.
+        if ("no such table" in lower) return "source_table_missing"
+        if ("no such column" in lower) return "source_column_missing"
+        if ("syntax error" in lower || "parse error" in lower)
+            return "sql_syntax_error"
+        if ("unrecognized option" in lower || "unknown option" in lower ||
+            "unrecognized arguments" in lower || "unknown command" in lower ||
+            "invalid command" in lower) return "cli_unsupported"
+        if ("sql error" in lower) return "sql_execution_error"
         if (!result.succeeded) return executionStatus(result)
         return "ok"
     }
+
+    /** A supported SQL engine that has no FrameTimeline is not a broken binary. */
+    internal fun resultStatus(code: String, hadData: Boolean, emptyStatus: String): String =
+        if (code == "ok" && !hadData) emptyStatus else code
 
     internal fun traceStatus(result: ShellResult): String {
         if (result.exitCode == null) return "no_exit_code"
