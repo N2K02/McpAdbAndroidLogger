@@ -373,6 +373,7 @@ class LogMonitorService : Service() {
     private fun ensureRelayHeartbeat() {
         if (relayHeartbeatJob?.isActive == true) return
         relayHeartbeatJob = scope.launch {
+            val recovery = QuickMcpTunnel.OfflineHeartbeatGate()
             while (isActive) {
                 delay(60_000L)
                 if (StableMcpRelay.publicMcpUrl(applicationContext) != null) {
@@ -381,6 +382,17 @@ class LogMonitorService : Service() {
                         MonitorState.tunnel.value = "Stable relay unavailable"
                     if (renewed && MonitorState.tunnel.value == "Stable relay unavailable")
                         MonitorState.tunnel.value = "Public MCP connected"
+                    // A cloudflared process can survive while all its edge
+                    // connections are lost. Reuse this existing heartbeat to
+                    // perform one debounced restart with the SAME saved URL.
+                    // Never restart if the edge is live but the Worker failed.
+                    if (recovery.onHeartbeat(QuickMcpTunnel.isEdgeConnected()) &&
+                        tunnelJob?.isActive == true) {
+                        startService(Intent(this@LogMonitorService,
+                            LogMonitorService::class.java).apply {
+                            action = TUNNEL_RESTART
+                        })
+                    }
                 }
             }
         }
