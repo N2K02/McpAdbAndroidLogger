@@ -200,9 +200,14 @@ object AdbTransport {
                         // fresh session key and verify UID 2000 before issuing commands.
                         runCatching { session?.close() }
                         runCatching { mgr.disconnect() }
-                        if (manager === mgr) manager = null
-                        shell = null
-                        lastKnownConnected = false
+                        synchronized(this@AdbTransport) {
+                            // A timed-out old command must not reset a newly verified session.
+                            if (manager === mgr) {
+                                manager = null
+                                lastKnownConnected = false
+                                shell = null
+                            } else if (shell === session) shell = null
+                        }
                     }
                     try {
                         // An openStream failure must reach the same catch/finally
