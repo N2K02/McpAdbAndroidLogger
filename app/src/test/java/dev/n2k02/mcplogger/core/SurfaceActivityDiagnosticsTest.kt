@@ -228,7 +228,7 @@ class SurfaceActivityDiagnosticsTest {
         assertTrue(src.contains(" -Q "))
         assertTrue(src.contains("--no-ftrace-raw"))
         assertTrue(src.contains("--max-rows 100"))
-        assertTrue(src.contains("--max-bytes $maxBytes".replace("$maxBytes", "$" + "maxBytes")))
+        assertTrue(src.contains("--max-bytes " + "$" + "maxBytes"))
         assertTrue(src.contains("18_000L"))
         assertTrue(src.contains("PerfettoStageDiagnostics.checked("))
         assertTrue(src.contains("PerfettoStageDiagnostics.queryStatus("))
