@@ -164,10 +164,22 @@ class SurfaceActivityDiagnosticsTest {
             PerfettoStageDiagnostics.executionStatus(denied))
         assertEquals("permission_denied",
             PerfettoStageDiagnostics.traceStatus(denied))
-        assertEquals("sql_schema_error", PerfettoStageDiagnostics.queryStatus(
+        assertEquals("source_table_missing", PerfettoStageDiagnostics.queryStatus(
             PerfettoStageDiagnostics.parse(
                 "no such table: actual_frame_timeline_slice\n" +
                     "__N2K02_PERFETTO_EXIT__=1\n")))
+        assertEquals("source_column_missing", PerfettoStageDiagnostics.queryStatus(
+            PerfettoStageDiagnostics.ShellResult("no such column: jank_type", 1)))
+        assertEquals("sql_syntax_error", PerfettoStageDiagnostics.queryStatus(
+            PerfettoStageDiagnostics.ShellResult("near FROM: syntax error", 1)))
+        assertEquals("cli_unsupported", PerfettoStageDiagnostics.queryStatus(
+            PerfettoStageDiagnostics.ShellResult("unrecognized option --format", 1)))
+        assertEquals("sql_execution_error", PerfettoStageDiagnostics.queryStatus(
+            PerfettoStageDiagnostics.ShellResult("SQL error: unavailable parser", 1)))
+        assertEquals("no_frames", PerfettoStageDiagnostics.resultStatus(
+            "ok", false, "no_frames"))
+        assertEquals("source_table_missing", PerfettoStageDiagnostics.resultStatus(
+            "source_table_missing", false, "no_frames"))
         assertEquals("binary_incompatible", PerfettoStageDiagnostics.executionStatus(
             PerfettoStageDiagnostics.ShellResult(
                 "CANNOT LINK EXECUTABLE: unsupported ABI", 127)))
@@ -214,6 +226,10 @@ class SurfaceActivityDiagnosticsTest {
         // Use a CSV-producing query subcommand, with -Q legacy fallback.
         assertTrue(src.contains("query --format csv --no-progress"))
         assertTrue(src.contains(" -Q "))
+        assertTrue(src.contains("--no-ftrace-raw"))
+        assertTrue(src.contains("--max-rows 100"))
+        assertTrue(src.contains("--max-bytes $maxBytes".replace("$maxBytes", "$" + "maxBytes")))
+        assertTrue(src.contains("18_000L"))
         assertTrue(src.contains("PerfettoStageDiagnostics.checked("))
         assertTrue(src.contains("PerfettoStageDiagnostics.queryStatus("))
         assertTrue(src.contains("perfetto_capture_status"))
