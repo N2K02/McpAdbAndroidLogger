@@ -38,8 +38,8 @@ android {
     }
 }
 dependencies {
-    implementation("dev.n2k02:theme:0.1.4")
-    implementation("dev.n2k02:updater:0.1.19")
+    implementation("dev.n2k02:theme:0.1.5")
+    implementation("dev.n2k02:updater:0.1.20")
     implementation("androidx.compose.material3:material3:1.5.0-beta02")
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
     implementation("androidx.activity:activity-compose:1.11.0")
@@ -58,7 +58,7 @@ val verifySharedLibraries = tasks.register("verifySharedLibraries") {
         val found = configurations.getByName("implementation").dependencies
             .filter { it.group == "dev.n2k02" }
             .associate { it.name to it.version }
-        check(found["theme"] == "0.1.4" && found["updater"] == "0.1.19") {
+        check(found["theme"] == "0.1.5" && found["updater"] == "0.1.20") {
             "Shared N2K02 theme and updater must be pinned to approved versions"
         }
     }
