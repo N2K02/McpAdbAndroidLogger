@@ -184,7 +184,18 @@ private fun AdbPage(modifier: Modifier) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val verified by AdbCoordinator.verified.collectAsState()
-    val autoCodeEnabled = dev.n2k02.mcplogger.adb.PairingAccessibilityService.enabled(context)
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    var resumeTick by remember { mutableIntStateOf(0) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) resumeTick++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val autoCodeEnabled = remember(resumeTick) {
+        dev.n2k02.mcplogger.adb.PairingAccessibilityService.enabled(context)
+    }
     var autoPair by remember { mutableStateOf(AdbRecoverySettings.autoPair(context)) }
     var watchdog by remember { mutableStateOf(AdbRecoverySettings.watchdog(context)) }
     var boot by remember { mutableStateOf(AdbRecoverySettings.startOnBoot(context)) }
@@ -197,14 +208,13 @@ private fun AdbPage(modifier: Modifier) {
     @Composable
     fun PreferenceRow(title: String, subtitle: String, checked: Boolean,
                       onChange: (Boolean) -> Unit) {
-        Row(Modifier.fillMaxWidth().padding(vertical = 9.dp),
+        Row(Modifier.fillMaxWidth().clickable { onChange(!checked) },
             verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(Modifier.weight(1f).padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(title, style = MaterialTheme.typography.bodyLarge)
                 Text(subtitle, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Spacer(Modifier.width(12.dp))
             Switch(checked = checked, onCheckedChange = onChange)
         }
     }
@@ -212,10 +222,10 @@ private fun AdbPage(modifier: Modifier) {
     Column(modifier.verticalScroll(rememberScrollState()).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
 
-        ElevatedCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Pairing & recovery", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(6.dp))
+        Card(Modifier.fillMaxWidth(), shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Pairing & recovery", style = MaterialTheme.typography.titleSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                 PreferenceRow("Auto-detect pairing code",
                     "Read the Android pairing dialog with Accessibility.",
                     autoPair) {
@@ -225,7 +235,7 @@ private fun AdbPage(modifier: Modifier) {
                 if (autoPair && !autoCodeEnabled) {
                     Text("Accessibility is needed for automatic pairing. Manual pairing is on Home.",
                         style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = {
+                    OutlinedButton(onClick = {
                         runCatching {
                             context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                         }.onFailure { note = "Cannot open Accessibility settings" }
@@ -247,10 +257,10 @@ private fun AdbPage(modifier: Modifier) {
             }
         }
 
-        ElevatedCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Connection & security", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(6.dp))
+        Card(Modifier.fillMaxWidth(), shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Connection & security", style = MaterialTheme.typography.titleSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                 PreferenceRow("Restore after restart",
                     "Restore Wireless debugging after reboot, using saved pairing. " +
                     "Requires Android permission; never overrides a manual off setting.",
@@ -309,10 +319,10 @@ private fun AdbPage(modifier: Modifier) {
                         Text("Disable TCP/5555")
                     }
                 }
+                if (note.isNotBlank()) Text(note, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-
-        if (note.isNotBlank()) Text(note, style = MaterialTheme.typography.bodySmall)
     }
 }
 
