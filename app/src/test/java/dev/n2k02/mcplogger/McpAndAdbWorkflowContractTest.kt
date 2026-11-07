@@ -35,11 +35,12 @@ class McpAndAdbWorkflowContractTest {
         assertTrue(setup.contains("Reconnect / verify ADB"))
         assertFalse(settings.contains("Connect Android ADB"))
         assertFalse(settings.contains("Advanced: manual ports"))
-        for (name in listOf("Pairing & recovery", "Connection & security",
-                "Auto-detect pairing code", "Connection watchdog", "Start on boot",
-                "Restore after restart", "Keep ADB without Wi-Fi (TCP/5555)",
-                "Disable TCP/5555"))
-            assertTrue(name, settings.contains(name))
+        assertTrue(settings.contains("AdbConnectionSettingsPage("))
+        assertTrue(settings.contains("PairingAccessibilityService.enabled(context)"))
+        // The five controls and two cards live in ONE versioned shared page,
+        // rather than duplicated copies in each app.
+        assertFalse(settings.contains("Pairing & recovery"))
+        assertFalse(settings.contains("Connection & security"))
         val adb = source("app/src/main/java/dev/n2k02/mcplogger/adb/AdbCoordinator.kt")
         assertTrue(adb.contains("val discoveryState = MutableStateFlow"))
         assertTrue(adb.contains("SharedAdbHostAdapter.core(context.applicationContext)"))

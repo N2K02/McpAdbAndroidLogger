@@ -182,8 +182,11 @@ private fun HomePage(modifier: Modifier, onLogs: () -> Unit,
 @Composable
 private fun AdbPage(modifier: Modifier) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val verified by AdbCoordinator.verified.collectAsState()
+    val adb = remember(context.applicationContext) {
+        dev.n2k02.mcplogger.adb.SharedAdbHostAdapter.core(context)
+    }
+    // Keep the MCP pairing helper: the library's generic Accessibility service
+    // is not a substitute for this app's already-declared Android service.
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     var resumeTick by remember { mutableIntStateOf(0) }
     DisposableEffect(lifecycleOwner) {
@@ -193,136 +196,17 @@ private fun AdbPage(modifier: Modifier) {
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    val autoCodeEnabled = remember(resumeTick) {
+    val accessibilityEnabled = remember(resumeTick) {
         dev.n2k02.mcplogger.adb.PairingAccessibilityService.enabled(context)
     }
-    var autoPair by remember { mutableStateOf(AdbRecoverySettings.autoPair(context)) }
-    var watchdog by remember { mutableStateOf(AdbRecoverySettings.watchdog(context)) }
-    var boot by remember { mutableStateOf(AdbRecoverySettings.startOnBoot(context)) }
-    var restore by remember { mutableStateOf(AdbRecoverySettings.restoreAfterRestart(context)) }
-    var tcp by remember { mutableStateOf(AdbRecoverySettings.tcpMode(context)) }
-    var note by remember { mutableStateOf("") }
-    var working by remember { mutableStateOf(false) }
-    val tcpOpen by AdbCoordinator.tcpPortOpen.collectAsState()
-
-    @Composable
-    fun PreferenceRow(title: String, subtitle: String, checked: Boolean,
-                      onChange: (Boolean) -> Unit) {
-        Row(Modifier.fillMaxWidth().clickable { onChange(!checked) },
-            verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f).padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, style = MaterialTheme.typography.bodyLarge)
-                Text(subtitle, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Switch(checked = checked, onCheckedChange = onChange)
-        }
-    }
-
-    Column(modifier.verticalScroll(rememberScrollState()).padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)) {
-
-        Card(Modifier.fillMaxWidth(), shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Pairing & recovery", style = MaterialTheme.typography.titleSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
-                PreferenceRow("Auto-detect pairing code",
-                    "Read the Android pairing dialog with Accessibility.",
-                    autoPair) {
-                    autoPair = it
-                    AdbRecoverySettings.setAutoPair(context, it)
-                }
-                if (autoPair && !autoCodeEnabled) {
-                    Text("Accessibility is needed for automatic pairing. Manual pairing is on Home.",
-                        style = MaterialTheme.typography.bodySmall)
-                    OutlinedButton(onClick = {
-                        runCatching {
-                            context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                        }.onFailure { note = "Cannot open Accessibility settings" }
-                    }) { Text("Enable Accessibility") }
-                }
-                HorizontalDivider()
-                PreferenceRow("Connection watchdog",
-                    "Check connection health and recover automatically when possible.",
-                    watchdog) {
-                    watchdog = it
-                    AdbRecoveryLifecycle.configureWatchdog(context, it)
-                }
-                PreferenceRow("Start on boot",
-                    "Try to restore the helper after restarting and unlocking.",
-                    boot) {
-                    boot = it
-                    AdbRecoverySettings.setStartOnBoot(context, it)
-                }
-            }
-        }
-
-        Card(Modifier.fillMaxWidth(), shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Connection & security", style = MaterialTheme.typography.titleSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
-                PreferenceRow("Restore after restart",
-                    "Restore Wireless debugging after reboot, using saved pairing. " +
-                    "Requires Android permission; never overrides a manual off setting.",
-                    restore) {
-                    restore = it
-                    AdbRecoverySettings.setRestoreAfterRestart(context, it)
-                    scope.launch {
-                        note = when {
-                            it && verified ->
-                                if (AdbRecoverySettings.grantSecureSettings(context))
-                                    "Restore after restart is enabled."
-                                else "Android refused the permission; restore requires verified ADB."
-                            it -> "Restore will request its permission after ADB is verified."
-                            verified ->
-                                if (AdbRecoverySettings.revokeSecureSettings(context))
-                                    "Restore after restart is off."
-                                else "Restore off; permission could not be revoked."
-                            else -> "Restore after restart is off."
-                        }
-                    }
-                }
-                PreferenceRow("Keep ADB without Wi-Fi (TCP/5555)",
-                    "Keeps ADB available without Wi-Fi. TCP/5555 may be " +
-                    "reachable by devices on your network.",
-                    tcp) { enabled ->
-                    tcp = enabled
-                    AdbRecoverySettings.setTcpMode(context, enabled)
-                    if (!enabled && tcpOpen && verified) {
-                        working = true
-                        scope.launch {
-                            try {
-                                val result = AdbCoordinator.disableTcp(context)
-                                note = result.fold(
-                                    { "TCP/5555 closed; pair or reconnect via Wireless debugging." },
-                                    { "TCP/5555 may still be open: " + (it.message ?: "unknown") })
-                            } finally { working = false }
-                        }
-                    } else {
-                        note = if (enabled) "TCP/5555 enabled for next verified connection."
-                            else "Automatic TCP/5555 is disabled."
-                    }
-                }
-                if (tcpOpen && verified) {
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedButton(onClick = {
-                        working = true
-                        scope.launch {
-                            try {
-                                val result = AdbCoordinator.disableTcp(context)
-                                note = result.fold(
-                                    { "TCP/5555 disabled." },
-                                    { "Could not close TCP/5555: " + (it.message ?: "unknown") })
-                            } finally { working = false }
-                        }
-                    }, enabled = !working, modifier = Modifier.fillMaxWidth()) {
-                        Text("Disable TCP/5555")
-                    }
-                }
-                if (note.isNotBlank()) Text(note, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
+    Column(modifier.verticalScroll(rememberScrollState())) {
+        dev.n2k02.adb.core.AdbConnectionSettingsPage(
+            adb = adb,
+            accessibilityEnabled = accessibilityEnabled,
+            onOpenAccessibility = {
+                runCatching { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+            },
+        )
     }
 }
 

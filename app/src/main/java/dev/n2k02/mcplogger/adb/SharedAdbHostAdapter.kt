@@ -45,12 +45,15 @@ internal object SharedAdbHostAdapter {
         lateinit var adb: AdbCore
         val hooks = object : AdbHostHooks {
             override suspend fun onRestoreAfterRestartChanged(enabled: Boolean) {
-                if (!enabled || AdbRecoverySettings.hasSecureSettings(app)) return
+                // Opt-in grant and opt-out revoke must both preserve MCP's
+                // permission lifecycle when the shared Settings page changes.
+                if (AdbRecoverySettings.hasSecureSettings(app) == enabled) return
                 val pkg = app.packageName.takeIf { it.matches(Regex("[A-Za-z0-9_.]+")) }
                     ?: return
-                // The core schedules hooks after releasing the transport mutex.
+                val action = if (enabled) "grant" else "revoke"
+                // The core schedules verification callbacks outside the transport mutex.
                 runCatching {
-                    adb.execVerified("pm grant $pkg android.permission.WRITE_SECURE_SETTINGS", 10_000)
+                    adb.execVerified("pm $action $pkg android.permission.WRITE_SECURE_SETTINGS", 10_000)
                 }
             }
         }
