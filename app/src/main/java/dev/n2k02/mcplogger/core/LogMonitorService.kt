@@ -323,6 +323,10 @@ class LogMonitorService : Service() {
             }
             LOCAL_START, START -> {
                 ensureDailyPruning()
+                // A boot-started foreground service must own ADB recovery even
+                // when MainActivity never opens. discover() is idempotent.
+                if (!AdbRecoverySettings.manuallyQuit(applicationContext))
+                    AdbRecoveryLifecycle.start(applicationContext)
                 // Persistent MCP connection must survive leaving the Activity.
                 // A manual server stop is distinct from the app-wide Quit.
                 val prefs = getSharedPreferences("mcp_logger", MODE_PRIVATE)
