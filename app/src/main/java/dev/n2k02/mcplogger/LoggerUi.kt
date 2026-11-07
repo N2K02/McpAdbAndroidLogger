@@ -310,10 +310,10 @@ private fun AdbPage(modifier: Modifier) {
                         Text("Disable TCP/5555")
                     }
                 }
+                if (note.isNotBlank()) Text(note, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-
-        if (note.isNotBlank()) Text(note, style = MaterialTheme.typography.bodySmall)
     }
 }
 
