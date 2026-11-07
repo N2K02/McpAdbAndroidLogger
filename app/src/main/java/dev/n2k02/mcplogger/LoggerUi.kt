@@ -213,9 +213,8 @@ private fun AdbPage(modifier: Modifier) {
 
         Card(Modifier.fillMaxWidth(), shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Pairing & recovery", style = MaterialTheme.typography.titleSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
-                Spacer(Modifier.height(6.dp))
                 PreferenceRow("Auto-detect pairing code",
                     "Read the Android pairing dialog with Accessibility.",
                     autoPair) {
@@ -249,9 +248,8 @@ private fun AdbPage(modifier: Modifier) {
 
         Card(Modifier.fillMaxWidth(), shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Connection & security", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(6.dp))
                 PreferenceRow("Restore after restart",
                     "Restore Wireless debugging after reboot, using saved pairing. " +
                     "Requires Android permission; never overrides a manual off setting.",
