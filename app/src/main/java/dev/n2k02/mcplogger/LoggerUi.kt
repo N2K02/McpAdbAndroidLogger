@@ -184,7 +184,18 @@ private fun AdbPage(modifier: Modifier) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val verified by AdbCoordinator.verified.collectAsState()
-    val autoCodeEnabled = dev.n2k02.mcplogger.adb.PairingAccessibilityService.enabled(context)
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    var resumeTick by remember { mutableIntStateOf(0) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) resumeTick++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val autoCodeEnabled = remember(resumeTick) {
+        dev.n2k02.mcplogger.adb.PairingAccessibilityService.enabled(context)
+    }
     var autoPair by remember { mutableStateOf(AdbRecoverySettings.autoPair(context)) }
     var watchdog by remember { mutableStateOf(AdbRecoverySettings.watchdog(context)) }
     var boot by remember { mutableStateOf(AdbRecoverySettings.startOnBoot(context)) }
