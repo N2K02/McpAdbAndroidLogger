@@ -101,23 +101,6 @@ object AdbCoordinator {
         }
     }
 
-    suspend fun pair(context: Context, port: Int, code: String): Result<Unit> {
-        return try {
-            val shared = core(context)
-            check(shared.pair(port, code)) {
-                "Pairing failed; verify Android's six-digit code and pairing port"
-            }
-            AdbRecoverySettings.rememberPaired(context)
-            manualRetryRequired.value = false
-            Result.success(Unit)
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            MonitorState.error("ADB pairing: " + (failure.message ?: "failed"))
-            Result.failure(failure)
-        }
-    }
-
     suspend fun connect(context: Context, preferred: Int? = null,
                         userInitiated: Boolean = false): Result<Unit> {
         val app = context.applicationContext

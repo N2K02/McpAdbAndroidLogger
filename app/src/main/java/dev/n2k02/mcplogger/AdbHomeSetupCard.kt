@@ -19,5 +19,6 @@ internal fun AdbHomeSetupCard() {
     AdbPageLifecycle(adb)
     val state by adb.state.collectAsState()
     if (state.connected) return
-    AdbHomeSetupPage(adb)
+    AdbHomeSetupPage(adb, accessibilityEnabled =
+        dev.n2k02.mcplogger.adb.PairingAccessibilityService.enabled(context))
 }
