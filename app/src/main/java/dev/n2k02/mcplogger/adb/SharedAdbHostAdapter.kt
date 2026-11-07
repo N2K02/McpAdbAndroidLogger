@@ -2,6 +2,8 @@ package dev.n2k02.mcplogger.adb
 
 import android.content.Context
 import dev.n2k02.adb.core.AdbCore
+import dev.n2k02.adb.core.AdbCoreRegistry
+import dev.n2k02.adb.core.AdbHostHooks
 import dev.n2k02.adb.core.AdbIdentity as CoreIdentity
 import dev.n2k02.adb.core.AdbIdentitySource
 import dev.n2k02.adb.core.AdbOption
@@ -12,13 +14,49 @@ import dev.n2k02.adb.core.LocalAdbDiscovery
 /** Migration factory; preserve existing ADB authorization and user options.
  * Instantiate ONLY after shutting down the legacy ADB coordinator. */
 internal object SharedAdbHostAdapter {
+    @Volatile private var active: AdbCore? = null
+
+    /** Exactly one live libadb transport. Other app components share this core. */
+    fun core(context: Context): AdbCore =
+        active ?: synchronized(this) {
+            active ?: create(context).also {
+                active = it
+                AdbCoreRegistry.install(it)
+            }
+        }
+
+    fun current(): AdbCore? = active
+
+    /** Quit must retire the sole transport; never allow legacy fallback. */
+    suspend fun shutdown() {
+        val previous = synchronized(this) { active.also { active = null } }
+        previous?.let {
+            AdbCoreRegistry.uninstall(it)
+            it.quit()
+        }
+    }
+
     fun create(context: Context): AdbCore {
         val app = context.applicationContext
         val identity = AdbIdentitySource { ctx ->
             val existing = AdbIdentity.getOrCreate(ctx)
             CoreIdentity(existing.privateKey, existing.certificate)
         }
-        return AdbCore(LibAdbWire(app, identity, "McpAdbAndroidLogger"), Choices(app), LocalAdbDiscovery(app))
+        lateinit var adb: AdbCore
+        val hooks = object : AdbHostHooks {
+            override suspend fun onRestoreAfterRestartChanged(enabled: Boolean) {
+                if (!enabled || AdbRecoverySettings.hasSecureSettings(app)) return
+                val pkg = app.packageName.takeIf { it.matches(Regex("[A-Za-z0-9_.]+")) }
+                    ?: return
+                // The core schedules hooks after releasing the transport mutex.
+                runCatching {
+                    adb.execVerified("pm grant $pkg android.permission.WRITE_SECURE_SETTINGS", 10_000)
+                }
+            }
+        }
+        adb = AdbCore(LibAdbWire(app, identity, "McpAdbAndroidLogger"),
+            Choices(app), LocalAdbDiscovery(app), hooks)
+        return adb
     }
 
     private class Choices(private val app: Context) : AdbPreferenceStore {
