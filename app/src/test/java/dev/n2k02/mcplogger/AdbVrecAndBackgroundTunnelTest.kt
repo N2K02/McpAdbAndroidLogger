@@ -32,6 +32,8 @@ class AdbVrecAndBackgroundTunnelTest {
         assertFalse(manifest.contains("android:foregroundServiceType=\"dataSync\""))
         val service = read(src + "core/LogMonitorService.kt")
         assertTrue(service.contains("return START_STICKY"))
+        assertTrue(service.contains("AdbRecoveryLifecycle.start(applicationContext)"))
+        assertTrue(service.contains("AdbCoordinator.quit()"))
         assertTrue(service.contains("mcp_server_enabled"))
         assertTrue(service.contains("QuickMcpTunnel.start(applicationContext)"))
         assertTrue(service.contains("QuickMcpTunnel.stop()"))
