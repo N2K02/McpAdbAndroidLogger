@@ -40,7 +40,9 @@ internal object SharedAdbHostAdapter {
         }
     }
     override fun manuallyStopped() = AdbRecoverySettings.manuallyQuit(app)
-    override fun setManuallyStopped(stopped: Boolean) = AdbRecoverySettings.setManuallyQuit(app, stopped)
+    override fun setManuallyStopped(stopped: Boolean) {
+        AdbRecoverySettings.setManuallyQuit(app, stopped)
+    }
     override fun lastTlsPort() = AdbRecoverySettings.lastVerifiedTlsPort(app)
     override fun setLastTlsPort(port: Int) { AdbRecoverySettings.rememberVerifiedTls(app, port) }
     override fun lastVerifiedAt() = legacy.getLong("core_verified_at", 0L)
