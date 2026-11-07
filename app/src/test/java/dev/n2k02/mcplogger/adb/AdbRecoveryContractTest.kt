@@ -18,24 +18,19 @@ class AdbRecoveryContractTest {
         assertTrue(s.contains("AdbCoordinator.manualRetryRequired.value"))
         assertTrue(s.contains("AdbRecoverySettings.restoreWirelessAfterReboot(app)"))
     }
-    @Test fun healthyConnectionIsReusedAndDisconnectDoesNotDestroyIdentity() {
+    @Test fun sharedTransportReusesSavedAuthorizationAndRetainsPrivateKey() {
         val coordinator = code("AdbCoordinator.kt")
-        val healthy = coordinator.indexOf("if (verified.value && AdbTransport.lastKnownConnected)")
-        val firstReconnect = coordinator.indexOf("AdbTransport.close()")
-        assertTrue(healthy >= 0)
-        assertTrue(firstReconnect > healthy)
-        assertTrue(coordinator.contains("existingUid == \"2000\""))
-        val adb = code("AdbTransport.kt")
-        assertTrue(adb.contains("oldManager?.disconnect()"))
-        assertTrue(adb.contains("private val sessionKey: PrivateKey"))
-        assertTrue(adb.contains("AdbSessionKey.copyOf(identity.privateKey)"))
-        assertTrue(adb.contains("getPrivateKey(): PrivateKey = sessionKey"))
-        assertFalse(adb.contains("getPrivateKey(): PrivateKey = identity.privateKey"))
-        assertTrue(adb.contains("suspend fun disconnect() = close()"))
-        assertTrue(adb.contains("if (manager === mgr) {"))
-        assertTrue(adb.contains("runCatching { mgr.disconnect() }"))
-        assertFalse(adb.contains("manager?.close()"))
-        assertFalse(adb.contains("mgr.close()"))
+        assertTrue(coordinator.contains("shared.retry(auto = !userInitiated)"))
+        assertFalse(coordinator.contains("AdbTransport.close()"))
+        val adapter = code("SharedAdbHostAdapter.kt")
+        assertTrue(adapter.contains("AdbIdentity.getOrCreate(ctx)"))
+        assertTrue(adapter.contains("CoreIdentity(existing.privateKey, existing.certificate)"))
+        assertTrue(adapter.contains("AdbRecoverySettings.lastVerifiedTlsPort(app)"))
+        assertTrue(adapter.contains("AdbRecoverySettings.manuallyQuit(app)"))
+        assertTrue(adapter.contains("LibAdbWire"))
+        val transport = code("AdbTransport.kt")
+        assertTrue(transport.contains("The shared ADB core owns this app's only transport"))
+        assertTrue(transport.contains("core.execVerified(command, timeoutMs)"))
     }
 
     @Test fun privateKeyIsNotSharedBetweenLibadbConnections() {
@@ -50,12 +45,11 @@ class AdbRecoveryContractTest {
         assertArrayEquals(saved.encoded, next.encoded)
     }
 
-    @Test fun connectionStatusVerifiedNotInferredFromPort() {
-        val s = code("AdbCoordinator.kt")
-        assertTrue(s.contains("AdbTransport.exec(\"id -u\")"))
-        assertTrue(s.contains("verified.value = true"))
-        assertTrue(s.contains("manualRetryRequired.value"))
-        assertTrue(s.contains("AdbRecoverySettings.rememberVerifiedTls(app, port)"))
-        assertTrue(s.contains("AdbTransport.switchToUsb()"))
+    @Test fun connectionStatusIsDerivedOnlyFromSharedVerifiedState() {
+        val coordinator = code("AdbCoordinator.kt")
+        assertTrue(coordinator.contains("verified.value = state.connected"))
+        assertTrue(coordinator.contains("state.transport == AdbTransportMode.LOCAL_TCP_5555"))
+        assertTrue(coordinator.contains("check(connected && shared.state.value.connected)"))
+        assertTrue(coordinator.contains("SharedAdbHostAdapter.shutdown()"))
     }
 }

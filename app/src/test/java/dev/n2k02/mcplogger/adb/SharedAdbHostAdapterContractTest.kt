@@ -16,5 +16,8 @@ class SharedAdbHostAdapterContractTest {
         assertTrue(src.contains("AdbRecoverySettings."))
         assertTrue(src.contains("manuallyStopped()"))
         assertTrue(src.contains("LibAdbWire"))
+        assertTrue(src.contains("AdbCoreRegistry.install(it)"))
+        assertTrue(src.contains("suspend fun shutdown()"))
+        assertTrue(src.contains("it.quit()"))
     }
 }

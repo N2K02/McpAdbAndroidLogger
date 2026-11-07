@@ -42,8 +42,9 @@ class McpAndAdbWorkflowContractTest {
             assertTrue(name, settings.contains(name))
         val adb = source("app/src/main/java/dev/n2k02/mcplogger/adb/AdbCoordinator.kt")
         assertTrue(adb.contains("val discoveryState = MutableStateFlow"))
-        assertTrue(adb.contains("connectAsync(context.applicationContext)"))
-        assertTrue(adb.contains("id -u"))
-        assertTrue(adb.contains("2000"))
+        assertTrue(adb.contains("SharedAdbHostAdapter.core(context.applicationContext)"))
+        assertTrue(adb.contains("shared.retry(auto = !userInitiated)"))
+        val transport = source("app/src/main/java/dev/n2k02/mcplogger/adb/AdbTransport.kt")
+        assertTrue(transport.contains("core.execVerified(command, timeoutMs)"))
     }
 }
