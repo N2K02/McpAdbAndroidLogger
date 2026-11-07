@@ -30,7 +30,7 @@ class McpAndAdbWorkflowContractTest {
         val setup = source("app/src/main/java/dev/n2k02/mcplogger/AdbHomeSetupCard.kt")
         assertTrue(home.contains("AdbHomeSetupCard()"))
         assertTrue(setup.contains("SharedAdbHostAdapter.core(context)"))
-        assertTrue(setup.contains("AdbHomeSetupPage(adb)"))
+        assertTrue(setup.contains("AdbHomeSetupPage(adb, accessibilityEnabled"))
         assertTrue(setup.contains("AdbPageLifecycle(adb)"))
         assertTrue(setup.contains("state.connected"))
         assertFalse(settings.contains("Connect Android ADB"))

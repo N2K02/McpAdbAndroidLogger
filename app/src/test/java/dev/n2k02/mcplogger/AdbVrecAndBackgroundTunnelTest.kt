@@ -62,7 +62,8 @@ class AdbVrecAndBackgroundTunnelTest {
         assertTrue(service.contains("AdbRecoveryLifecycle.shutdown(applicationContext)"))
         assertTrue(service.contains("LocalMcpServer.stop()"))
         val pairing = read(src + "adb/PairingAccessibilityService.kt")
-        assertTrue(pairing.contains("AdbRecoverySettings.autoPair(this)"))
+        assertTrue(pairing.contains("SharedAdbPairingAccessibilityService()"))
+        assertTrue(pairing.contains("SharedAdbHostAdapter.core(applicationContext)"))
     }
 
     @Test fun tunnelSupervisionDoesNotDependOnUiVisibility() {
