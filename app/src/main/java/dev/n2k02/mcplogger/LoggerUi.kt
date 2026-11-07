@@ -197,14 +197,13 @@ private fun AdbPage(modifier: Modifier) {
     @Composable
     fun PreferenceRow(title: String, subtitle: String, checked: Boolean,
                       onChange: (Boolean) -> Unit) {
-        Row(Modifier.fillMaxWidth().padding(vertical = 9.dp),
+        Row(Modifier.fillMaxWidth().clickable { onChange(!checked) },
             verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(Modifier.weight(1f).padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(title, style = MaterialTheme.typography.bodyLarge)
                 Text(subtitle, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Spacer(Modifier.width(12.dp))
             Switch(checked = checked, onCheckedChange = onChange)
         }
     }
@@ -212,9 +211,10 @@ private fun AdbPage(modifier: Modifier) {
     Column(modifier.verticalScroll(rememberScrollState()).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
 
-        Card(Modifier.fillMaxWidth()) {
+        Card(Modifier.fillMaxWidth(), shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Pairing & recovery", style = MaterialTheme.typography.titleMedium)
+                Text("Pairing & recovery", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(6.dp))
                 PreferenceRow("Auto-detect pairing code",
                     "Read the Android pairing dialog with Accessibility.",
@@ -247,9 +247,10 @@ private fun AdbPage(modifier: Modifier) {
             }
         }
 
-        Card(Modifier.fillMaxWidth()) {
+        Card(Modifier.fillMaxWidth(), shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Connection & security", style = MaterialTheme.typography.titleMedium)
+                Text("Connection & security", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(6.dp))
                 PreferenceRow("Restore after restart",
                     "Restore Wireless debugging after reboot, using saved pairing. " +
