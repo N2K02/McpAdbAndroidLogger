@@ -11,7 +11,7 @@ dependencyResolutionManagement {
         require(!token.isNullOrBlank()) {
             "N2K02_PACKAGES_TOKEN required for dev.n2k02 shared libraries (configure CI secret)"
         }
-        listOf("n2k02theme" to "theme", "n2k02updater" to "updater").forEach { (repository, name) ->
+        listOf("n2k02theme" to "theme", "n2k02updater" to "updater").forEach { (repository, name, "n2k02AdbCoreLibrary" to "adb-core") ->
             maven {
                 url = uri("https://maven.pkg.github.com/N2K02/" + repository)
                 credentials { username = "N2K02"; password = token }

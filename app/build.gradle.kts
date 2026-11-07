@@ -40,6 +40,7 @@ android {
 dependencies {
     implementation("dev.n2k02:theme:0.1.5")
     implementation("dev.n2k02:updater:0.1.20")
+    implementation("dev.n2k02:adb-core:0.1.1")
     implementation("androidx.compose.material3:material3:1.5.0-beta02")
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
     implementation("androidx.activity:activity-compose:1.11.0")
