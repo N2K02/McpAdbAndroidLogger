@@ -75,10 +75,14 @@ object AdbTransport {
     private var shell: ShellSession? = null
     private val mutex = Mutex()
 
-    private fun manager(context: Context): AbsAdbConnectionManager =
-        manager ?: synchronized(this) {
+    private fun manager(context: Context): AbsAdbConnectionManager {
+        check(SharedAdbHostAdapter.current() == null) {
+            "The shared ADB core owns this app's only transport"
+        }
+        return manager ?: synchronized(this) {
             manager ?: JemAdbConnectionManager(context.applicationContext).also { manager = it }
         }
+    }
 
     /**
      * The last answer isConnected gave, without asking again - for the main
@@ -87,10 +91,11 @@ object AdbTransport {
      */
     @Volatile
     var lastKnownConnected: Boolean = false
+        get() = SharedAdbHostAdapter.current()?.state?.value?.connected ?: field
         private set
 
     val isConnected: Boolean
-        get() = try {
+        get() = SharedAdbHostAdapter.current()?.state?.value?.connected ?: try {
             (manager?.isConnected == true).also { lastKnownConnected = it }
         } catch (t: Throwable) {
             lastKnownConnected = false
@@ -171,8 +176,19 @@ object AdbTransport {
      * Note this is the LEGACY shell protocol: stdout and stderr are merged and
      * there is no exit status. Adequate for identification and diagnostics.
      */
-    suspend fun exec(command: String, timeoutMs: Long = 15_000): Result<String> =
-        withContext(Dispatchers.IO) {
+    suspend fun exec(command: String, timeoutMs: Long = 15_000): Result<String> {
+        // The only runtime transport after cutover is the shared library.
+        // Every shell command receives a fresh UID 2000 check under its mutex.
+        SharedAdbHostAdapter.current()?.let { core ->
+            return try {
+                Result.success(core.execVerified(command, timeoutMs))
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                Result.failure(failure)
+            }
+        }
+        return withContext(Dispatchers.IO) {
             // isConnected, not merely "a manager object exists". Opening a
             // stream on a manager whose connection has died does not throw - it
             // hands back a stream that yields nothing, so every command
@@ -237,6 +253,7 @@ object AdbTransport {
                 }
             }
         }
+    }
 
     /**
      * ONE shell stream, reused for every command, because opening one per
