@@ -212,7 +212,7 @@ private fun AdbPage(modifier: Modifier) {
     Column(modifier.verticalScroll(rememberScrollState()).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
 
-        ElevatedCard(Modifier.fillMaxWidth()) {
+        Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Pairing & recovery", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(6.dp))
@@ -225,7 +225,7 @@ private fun AdbPage(modifier: Modifier) {
                 if (autoPair && !autoCodeEnabled) {
                     Text("Accessibility is needed for automatic pairing. Manual pairing is on Home.",
                         style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = {
+                    OutlinedButton(onClick = {
                         runCatching {
                             context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                         }.onFailure { note = "Cannot open Accessibility settings" }
@@ -247,7 +247,7 @@ private fun AdbPage(modifier: Modifier) {
             }
         }
 
-        ElevatedCard(Modifier.fillMaxWidth()) {
+        Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Connection & security", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(6.dp))
