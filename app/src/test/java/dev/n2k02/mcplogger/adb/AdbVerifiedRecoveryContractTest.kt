@@ -46,5 +46,11 @@ class AdbVerifiedRecoveryContractTest {
         assertTrue(coordinator.contains("AdbRecoverySettings.manuallyQuit(app)"))
         assertTrue(coordinator.contains("shared.acquireService()"))
         assertTrue(coordinator.contains("observedCore?.releaseService()"))
+        assertTrue(coordinator.contains("serviceOwner = false"))
+        assertTrue(coordinator.contains("if (userInitiated)"))
+        assertTrue(coordinator.contains("discover(app)"))
+        val adapter = source("SharedAdbHostAdapter.kt")
+        assertTrue(adapter.contains("RecoveryWork.schedule(app)"))
+        assertTrue(adapter.contains("RecoveryWork.cancel(app)"))
     }
 }

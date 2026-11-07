@@ -62,6 +62,11 @@ object AdbCoordinator {
         pairingPort = state.pairingPort
         connectPort = state.connectionPort
         verified.value = state.connected
+        // Shared manual Stop drops every owner. Clear our mirrored ownership
+        // so a subsequent explicit Retry can reacquire background recovery.
+        if (state.phase == dev.n2k02.adb.core.AdbPhase.STOPPED) {
+            synchronized(this) { serviceOwner = false }
+        }
         tcpPortOpen.value = state.connected &&
             state.transport == AdbTransportMode.LOCAL_TCP_5555
         discoveryState.value = AdbDiscoveryState(
@@ -131,6 +136,11 @@ object AdbCoordinator {
                 shared.state.value.message
             }
             publish(shared.state.value)
+            if (userInitiated) {
+                // A previous manual Stop cleared service ownership in AdbCore.
+                // Retain recovery after leaving Settings, not just during retry.
+                discover(app)
+            }
             Result.success(Unit)
         } catch (cancelled: CancellationException) {
             throw cancelled

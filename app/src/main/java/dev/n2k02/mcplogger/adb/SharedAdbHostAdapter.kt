@@ -74,7 +74,14 @@ internal object SharedAdbHostAdapter {
     override fun setEnabled(option: AdbOption, enabled: Boolean) {
         when (option) {
             AdbOption.AUTO_PAIR -> AdbRecoverySettings.setAutoPair(app, enabled)
-            AdbOption.WATCHDOG -> AdbRecoverySettings.setWatchdog(app, enabled)
+            AdbOption.WATCHDOG -> {
+                AdbRecoverySettings.setWatchdog(app, enabled)
+                // Shared settings must also update WorkManager's persistent
+                // 15-minute backstop, not only the in-process core watchdog.
+                if (enabled && !AdbRecoverySettings.manuallyQuit(app))
+                    RecoveryWork.schedule(app)
+                else RecoveryWork.cancel(app)
+            }
             AdbOption.START_ON_BOOT -> AdbRecoverySettings.setStartOnBoot(app, enabled)
             AdbOption.RESTORE_AFTER_RESTART -> AdbRecoverySettings.setRestoreAfterRestart(app, enabled)
             AdbOption.TCP_5555 -> AdbRecoverySettings.setTcpMode(app, enabled)
