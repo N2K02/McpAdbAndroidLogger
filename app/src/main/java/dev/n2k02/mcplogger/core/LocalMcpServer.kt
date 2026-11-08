@@ -316,7 +316,7 @@ object LocalMcpServer {
                     appsReader = {
                         kotlinx.coroutines.runBlocking { LogMonitorService.refreshInstalledApps() }
                     },
-                    performanceReader = { name, arguments ->
+                    captureReader = { options ->\n                        kotlinx.coroutines.runBlocking {\n                            LogMonitorService.readOnDemand(options = options)\n                        }\n                    },\n                    performanceReader = { name, arguments ->
                         // Authenticated requests only; no caller-defined commands.
                         kotlinx.coroutines.runBlocking {
                             val pkg = arguments.optString("package_name")
