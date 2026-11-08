@@ -47,6 +47,18 @@ class DiagnosticLogcatTest {
         assertFalse(options.argv().contains("-c"))
     }
 
+    @Test fun nativeCapturePreservesParserFormatAndBounds() {
+        val options = DiagnosticLogcat.parse(JSONObject(
+            """{"profile":"audio","buffers":["main","crash"],"pid":123}"""))
+        val command = DiagnosticLogcat.captureCommand(options)
+        assertTrue(command.contains("logcat -b main -b crash"))
+        assertTrue(command.contains("-v uid -v epoch -d -t 2000"))
+        assertTrue(command.contains("--pid 123"))
+        assertTrue(command.contains("AudioFlinger:W"))
+        assertFalse(command.contains(" -c"))
+        assertFalse(command.contains(";"))
+    }
+
     @Test fun sinceAndPidFiltersAreCombined() {
         val options = DiagnosticLogcat.parse(JSONObject(
             """{"since":1700000000000,"pid":123}"""))
