@@ -23,7 +23,9 @@ internal object DiagnosticLogcat {
         "system" to listOf("AndroidRuntime:E", "ActivityManager:W", "SystemServer:W"),
     )
     fun catalog(): JSONObject = JSONObject().apply {
-        profiles.forEach { (name, tags) -> put(name, JSONArray(tags)) }
+        (profiles + DiagnosticProfileStore.all()).forEach { (name, tags) ->
+            put(name, JSONArray(tags))
+        }
     }
     fun profileNames(): Set<String> = profiles.keys
 
@@ -71,9 +73,10 @@ internal object DiagnosticLogcat {
 
     fun parse(args: JSONObject): Options {
         val profile = args.optString("profile", "").lowercase()
-        require(profile.isEmpty() || profile in profiles)
+        require(profile.isEmpty() || profile in profiles ||
+            DiagnosticProfileStore.get(profile) != null)
         val tags = mutableListOf<String>()
-        tags.addAll(profiles[profile].orEmpty())
+        tags.addAll(profiles[profile] ?: DiagnosticProfileStore.get(profile).orEmpty())
         if (args.has("tags")) {
             val array = args.optJSONArray("tags") ?: throw IllegalArgumentException("tags")
             require(array.length() <= 32)
