@@ -45,21 +45,18 @@ class HomeTabNavigationTest {
         assertEquals(listOf(0), HomeTabHistory.back(emptyList()))
     }
 
-    @Test fun homeUsesHorizontalPagerAndInterceptsBackBeforeGlobalHomeExit() {
+    @Test fun homeHasOneManualDashboardWithoutPerformanceOrConnectionTabs() {
         val homePath = "app/src/main/java/dev/n2k02/mcplogger/HomeDashboard.kt"
         val home = listOf(File(homePath), File("../$homePath"))
             .first { it.isFile }.readText()
-        assertTrue(home.contains("HorizontalPager(state = pagerState"))
-        assertTrue(home.contains("snapshotFlow { pagerState.settledPage }"))
-        assertTrue(home.contains("BackHandler(enabled = HomeTabHistory.canGoBack(tabHistory))"))
-        assertTrue(home.contains("val prior = HomeTabHistory.back(tabHistory)"))
-        assertTrue(home.contains("tabHistory = prior"))
-        assertTrue(home.contains("pagerState.scrollToPage(prior.last())"))
-        assertTrue(home.contains("pagerState.animateScrollToPage(destination.ordinal)"))
-        assertTrue(home.contains("HomeTabHistory.visit(tabHistory, page"))
+        assertTrue(home.contains("Manual Logcat (Today)"))
+        assertTrue(home.contains("MCP activity"))
+        assertTrue(home.contains("MCP Logcat reads"))
+        assertFalse(home.contains("HomeTab.PERFORMANCE"))
+        assertFalse(home.contains("HomeTab.CONNECTION"))
+        assertFalse(home.contains("HorizontalPager(state = pagerState"))
         val navPath = "app/src/main/java/dev/n2k02/mcplogger/LoggerUi.kt"
         val nav = listOf(File(navPath), File("../$navPath")).first { it.isFile }.readText()
-        assertTrue(nav.contains("BackHandler(enabled = page != Page.HOME)"))
         assertTrue(nav.contains("Page.HOME -> HomePage("))
     }
 }
