@@ -28,7 +28,8 @@ internal object LocalMcpProtocol {
     fun execute(req: JSONObject, auditReader: (() -> List<McpAuditEntry>)? = null,
                 logsReader: (() -> List<LogEvent>)? = null,
                 appsReader: (() -> List<String>)? = null,
-                performanceReader: ((String, JSONObject) -> JSONObject)? = null): JSONObject? {
+                performanceReader: ((String, JSONObject) -> JSONObject)? = null,
+                captureReader: ((DiagnosticLogcat.Options) -> List<LogEvent>)? = null): JSONObject? {
         val id = req.opt("id") ?: JSONObject.NULL
         val method = req.optString("method")
         if (req.optString("jsonrpc") != "2.0" || method.isEmpty())
@@ -48,7 +49,7 @@ internal object LocalMcpProtocol {
                     MonitorState.beginMcpTool(name)
                     val body = try {
                         readTool(name, params.optJSONObject("arguments") ?: JSONObject(),
-                            auditReader, logsReader, appsReader, performanceReader)
+                            auditReader, logsReader, appsReader, performanceReader, captureReader)
                     } finally {
                         MonitorState.endMcpTool(name)
                     }
@@ -162,7 +163,8 @@ internal object LocalMcpProtocol {
                          auditReader: (() -> List<McpAuditEntry>)?,
                          logsReader: (() -> List<LogEvent>)?,
                          appsReader: (() -> List<String>)?,
-                         performanceReader: ((String, JSONObject) -> JSONObject)?): Any {
+                         performanceReader: ((String, JSONObject) -> JSONObject)?,
+                         captureReader: ((DiagnosticLogcat.Options) -> List<LogEvent>)?): Any {
         val limit = args.optInt("limit", 100).coerceIn(1, 500)
         return when (name) {
             "get_device_status" -> JSONObject().put("adb", MonitorState.adb.value)
@@ -218,7 +220,8 @@ internal object LocalMcpProtocol {
                 if (name == "search_logs" && query.isBlank()) throw IllegalArgumentException()
                 val options = DiagnosticLogcat.parse(args)
                 val events = DiagnosticLogcat.select(
-                    logsReader?.invoke() ?: LogMonitorService.snapshot(0, 2000), options)
+                    (captureReader?.invoke(options) ?: logsReader?.invoke()
+                        ?: LogMonitorService.snapshot(0, 2000)), options)
                 val logs = McpLogQuery.select(
                     // Scan the fresh bounded Android buffer before applying UID filters.
                     // A cursor is assigned only for previously unseen entries.
