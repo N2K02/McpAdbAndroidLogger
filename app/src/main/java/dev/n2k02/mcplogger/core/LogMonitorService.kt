@@ -100,7 +100,7 @@ class LogMonitorService : Service() {
         suspend fun readOnDemand(origin: LogReadOrigin = LogReadOrigin.MCP,
             options: DiagnosticLogcat.Options? = null,
             commandTimeoutMs: Long = 12000): List<LogEvent> = readLock.withLock {
-            cancelIdleLogCleanup()
+            if (origin == LogReadOrigin.MANUAL) cancelIdleLogCleanup()
             rotateDay(System.currentTimeMillis())
             val readGeneration = resetGate.generation()
             if (origin == LogReadOrigin.MANUAL) {
@@ -270,6 +270,7 @@ class LogMonitorService : Service() {
                 dailyPruneJob?.cancel()
                 dailyPruneJob = null
                 stopCapture()
+                mcpBuffer.clear(resetDedup = true)
                 clear()
                 QuickMcpTunnel.stop()
                 tunnelJob?.cancel()
