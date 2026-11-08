@@ -137,7 +137,8 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
     val packages by MonitorState.packages.collectAsState()
     val uids by MonitorState.packageUids.collectAsState()
     val filter by MonitorState.logFilter.collectAsState()
-    val active by MonitorState.active.collectAsState()\n    val sessionActive by MonitorState.diagnosticSession.collectAsState()
+    val active by MonitorState.active.collectAsState()
+    val sessionActive by MonitorState.diagnosticSession.collectAsState()
     val adbVerified by dev.n2k02.mcplogger.adb.AdbCoordinator.verified.collectAsState()
     val deviceLogcatClearing by MonitorState.clearingDeviceLogcat.collectAsState()
     val deviceLogcatStatus by MonitorState.logcatMaintenanceStatus.collectAsState()
@@ -182,7 +183,10 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
     var actionMenu by remember { mutableStateOf(false) }
     val recentFirst = remember(filtered) { filtered.asReversed() }
     var exportSnapshot by remember { mutableStateOf<List<LogEvent>>(emptyList()) }
-    var feedback by remember { mutableStateOf("") }\n    var profileDialog by remember { mutableStateOf(false) }\n    var profileName by remember { mutableStateOf("audio") }\n    var profileTags by remember { mutableStateOf("SEQ-Audio:V, AndroidRuntime:E, AudioFlinger:W") }
+    var feedback by remember { mutableStateOf("") }
+    var profileDialog by remember { mutableStateOf(false) }
+    var profileName by remember { mutableStateOf("audio") }
+    var profileTags by remember { mutableStateOf("SEQ-Audio:V, AndroidRuntime:E, AudioFlinger:W") }
 
     fun update(next: LogViewFilter) {
         MonitorState.logFilter.value = next
