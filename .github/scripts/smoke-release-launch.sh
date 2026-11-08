@@ -17,12 +17,16 @@ for attempt in 1 2 3; do
   PID=$(adb shell pidof "$PACKAGE" | tr -d '\r' || true)
   if [ -z "$PID" ]; then
     echo "::error::Release APK exited during cold-launch attempt $attempt"
-    adb logcat -d -b crash -v threadtime | tail -180
+    adb logcat -d -b crash -v threadtime | sed -n '/FATAL EXCEPTION/,+85p' | head -90
+    echo "----- crash footer -----"
+    adb logcat -d -b crash -v threadtime | tail -30
     exit 1
   fi
   if adb logcat -d -b crash -v threadtime | grep -qE "Process: $PACKAGE(,|$)"; then
     echo "::error::Crash logged for app on cold-launch attempt $attempt"
-    adb logcat -d -b crash -v threadtime | tail -180
+    adb logcat -d -b crash -v threadtime | sed -n '/FATAL EXCEPTION/,+85p' | head -90
+    echo "----- crash footer -----"
+    adb logcat -d -b crash -v threadtime | tail -30
     exit 1
   fi
   echo "Cold-launch $attempt: app process $PID still running"
