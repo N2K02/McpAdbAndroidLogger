@@ -8,7 +8,7 @@ internal object LocalMcpProtocol {
     const val VERSION = "2025-11-25"
     // Readable through the original get_device_status tool even when an MCP client
     // still has an old tools/list cache. Never starts a shell diagnostic.
-    const val CATALOG_REVISION = "2026-11-09-app-runtime-5"
+    const val CATALOG_REVISION = "2026-11-09-appops-6"
     private val names = listOf("get_device_status", "list_installed_apps", "get_live_logs",
         "search_logs", "get_crashes", "get_anrs", "get_cpu_usage",
         "get_frame_timing", "get_performance_snapshot",
@@ -16,7 +16,7 @@ internal object LocalMcpProtocol {
         "get_screen_off_baseline", "get_screen_off_report",
         "get_surfaceflinger_layers", "get_surfaceflinger_activity",
         "get_surfaceflinger_perfetto", "list_logcat_profiles",
-        "get_diagnostic_correlation", "get_app_runtime")
+        "get_diagnostic_correlation", "get_app_runtime", "get_app_ops"
 
     internal fun builtInToolNames(): List<String> = names.toList()
 
@@ -89,7 +89,8 @@ internal object LocalMcpProtocol {
             "Collect a 3-10 second Perfetto FrameTimeline and scheduling trace where an on-device processor is available; returns sanitized per-app counts and shared compositor CPU only",
             "List built-in and locally saved diagnostic Logcat profiles",
             "Capture bounded contemporaneous Logcat, CPU, memory and battery diagnostics",
-            "Inspect exact app processes, total PSS and Android runtime permission grants on demand"
+            "Inspect exact app processes, total PSS and Android runtime permission grants on demand",
+            "Read safe AppOps modes for a validated app without revealing operation history"
         )
         return JSONArray().apply {
             toolNames.forEachIndexed { index, name ->
@@ -125,7 +126,7 @@ internal object LocalMcpProtocol {
                     fields.put("level", JSONObject().put("type", "string"))
                     fields.put("query", JSONObject().put("type", "string"))
                 }
-                if (name == "get_app_runtime") {
+                if (name in setOf("get_app_runtime", "get_app_ops")) {
                     fields.put("package_name", JSONObject().put("type", "string")
                         .put("description", "Required exact installed Android package name"))
                 }
@@ -152,7 +153,7 @@ internal object LocalMcpProtocol {
                 val schema = JSONObject().put("type", "object").put("properties", fields)
                     .put("additionalProperties", false)
                 if (name == "search_logs") schema.put("required", JSONArray().put("query"))
-                if (name in setOf("get_frame_timing", "get_app_runtime"))
+                if (name in setOf("get_frame_timing", "get_app_runtime", "get_app_ops"))
                     schema.put("required", JSONArray().put("package_name"))
                 put(JSONObject().put("name", name).put("description", descriptions[index])
                     .put("inputSchema", schema)
@@ -210,6 +211,12 @@ internal object LocalMcpProtocol {
                     .put("duration_seconds", duration)
                 performanceReader?.invoke(name, safeArgs)
                     ?: throw IllegalStateException("Performance diagnostics unavailable")
+            }
+            "get_app_ops" -> {
+                val pkg = AppRuntimeDiagnostics.validate(args.optString("package_name", ""))
+                performanceReader?.invoke("get_app_ops", JSONObject()
+                    .put("package_name", pkg))
+                    ?: throw IllegalStateException("AppOps diagnostics unavailable")
             }
             "get_app_runtime" -> {
                 val pkg = AppRuntimeDiagnostics.validate(args.optString("package_name", ""))
