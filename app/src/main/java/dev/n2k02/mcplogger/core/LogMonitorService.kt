@@ -42,6 +42,7 @@ class LogMonitorService : Service() {
         const val LOCAL_STOP = "dev.n2k02.mcplogger.LOCAL_MCP_STOP"
         const val QUIT = "dev.n2k02.mcplogger.QUIT"
         private val buffer = LogBuffer()
+        private val mcpBuffer = LogBuffer()
         private val resetGate = LogcatResetGate()
         private val readLock = Mutex()
         private const val IDLE_CACHE_MILLIS = 5 * 60_000L
@@ -77,6 +78,7 @@ class LogMonitorService : Service() {
             } else {
                 // App process may recreate its foreground service without restarting.
                 buffer.clear(resetDedup = true)
+                mcpBuffer.clear(resetDedup = true)
                 MonitorState.logs.value = emptyList()
                 MonitorState.recentLogRequest.value = null
                 MonitorState.captureStats.value = LogCaptureStats(dayStartMs = today)
@@ -100,8 +102,10 @@ class LogMonitorService : Service() {
             cancelIdleLogCleanup()
             rotateDay(System.currentTimeMillis())
             val readGeneration = resetGate.generation()
-            MonitorState.logReadOrigin.value = origin
-            MonitorState.active.value = true
+            if (origin == LogReadOrigin.MANUAL) {
+                MonitorState.logReadOrigin.value = origin
+                MonitorState.active.value = true
+            }
             try {
                 check(AdbCoordinator.verified.value) { "ADB shell UID 2000 is not verified" }
                 // Package identities rarely change; avoid invoking PackageManager for
@@ -116,34 +120,41 @@ class LogMonitorService : Service() {
                     output.lineSequence().mapNotNull(LogFoxParser::parse).toList(), scannedAt)
                 // Serialize manual Clear with the midnight rollover: an in-flight
                 // read must never repopulate entries the user explicitly cleared.
-                val accepted = resetGate.applyIfCurrent(readGeneration) {
-                    rotateDay(scannedAt)
-                    val newEntries = buffer.add(parsed, null, null)
-                    MonitorState.logs.value = buffer.snapshot(0, 2000)
-                    val previous = MonitorState.captureStats.value
-                    MonitorState.captureStats.value = previous.copy(
-                        linesScanned = previous.linesScanned + parsed.size,
-                        uniqueCaptured = previous.uniqueCaptured + newEntries.size,
-                        scanCycles = previous.scanCycles + 1,
-                        lastSuccessAtMillis = System.currentTimeMillis(),
-                        lastBatchCaptured = newEntries.size,
-                    )
-                }
-                // Never return entries that a concurrent Clear discarded.
-                if (accepted) {
-                    if (origin == LogReadOrigin.MANUAL) {
+                if (origin == LogReadOrigin.MCP) {
+                    // Keep every remote query outside the manual viewer, counters
+                    // and cache. Preserve MCP cursor IDs in its own bounded buffer.
+                    val accepted = resetGate.applyIfCurrent(readGeneration) {
+                        mcpBuffer.add(parsed, null, null)
+                        MonitorState.registerMcpRead()
+                    }
+                    if (accepted) mcpBuffer.snapshot(0, 2000) else emptyList()
+                } else {
+                    val accepted = resetGate.applyIfCurrent(readGeneration) {
+                        rotateDay(scannedAt)
+                        val newEntries = buffer.add(parsed, null, null)
+                        MonitorState.logs.value = buffer.snapshot(0, 2000)
+                        val previous = MonitorState.captureStats.value
+                        MonitorState.captureStats.value = previous.copy(
+                            linesScanned = previous.linesScanned + parsed.size,
+                            uniqueCaptured = previous.uniqueCaptured + newEntries.size,
+                            scanCycles = previous.scanCycles + 1,
+                            lastSuccessAtMillis = System.currentTimeMillis(),
+                            lastBatchCaptured = newEntries.size,
+                        )
+                    }
+                    if (accepted) {
                         MonitorState.recentLogRequest.value = RecentLogRequest(
                             origin = LogReadOrigin.MANUAL,
                             tool = "Manual refresh",
                             atMillis = System.currentTimeMillis()
                         )
-                    }
-                    buffer.snapshot(0, 2000)
-                } else emptyList()
+                        buffer.snapshot(0, 2000)
+                    } else emptyList()
+                }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                resetGate.applyIfCurrent(readGeneration) {
+                if (origin == LogReadOrigin.MANUAL) resetGate.applyIfCurrent(readGeneration) {
                     val previous = MonitorState.captureStats.value
                     MonitorState.captureStats.value = previous.copy(
                         readFailures = previous.readFailures + 1
@@ -152,9 +163,11 @@ class LogMonitorService : Service() {
                 MonitorState.error("Logcat: " + (error.message ?: "read failed"))
                 throw error
             } finally {
-                MonitorState.active.value = false
-                MonitorState.logReadOrigin.value = null
-                scheduleIdleLogCleanup()
+                if (origin == LogReadOrigin.MANUAL) {
+                    MonitorState.active.value = false
+                    MonitorState.logReadOrigin.value = null
+                    scheduleIdleLogCleanup()
+                }
             }
         }
 
