@@ -37,7 +37,21 @@ internal object AppRuntimeDiagnostics {
             val permissions = AdbTransport.exec(
                 "dumpsys package $pkg | head -c 131072", timeoutMs = TIMEOUT_MS)
                 .getOrThrow()
+            // A numeric verified UID is mandatory; do not guess from process
+            // names or put untrusted strings in an ADB shell command.
+            val uid = MonitorState.packageUids.value[pkg]
+                ?.takeIf { it.matches(Regex("[0-9]{1,10}")) }
+            val uidState = if (uid == null) JSONObject()
+                .put("status", "uid_unavailable")
+            else {
+                val result = AdbTransport.exec("cmd activity get-uid-state $uid",
+                    timeoutMs = 4_000)
+                result.fold(
+                    onSuccess = { parseUidState(uid, it) },
+                    onFailure = { JSONObject().put("status", "unavailable") })
+            }
             return summarize(pkg, processes, meminfo, permissions)
+                .put("uid_state", uidState)
                 .put("taken_at", System.currentTimeMillis())
                 .put("source", "ps, dumpsys meminfo, dumpsys package")
                 .put("note", "Sequential point-in-time ADB snapshots. Permission and " +
@@ -45,6 +59,19 @@ internal object AppRuntimeDiagnostics {
         } finally {
             lock.unlock()
         }
+    }
+
+    /** Numeric process state only: labels change across Android releases. */
+    internal fun parseUidState(uid: String, raw: String): JSONObject {
+        require(uid.matches(Regex("[0-9]{1,10}")))
+        val state = raw.trim().substringBefore(' ').toIntOrNull()
+            ?.takeIf { it in -1..3000 }
+        return JSONObject().put("uid", uid)
+            .put("status", if (state == null) "unavailable" else "ok")
+            .put("state_code", state ?: JSONObject.NULL)
+            .put("source", "cmd activity get-uid-state")
+            .put("notes", "Numeric UID process state is Android-version dependent; "
+                + "do not infer exact foreground-service type from this value.")
     }
 
     internal fun summarize(packageName: String, processes: String,
