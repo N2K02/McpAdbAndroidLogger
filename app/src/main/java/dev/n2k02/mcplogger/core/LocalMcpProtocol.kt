@@ -8,14 +8,15 @@ internal object LocalMcpProtocol {
     const val VERSION = "2025-11-25"
     // Readable through the original get_device_status tool even when an MCP client
     // still has an old tools/list cache. Never starts a shell diagnostic.
-    const val CATALOG_REVISION = "2026-11-09-diagnostic-logcat-1"
+    const val CATALOG_REVISION = "2026-11-09-diagnostic-logcat-2"
     private val names = listOf("get_device_status", "list_installed_apps", "get_live_logs",
         "search_logs", "get_crashes", "get_anrs", "get_cpu_usage",
         "get_frame_timing", "get_performance_snapshot",
         "get_battery_diagnostics", "get_memory_pressure", "get_wakelock_usage",
         "get_screen_off_baseline", "get_screen_off_report",
         "get_surfaceflinger_layers", "get_surfaceflinger_activity",
-        "get_surfaceflinger_perfetto", "list_logcat_profiles")
+        "get_surfaceflinger_perfetto", "list_logcat_profiles",
+        "get_diagnostic_correlation")
 
     internal fun builtInToolNames(): List<String> = names.toList()
 
@@ -86,7 +87,8 @@ internal object LocalMcpProtocol {
             "List app-associated SurfaceFlinger layers (not per-app CPU or GPU); private layer titles omitted",
             "Sample 3-10 seconds of SurfaceFlinger TimeStats frames and compositor CPU, rank likely app render contributors; momentarily resets TimeStats",
             "Collect a 3-10 second Perfetto FrameTimeline and scheduling trace where an on-device processor is available; returns sanitized per-app counts and shared compositor CPU only",
-            "List built-in diagnostic Logcat profiles and their priority-tag filters",
+            "List built-in and locally saved diagnostic Logcat profiles",
+            "Capture bounded contemporaneous Logcat, CPU, memory and battery diagnostics",
             "Read sanitized, paginated MCP audit history (requires local owner opt-in)"
         )
         return JSONArray().apply {
@@ -124,6 +126,11 @@ internal object LocalMcpProtocol {
                     fields.put("after_cursor", JSONObject().put("type", "integer"))
                     fields.put("level", JSONObject().put("type", "string"))
                     fields.put("query", JSONObject().put("type", "string"))
+                }
+                if (name == "get_diagnostic_correlation") {
+                    fields.put("package_name", JSONObject().put("type", "string"))
+                    fields.put("profile", JSONObject().put("type", "string"))
+                    fields.put("limit", JSONObject().put("type", "integer"))
                 }
                 if (name == "search_logs") fields.put("query", JSONObject().put("type", "string"))
                 if (name in setOf("get_live_logs", "search_logs", "get_crashes", "get_anrs")) {
@@ -212,6 +219,42 @@ internal object LocalMcpProtocol {
                     .put("duration_seconds", duration)
                 performanceReader?.invoke(name, safeArgs)
                     ?: throw IllegalStateException("Performance diagnostics unavailable")
+            }
+            "get_diagnostic_correlation" -> {
+                val pkg = args.optString("package_name", "")
+                require(pkg.isEmpty() || PerformanceDiagnostics.validPackage(pkg))
+                val options = DiagnosticLogcat.parse(JSONObject().apply {
+                    if (args.has("profile")) put("profile", args.getString("profile"))
+                })
+                val before = System.currentTimeMillis()
+                val events = captureReader?.invoke(options) ?: logsReader?.invoke()
+                    ?: throw IllegalStateException("Logcat capture unavailable")
+                val verified = McpLogQuery.select(
+                    DiagnosticLogcat.select(events, options),
+                    "get_live_logs", pkg, MonitorState.packageUids.value,
+                    limit = args.optInt("limit", 50).coerceIn(1, 100))
+                val cpu = performanceReader?.invoke("get_cpu_usage",
+                    JSONObject().put("package_name", pkg).put("limit", 20))
+                    ?: throw IllegalStateException("CPU diagnostics unavailable")
+                val memory = performanceReader.invoke("get_memory_pressure", JSONObject())
+                val battery = performanceReader.invoke("get_battery_diagnostics", JSONObject())
+                val after = System.currentTimeMillis()
+                JSONObject().put("window_start_ms", before)
+                    .put("window_end_ms", after)
+                    .put("source", "sequential bounded snapshots, not simultaneous sampling")
+                    .put("causality", "Temporal overlap does not establish causality")
+                    .put("package_name", pkg)
+                    .put("logcat", JSONArray().apply {
+                        verified.forEach { event ->
+                            put(JSONObject().put("time", event.epochMillis)
+                                .put("uid", event.uid.take(32))
+                                .put("pid", event.pid.take(32))
+                                .put("level", event.level.take(1))
+                                .put("tag", SensitiveLogRedactor.redact(event.tag).take(120))
+                                .put("message", SensitiveLogRedactor.redact(event.message).take(2000)))
+                        }
+                    })
+                    .put("cpu", cpu).put("memory", memory).put("battery", battery)
             }
             "get_live_logs", "search_logs", "get_crashes", "get_anrs" -> {
                 val after = args.optLong("after_cursor", 0).coerceAtLeast(0)
