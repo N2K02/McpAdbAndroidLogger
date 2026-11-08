@@ -13,13 +13,16 @@ class AdbVrecAndBackgroundTunnelTest {
     @Test fun settingsMirrorLatestVrecTwoCardsAndActions() {
         val s = read(src + "LoggerUi.kt")
             .substringAfter("private fun AdbPage(").substringBefore("private fun BridgePage(")
-        for (name in listOf("Pairing & recovery", "Connection & security",
-                "Auto-detect pairing code", "Connection watchdog", "Start on boot",
-                "Restore after restart", "Keep ADB without Wi-Fi (TCP/5555)",
-                "Disable TCP/5555")) assertTrue(name, s.contains(name))
-        assertTrue(s.contains("AdbRecoveryLifecycle.configureWatchdog"))
-        assertTrue(s.contains("AdbCoordinator.disableTcp(context)"))
-        assertTrue(s.contains("AdbRecoverySettings.grantSecureSettings(context)"))
+        assertTrue(s.contains("AdbConnectionSettingsPage("))
+        assertTrue(s.contains("SharedAdbHostAdapter.core(context)"))
+        assertTrue(s.contains("PairingAccessibilityService.enabled(context)"))
+        assertTrue(s.contains("Settings.ACTION_ACCESSIBILITY_SETTINGS"))
+        assertFalse(s.contains("Pairing & recovery"))
+        assertFalse(s.contains("Connection & security"))
+        val adapter = read(src + "adb/SharedAdbHostAdapter.kt")
+        assertTrue(adapter.contains("onRestoreAfterRestartChanged(enabled: Boolean)"))
+        assertTrue(adapter.contains("if (enabled) \"grant\" else \"revoke\""))
+        assertTrue(adapter.contains("adb.execVerified("))
     }
 
     @Test fun foregroundTunnelIsIndependentOfTheUiAndNotTimedDataSync() {
@@ -32,6 +35,8 @@ class AdbVrecAndBackgroundTunnelTest {
         assertFalse(manifest.contains("android:foregroundServiceType=\"dataSync\""))
         val service = read(src + "core/LogMonitorService.kt")
         assertTrue(service.contains("return START_STICKY"))
+        assertTrue(service.contains("AdbRecoveryLifecycle.start(applicationContext)"))
+        assertTrue(service.contains("AdbCoordinator.quit()"))
         assertTrue(service.contains("mcp_server_enabled"))
         assertTrue(service.contains("QuickMcpTunnel.start(applicationContext)"))
         assertTrue(service.contains("QuickMcpTunnel.stop()"))
@@ -57,7 +62,8 @@ class AdbVrecAndBackgroundTunnelTest {
         assertTrue(service.contains("AdbRecoveryLifecycle.shutdown(applicationContext)"))
         assertTrue(service.contains("LocalMcpServer.stop()"))
         val pairing = read(src + "adb/PairingAccessibilityService.kt")
-        assertTrue(pairing.contains("AdbRecoverySettings.autoPair(this)"))
+        assertTrue(pairing.contains("SharedAdbPairingAccessibilityService()"))
+        assertTrue(pairing.contains("SharedAdbHostAdapter.core(applicationContext)"))
     }
 
     @Test fun tunnelSupervisionDoesNotDependOnUiVisibility() {

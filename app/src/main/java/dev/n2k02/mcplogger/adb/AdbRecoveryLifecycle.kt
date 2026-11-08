@@ -1,6 +1,7 @@
 package dev.n2k02.mcplogger.adb
 
 import android.content.Context
+import dev.n2k02.adb.core.AdbOption
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -60,6 +61,17 @@ object AdbRecoveryLifecycle {
     @Synchronized fun configureWatchdog(context: Context, enabled: Boolean) {
         val app = context.applicationContext
         AdbRecoverySettings.setWatchdog(app, enabled)
+        // Shared ADB Core owns the in-process watchdog. Keep only WorkManager's
+        // fifteen-minute process-restart backstop; never launch two watchdogs.
+        SharedAdbHostAdapter.current()?.let { core ->
+            healthJob?.cancel()
+            healthJob = null
+            if (enabled && !quitting && !AdbRecoverySettings.manuallyQuit(app))
+                RecoveryWork.schedule(app)
+            else RecoveryWork.cancel(app)
+            scope.launch { core.setOption(AdbOption.WATCHDOG, enabled) }
+            return
+        }
         healthJob?.cancel()
         healthJob = null
         if (!enabled || quitting || AdbRecoverySettings.manuallyQuit(app)) {

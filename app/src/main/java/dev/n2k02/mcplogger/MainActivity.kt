@@ -22,7 +22,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         LiveUpdater.init(this)
         BridgeClient.initialize(this)
-        AdbRecoverySettings.markForegroundOpened(this)
+        // Configuration recreation is not a new user request to undo Quit.
+        if (savedInstanceState == null) AdbRecoverySettings.markForegroundOpened(this)
         AdbRecoveryLifecycle.start(this)
         // User-launched foreground activity may start the foreground service.
         // Local MCP stays available until Quit.

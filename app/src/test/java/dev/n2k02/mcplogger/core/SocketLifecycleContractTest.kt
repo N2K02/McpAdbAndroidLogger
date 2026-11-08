@@ -55,13 +55,20 @@ class SocketLifecycleContractTest {
         assertTrue(close.contains("runCatching { reader.close() }"))
         assertTrue(close.contains("runCatching { out.close() }"))
         assertTrue(adb.contains("lastKnownConnected = false"))
-        assertTrue(source("adb/AdbCoordinator.kt").contains("AdbTransport.close()"))
+        val coordinator = source("adb/AdbCoordinator.kt")
+        val shared = source("adb/SharedAdbHostAdapter.kt")
+        // Production ADB shutdown now belongs exclusively to the shared core.
+        assertFalse(coordinator.contains("AdbTransport.close()"))
+        assertTrue(coordinator.contains("SharedAdbHostAdapter.shutdown()"))
+        assertTrue(shared.contains("it.quit()"))
+        assertTrue(shared.contains("AdbCoreRegistry.uninstall(it)"))
         assertTrue(adb.contains("oldManager?.disconnect()"))
         assertFalse(adb.contains("manager?.close()"))
         assertFalse(adb.contains("mgr.close()"))
         assertTrue(adb.contains("manager = null"))
-        assertTrue(source("adb/AdbCoordinator.kt").contains(
-            "if (verified.value && AdbTransport.lastKnownConnected)"))
+        assertTrue(coordinator.contains("verified.value = state.connected"))
+        assertTrue(adb.contains("core.execVerified(command, timeoutMs)"))
+        assertTrue(adb.contains("SharedAdbHostAdapter.current() == null"))
         assertFalse(source("MainActivity.kt").contains(
             "lifecycleScope.launch { AdbCoordinator.quit() }"))
     }

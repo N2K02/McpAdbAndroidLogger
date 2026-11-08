@@ -1,27 +1,25 @@
 package dev.n2k02.mcplogger.adb
 
 import android.content.Context
-import android.net.nsd.NsdManager
-import android.net.nsd.NsdServiceInfo
-import android.os.Build
+import dev.n2k02.adb.core.AdbCore
+import dev.n2k02.adb.core.AdbState
+import dev.n2k02.adb.core.AdbTransportMode
 import dev.n2k02.mcplogger.core.MonitorState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.cancelChildren
-import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import java.net.Socket
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import java.net.InetSocketAddress
+import java.net.Socket
 
-/**
- * Independent same-device ADB controller. A TLS port is a discovery hint, NOT authorization:
- * every connection is authenticated and validated using id -u == 2000.
- */
+/** Public status adapter for existing MCP UI and services. The shared library
+ * owns pairing, discovery, verification, transport switching and watchdogs. */
 data class AdbDiscoveryState(
     val pairingPort: Int? = null,
     val connectPort: Int? = null,
@@ -29,210 +27,116 @@ data class AdbDiscoveryState(
 )
 
 object AdbCoordinator {
-    /** UI observes discovery just as VRec observes its Wireless ADB status. */
     val discoveryState = MutableStateFlow(AdbDiscoveryState())
     val verified = MutableStateFlow(false)
     val tcpPortOpen = MutableStateFlow(false)
     val manualRetryRequired = MutableStateFlow(false)
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val mutex = Mutex()
     @Volatile var connectPort: Int? = null
         private set
     @Volatile var pairingPort: Int? = null
         private set
-    @Volatile private var discovery: NsdManager? = null
-    private val listeners = mutableListOf<NsdManager.DiscoveryListener>()
-    @Volatile private var lastDiscoveredAttempt: Int? = null
 
-    fun discover(context: Context) {
-        if (discovery != null || AdbRecoverySettings.manuallyQuit(context)) return
-        val manager = context.applicationContext.getSystemService(NsdManager::class.java) ?: return
-        discovery = manager
-        listOf("_adb-tls-connect._tcp.", "_adb-tls-pairing._tcp.").forEach { service ->
-            val listener = object : NsdManager.DiscoveryListener {
-                override fun onDiscoveryStarted(type: String) = Unit
-                override fun onStartDiscoveryFailed(type: String, errorCode: Int) {
-                    discoveryState.value = discoveryState.value.copy(status = "Discovery failed ($errorCode)")
-                    MonitorState.error("ADB discovery failed: " + errorCode)
-                }
-                override fun onStopDiscoveryFailed(type: String, errorCode: Int) = Unit
-                override fun onDiscoveryStopped(type: String) = Unit
-                override fun onServiceLost(info: NsdServiceInfo) {
-                    val current = discoveryState.value
-                    if (service.contains("pairing") && current.pairingPort == info.port) {
-                        pairingPort = null
-                        discoveryState.value = current.copy(pairingPort = null)
-                    } else if (!service.contains("pairing") && current.connectPort == info.port) {
-                        connectPort = null
-                        lastDiscoveredAttempt = null
-                        discoveryState.value = current.copy(connectPort = null)
-                    }
-                }
-                @Suppress("DEPRECATION")
-                override fun onServiceFound(info: NsdServiceInfo) {
-                    manager.resolveService(info, object : NsdManager.ResolveListener {
-                        override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) = Unit
-                        override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
-                            // We connect only to loopback; service host is never used.
-                            val port = serviceInfo.port.takeIf { it in 1..65535 } ?: return
-                            if (service.contains("pairing")) {
-                                pairingPort = port
-                                discoveryState.value = discoveryState.value.copy(
-                                    pairingPort = port, status = "Pairing code available")
-                                PairingAccessibilityService.onPairingPortDiscovered()
-                            } else {
-                                connectPort = port
-                                discoveryState.value = discoveryState.value.copy(
-                                    connectPort = port, status = "Wireless ADB discovered")
-                                if (!verified.value && !manualRetryRequired.value &&
-                                    lastDiscoveredAttempt != port) {
-                                    lastDiscoveredAttempt = port
-                                    connectAsync(context.applicationContext)
-                                }
-                            }
-                        }
-                    })
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val bindingLock = Any()
+    private var observedCore: AdbCore? = null
+    private var observer: Job? = null
+    private var serviceOwner = false
+
+    private fun core(context: Context): AdbCore {
+        val shared = SharedAdbHostAdapter.core(context.applicationContext)
+        synchronized(bindingLock) {
+            if (observedCore !== shared) {
+                observer?.cancel()
+                observedCore = shared
+                publish(shared.state.value)
+                observer = scope.launch {
+                    shared.state.collect { publish(it) }
                 }
             }
-            listeners.add(listener)
-            runCatching { manager.discoverServices(service, NsdManager.PROTOCOL_DNS_SD, listener) }
-                .onFailure { MonitorState.error("mDNS: " + it.javaClass.simpleName) }
+        }
+        return shared
+    }
+
+    private fun publish(state: AdbState) {
+        val oldPairingPort = pairingPort
+        pairingPort = state.pairingPort
+        connectPort = state.connectionPort
+        verified.value = state.connected
+        // Shared manual Stop drops every owner. Clear our mirrored ownership
+        // so a subsequent explicit Retry can reacquire background recovery.
+        if (state.phase == dev.n2k02.adb.core.AdbPhase.STOPPED) {
+            synchronized(this) { serviceOwner = false }
+        }
+        tcpPortOpen.value = state.connected &&
+            state.transport == AdbTransportMode.LOCAL_TCP_5555
+        discoveryState.value = AdbDiscoveryState(
+            pairingPort = state.pairingPort,
+            connectPort = state.connectionPort,
+            status = state.message,
+        )
+        MonitorState.adb.value = if (state.connected) {
+            "UID 2000 verified • " +
+                if (state.transport == AdbTransportMode.LOCAL_TCP_5555) "TCP/5555"
+                else "Wireless debugging TLS"
+        } else state.message
+        if (state.pairingPort != null && state.pairingPort != oldPairingPort)
+            PairingAccessibilityService.onPairingPortDiscovered()
+    }
+
+    /** The MCP service owns shared recovery independently from Activity visibility.
+     * Repeated Activity/WorkManager starts never acquire a second service owner. */
+    @Synchronized fun discover(context: Context) {
+        if (AdbRecoverySettings.manuallyQuit(context)) return
+        val shared = core(context)
+        if (!serviceOwner) {
+            serviceOwner = true
+            shared.acquireService()
         }
     }
 
-    fun stopDiscovery() {
-        val manager = discovery ?: return
-        listeners.forEach { runCatching { manager.stopServiceDiscovery(it) } }
-        listeners.clear()
-        discovery = null
-        pairingPort = null
-        connectPort = null
-        discoveryState.value = AdbDiscoveryState(status = "Discovery stopped")
-    }
-
-    suspend fun pair(context: Context, port: Int, code: String): Result<Unit> = mutex.withLock {
-        if (port !in 1..65535 || !code.matches(Regex("[0-9]{6}"))) {
-            return@withLock Result.failure(IllegalArgumentException("Enter a valid six-digit Android pairing code and port"))
-        }
-        discoveryState.value = discoveryState.value.copy(status = "Pairing with Android")
-        AdbTransport.pairLocal(context, port, code).also { result ->
-            result.onSuccess {
-                AdbRecoverySettings.rememberPaired(context)
-                manualRetryRequired.value = false
-                lastDiscoveredAttempt = null
-                discoveryState.value = discoveryState.value.copy(status = "Paired; verifying shell")
-            }.onFailure {
-                MonitorState.error("Pairing failed: " + (it.message ?: "unknown"))
-            }
+    @Synchronized fun stopDiscovery() {
+        if (serviceOwner) {
+            observedCore?.releaseService()
+            serviceOwner = false
         }
     }
 
     suspend fun connect(context: Context, preferred: Int? = null,
-                        userInitiated: Boolean = false): Result<Unit> = mutex.withLock {
+                        userInitiated: Boolean = false): Result<Unit> {
         val app = context.applicationContext
         if (AdbRecoverySettings.manuallyQuit(app) && !userInitiated)
-            return@withLock Result.failure(IllegalStateException("Stopped by Quit"))
-        // A later already-authorized TCP/5555 listener can recover even after
-        // a failed TLS authorization attempt. Do not skip that safe path.
-        if (manualRetryRequired.value && !userInitiated && !tcpListening())
-            return@withLock Result.failure(SecurityException("User authorization needed; tap Retry"))
-        if (userInitiated) {
-            manualRetryRequired.value = false
-            lastDiscoveredAttempt = null
-        }
-        // Preserve an already-verified ADB session instead of replacing it
-        // whenever the Activity opens or a recovery request overlaps.
-        if (verified.value && AdbTransport.lastKnownConnected) {
-            val existingUid = try {
-                AdbTransport.exec("id -u", timeoutMs = 6_000).getOrNull()?.trim()
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            }
-            if (existingUid == "2000") {
+            return Result.failure(IllegalStateException("Stopped by Quit"))
+        return try {
+            if (userInitiated) {
+                AdbRecoverySettings.setManuallyQuit(app, false)
                 manualRetryRequired.value = false
-                return@withLock Result.success(Unit)
             }
+            val shared = core(app)
+            var connected = shared.retry(auto = !userInitiated)
+            if (!connected && preferred != null && preferred in 1..65535)
+                connected = shared.connectTls(preferred)
+            check(connected && shared.state.value.connected) {
+                shared.state.value.message
+            }
+            publish(shared.state.value)
+            if (userInitiated) {
+                // A previous manual Stop cleared service ownership in AdbCore.
+                // Retain recovery after leaving Settings, not just during retry.
+                discover(app)
+            }
+            Result.success(Unit)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
             verified.value = false
+            MonitorState.error("ADB connection: " + (failure.message ?: "failed"))
+            Result.failure(failure)
         }
-        MonitorState.adb.value = "Connecting..."
-        tcpPortOpen.value = tcpListening()
-        val candidates = listOfNotNull(
-            5555.takeIf { tcpListening() },
-            preferred?.takeIf { it in 1..65535 },
-            connectPort,
-            AdbRecoverySettings.lastVerifiedTlsPort(app)
-        ).distinct()
-        var lastError: Throwable = IllegalStateException("No local ADB port. Enable Wireless debugging and Pair device.")
-        verified.value = false
-        for (port in candidates) {
-            try {
-                AdbTransport.close()
-                if (port == 5555) AdbTransport.connect(app, AdbTransport.LOOPBACK, port).getOrThrow()
-                else AdbTransport.connectLocalTls(app, port).getOrThrow()
-                val output = AdbTransport.exec("id -u").getOrThrow().trim()
-                check(output == "2000") { "ADB shell identity was " + output + " (expected UID 2000)" }
-                verified.value = true
-                if (port != 5555) AdbRecoverySettings.rememberVerifiedTls(app, port)
-                MonitorState.adb.value = "UID 2000 verified • 127.0.0.1:" + port
-                discoveryState.value = discoveryState.value.copy(status = "Authorized shell UID 2000")
-                if (AdbRecoverySettings.restoreAfterRestart(app)) {
-                    // Only an explicitly enabled preference may request this grant.
-                    AdbRecoverySettings.grantSecureSettings(app)
-                }
-                if (port != 5555 && AdbRecoverySettings.tcpMode(app)) {
-                    AdbTransport.switchToTcpip().getOrThrow()
-                    // Switching restarts adbd. The old TLS shell is no longer verified.
-                    verified.value = false
-                    var promoted = false
-                    var promotionError: Throwable? = null
-                    // Android takes a variable time to reopen the TCP listener.
-                    for (attempt in 1..5) {
-                        delay(1_100)
-                        if (!tcpListening()) continue
-                        try {
-                            AdbTransport.close()
-                            AdbTransport.connect(app, AdbTransport.LOOPBACK, 5555).getOrThrow()
-                            check(AdbTransport.exec("id -u").getOrThrow().trim() == "2000") {
-                                "TCP/5555 identity verification failed"
-                            }
-                            promoted = true
-                            break
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        } catch (failure: Exception) {
-                            promotionError = failure
-                        }
-                    }
-                    if (!promoted) throw IllegalStateException(
-                        "TCP/5555 did not become an authorized shell",
-                        promotionError)
-                    verified.value = true
-                    MonitorState.adb.value = "UID 2000 verified • TCP/5555"
-                    tcpPortOpen.value = true
-                }
-                tcpPortOpen.value = tcpListening()
-                manualRetryRequired.value = false
-                return@withLock Result.success(Unit)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                lastError = failure
-                verified.value = false
-                if (port != 5555) AdbRecoverySettings.clearVerifiedPort(app, port)
-                MonitorState.error("ADB connection: " + (failure.message ?: "failed"))
-                if (AdbRecoverySettings.requiresManualRetry(failure) && port != 5555) {
-                    manualRetryRequired.value = true
-                    break
-                }
-            }
-        }
-        // Even an unsuccessful TLS handshake may leave a transport open.
-        AdbTransport.close()
-        MonitorState.adb.value = "Disconnected"
-        discoveryState.value = discoveryState.value.copy(
-            status = if (manualRetryRequired.value) "Authorization requires manual Retry"
-                else "ADB unavailable; checking discovery")
-        Result.failure(lastError)
+    }
+
+    fun connectAsync(context: Context) {
+        if (AdbRecoverySettings.manuallyQuit(context)) return
+        scope.launch { connect(context) }
     }
 
     fun tcpEnabled(context: Context) = AdbRecoverySettings.tcpMode(context)
@@ -242,50 +146,49 @@ object AdbCoordinator {
     fun setAutoStart(context: Context, value: Boolean) =
         AdbRecoverySettings.setStartOnBoot(context, value)
 
-    /** VRec parity: disabling TCP changes actual adbd mode, not just a toggle. */
-    suspend fun disableTcp(context: Context): Result<Unit> = mutex.withLock {
-        val app = context.applicationContext
-        if (!verified.value) return@withLock Result.failure(
-            SecurityException("Verify ADB shell UID 2000 before disabling TCP"))
-        return@withLock try {
-            if (tcpListening()) {
-                AdbTransport.switchToUsb().getOrThrow()
-                delay(650)
+    suspend fun disableTcp(context: Context): Result<Unit> {
+        return try {
+            val shared = core(context)
+            check(shared.state.value.connected) {
+                "Verify shell UID 2000 before disabling TCP/5555"
             }
-            AdbTransport.close()
-            verified.value = false
-            tcpPortOpen.value = tcpListening()
-            MonitorState.adb.value = "TCP/5555 disabled; reconnect with Wireless debugging"
-            // Return success ONLY after probing the TCP listener.
-            if (tcpListening()) Result.failure(IllegalStateException("TCP/5555 still listening"))
-            else Result.success(Unit)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Result.failure(e)
+            check(shared.disableTcp()) {
+                "Could not confirm TCP/5555 shutdown"
+            }
+            delay(650)
+            check(!isTcpListening()) {
+                "TCP/5555 is still listening; confirm Android debugging settings"
+            }
+            publish(shared.state.value)
+            Result.success(Unit)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            Result.failure(failure)
         }
     }
 
-    fun isTcpListening(): Boolean = tcpListening()
-    private fun tcpListening(): Boolean = runCatching {
-        Socket().use { it.connect(InetSocketAddress("127.0.0.1", 5555), 500); true }
-    }.getOrDefault(false)
-    fun connectAsync(context: Context) {
-        if (AdbRecoverySettings.manuallyQuit(context) || manualRetryRequired.value) return
-        scope.launch {
-            connect(context).onFailure {
-                if (!manualRetryRequired.value) MonitorState.adb.value = "Disconnected"
-            }
+    fun isTcpListening(): Boolean = runCatching {
+        Socket().use {
+            it.connect(InetSocketAddress("127.0.0.1", 5555), 500)
         }
-    }
+        true
+    }.getOrDefault(false)
+
     suspend fun quit() {
         stopDiscovery()
+        SharedAdbHostAdapter.shutdown()
+        synchronized(bindingLock) {
+            observer?.cancel()
+            observer = null
+            observedCore = null
+        }
         scope.coroutineContext.cancelChildren()
-        mutex.withLock { AdbTransport.close() }
         verified.value = false
         tcpPortOpen.value = false
         manualRetryRequired.value = false
-        lastDiscoveredAttempt = null
+        pairingPort = null
+        connectPort = null
         MonitorState.adb.value = "Stopped"
         discoveryState.value = AdbDiscoveryState(status = "Stopped")
     }

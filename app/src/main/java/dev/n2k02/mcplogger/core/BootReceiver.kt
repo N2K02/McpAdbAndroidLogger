@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
+        if (!BootActionPolicy.accepts(intent?.action)) return
         val prefs = context.getSharedPreferences("mcp_logger", Context.MODE_PRIVATE)
         val manuallyQuit = prefs.getBoolean("manual_quit", false)
         if (manuallyQuit) return
@@ -45,4 +46,11 @@ class AdbRecoveryWorker(context: Context, args: WorkerParameters) : CoroutineWor
         AdbRecoveryLifecycle.recoverOnce(applicationContext, "boot")
         return Result.success()
     }
+}
+
+/** Only the two manifest-declared broadcasts may initiate ADB or MCP startup. */
+internal object BootActionPolicy {
+    fun accepts(action: String?): Boolean =
+        action == Intent.ACTION_BOOT_COMPLETED ||
+            action == Intent.ACTION_MY_PACKAGE_REPLACED
 }
