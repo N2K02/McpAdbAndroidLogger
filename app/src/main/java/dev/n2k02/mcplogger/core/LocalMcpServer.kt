@@ -302,12 +302,7 @@ object LocalMcpServer {
                 val started = System.nanoTime()
                 // Capability is checked for every request, not just at OAuth login.
                 // A cached remote tool name cannot bypass a disabled permission.
-                val auditReader: (() -> List<McpAuditEntry>)? =
-                    if (McpAgentAuditAccess.enabled(context)) {
-                        { if (McpAgentAuditAccess.enabled(context))
-                            McpAuditStore.readForAgent(context) else emptyList() }
-                    } else null
-                val result = LocalMcpProtocol.execute(request, auditReader,
+                val result = LocalMcpProtocol.execute(request,
                     logsReader = {
                         // The authenticated MCP worker thread may block while
                         // one bounded shell read executes; no background polling.
@@ -316,7 +311,12 @@ object LocalMcpServer {
                     appsReader = {
                         kotlinx.coroutines.runBlocking { LogMonitorService.refreshInstalledApps() }
                     },
-                    captureReader = { options ->\n                        kotlinx.coroutines.runBlocking {\n                            LogMonitorService.readOnDemand(options = options)\n                        }\n                    },\n                    performanceReader = { name, arguments ->
+                    captureReader = { options ->
+                        kotlinx.coroutines.runBlocking {
+                            LogMonitorService.readOnDemand(options = options)
+                        }
+                    },
+                    performanceReader = { name, arguments ->
                         // Authenticated requests only; no caller-defined commands.
                         kotlinx.coroutines.runBlocking {
                             val pkg = arguments.optString("package_name")
@@ -439,16 +439,27 @@ object LocalMcpServer {
         val safeHeaders = extra.entries.filter { (key, value) ->
             !key.equals("Content-Security-Policy", true) &&
                 key.matches(Regex("[A-Za-z-]+")) &&
-                !value.contains('\r') && !value.contains('\n')
-        }.joinToString("") { it.key + ": " + it.value + "\r\n" }
+                !value.contains('\r') && !value.contains('
+')
+        }.joinToString("") { it.key + ": " + it.value + "\r
+" }
         val policy = responseSecurityPolicy(type, extra)
-        val header = "HTTP/1.1 " + code + " " + reason + "\r\n" +
-            "Content-Type: " + type + "; charset=utf-8\r\n" +
-            "Content-Length: " + bytes.size + "\r\n" +
-            "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n" +
-            "Referrer-Policy: " + referrerPolicy(type) + "\r\n" +
-            "Content-Security-Policy: " + policy + "\r\n" +
-            safeHeaders + "Connection: close\r\n\r\n"
+        val header = "HTTP/1.1 " + code + " " + reason + "\r
+" +
+            "Content-Type: " + type + "; charset=utf-8\r
+" +
+            "Content-Length: " + bytes.size + "\r
+" +
+            "Cache-Control: no-store\r
+X-Content-Type-Options: nosniff\r
+" +
+            "Referrer-Policy: " + referrerPolicy(type) + "\r
+" +
+            "Content-Security-Policy: " + policy + "\r
+" +
+            safeHeaders + "Connection: close\r
+\r
+"
         output.write(header.toByteArray(StandardCharsets.UTF_8))
         output.write(bytes)
         output.flush()
