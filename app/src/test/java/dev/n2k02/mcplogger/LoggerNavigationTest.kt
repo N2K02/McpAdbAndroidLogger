@@ -5,7 +5,7 @@ import org.junit.Test
 import java.io.File
 
 class LoggerNavigationTest {
-    private val settingsPages = listOf(Page.ADB, Page.BRIDGE, Page.MCP_AUDITS, Page.MCP_AGENT_ACCESS, Page.UPDATES)
+    private val settingsPages = listOf(Page.ADB, Page.BRIDGE, Page.UPDATES)
 
     @Test fun settingsDetailsBackToSettingsThenHome() {
         for (destination in settingsPages) {
@@ -27,6 +27,16 @@ class LoggerNavigationTest {
         assertTrue(logs.handlesBack)
         assertEquals(LoggerNavigation(), logs.back())
         assertEquals(Page.LOGS, LoggerNavigation().open(Page.SETTINGS).open(Page.LOGS).page)
+    }
+
+    @Test fun auditsIsIndependentSecondRootTab() {
+        val audits = LoggerNavigation().open(Page.MCP_AUDITS)
+        assertTrue(audits.auditsSelected)
+        assertFalse(audits.homeSelected)
+        assertFalse(audits.settingsSelected)
+        assertEquals(LoggerNavigation(), audits.back())
+        assertEquals(Page.MCP_AUDITS,
+            LoggerNavigation().open(Page.SETTINGS).open(Page.MCP_AUDITS).page)
     }
 
     @Test fun homeShortcutReturnsHome() {
