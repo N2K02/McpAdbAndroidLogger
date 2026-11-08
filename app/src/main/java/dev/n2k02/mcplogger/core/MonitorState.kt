@@ -40,7 +40,6 @@ object MonitorState {
         mcpReadCount.value += 1L
         mcpLastReadAt.value = System.currentTimeMillis()
     }
-    val diagnosticSession = MutableStateFlow(false)\n    val diagnosticSessionEndsAt = MutableStateFlow(0L)
     val logReadOrigin = MutableStateFlow<LogReadOrigin?>(null)
     /** Tracks overlapping MCP tool calls so Home badges reflect any in-flight request. */
     val mcpToolsInFlight = MutableStateFlow<Set<String>>(emptySet())
@@ -79,7 +78,7 @@ object MonitorState {
     fun error(message: String) {
         errors.value = (errors.value + message.take(300)).takeLast(100)
     }
-    fun quit() {\n        diagnosticSession.value = false\n        diagnosticSessionEndsAt.value = 0L
+    fun quit() {
         active.value = false
         logReadOrigin.value = null
         clearMcpTools()
