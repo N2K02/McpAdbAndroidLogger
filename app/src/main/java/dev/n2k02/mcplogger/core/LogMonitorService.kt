@@ -51,6 +51,7 @@ class LogMonitorService : Service() {
             if (!MonitorState.active.value) {
                 resetGate.reset {
                     buffer.clear(resetDedup = true)
+                    mcpBuffer.clear(resetDedup = true)
                     MonitorState.logs.value = emptyList()
                     MonitorState.recentLogRequest.value = null
                 }
@@ -253,6 +254,7 @@ class LogMonitorService : Service() {
                         resetGate.finishDeviceClear {
                             if (cleared) {
                                 buffer.clear(resetDedup = true)
+                                mcpBuffer.clear(resetDedup = true)
                                 MonitorState.logs.value = emptyList()
                                 MonitorState.captureStats.value = LogCaptureStats(
                                     dayStartMs = LogDayPolicy.dayStart(System.currentTimeMillis()))
