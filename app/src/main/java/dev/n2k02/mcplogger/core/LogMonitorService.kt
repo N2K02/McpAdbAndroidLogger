@@ -205,6 +205,7 @@ class LogMonitorService : Service() {
         DiagnosticProfileStore.load(applicationContext)\n        // Android may restart a sticky foreground service without the original Intent.
         when (intent?.action ?: LOCAL_START) {
             CLEAR_DEVICE_LOGCAT -> {
+                stopDiagnosticSession()
                 // Local user action only, never callable from remote MCP tools.
                 if (!resetGate.beginDeviceClear {
                         MonitorState.clearingDeviceLogcat.value = true
@@ -287,6 +288,7 @@ class LogMonitorService : Service() {
                 return START_STICKY
             }
             LOCAL_STOP -> {
+                stopDiagnosticSession()
                 // User-requested server stop: tunnel and local MCP go down and stay
                 // down (no auto-start on reopen or boot) until Start server is pressed.
                 QuickMcpTunnel.stop()
@@ -440,8 +442,11 @@ class LogMonitorService : Service() {
      * an MCP tool, capped to two minutes, and canceled by Quit/Stop/destroy.
      */
     private fun startDiagnosticSession(profile: String, duration: Int, interval: Int) {
-        require(duration in 10..120 && interval in 3..30)
-        require(profile.isBlank() || DiagnosticLogcat.catalog().has(profile))
+        if (duration !in 10..120 || interval !in 3..30 ||
+            (profile.isNotBlank() && !DiagnosticLogcat.catalog().has(profile))) {
+            MonitorState.error("Invalid diagnostic session settings")
+            return
+        }
         if (diagnosticJob?.isActive == true) return
         if (!AdbCoordinator.verified.value) {
             MonitorState.error("Diagnostic session requires verified ADB UID 2000")
