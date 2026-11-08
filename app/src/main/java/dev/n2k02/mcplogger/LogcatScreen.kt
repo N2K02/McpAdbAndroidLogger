@@ -372,12 +372,16 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                             style = MaterialTheme.typography.labelSmall,
                             color = if (active) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurfaceVariant)
-                        IconButton(onClick = {
+                        Button(onClick = {
                             ContextCompat.startForegroundService(context,
                                 Intent(context, LogMonitorService::class.java)
                                     .setAction(LogMonitorService.START))
-                        }, enabled = !active && !deviceLogcatClearing && adbVerified) {
-                            Icon(Icons.Rounded.Refresh, contentDescription = "Refresh logs")
+                        }, enabled = !active && !deviceLogcatClearing && adbVerified,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                            Icon(Icons.Rounded.Search, contentDescription = null,
+                                modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Search")
                         }
                         Box {
                             IconButton(onClick = { actionMenu = true }) {
