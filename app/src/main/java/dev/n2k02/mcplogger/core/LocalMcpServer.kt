@@ -316,9 +316,6 @@ object LocalMcpServer {
                             LogMonitorService.readOnDemand(options = options)
                         }
                     },
-                    liveReader = { arguments ->
-                        kotlinx.coroutines.runBlocking { LiveAppDiagnostics.collect(arguments) }
-                    },
                     performanceReader = { name, arguments ->
                         // Authenticated requests only; no caller-defined commands.
                         kotlinx.coroutines.runBlocking {
