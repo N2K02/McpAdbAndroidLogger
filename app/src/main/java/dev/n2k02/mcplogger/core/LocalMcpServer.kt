@@ -348,16 +348,9 @@ object LocalMcpServer {
                 else respond(output, 200, responseBody, "application/json")
                 // Capture the same response payload prepared for and written to
                 // this authenticated MCP connection. No HTTP/OAuth headers saved.
-                // Prevent audit-history replies from recursively embedding themselves
-                // into the private journal or growing on each successive query.
-                val auditHistoryRead = request.optString("method") == "tools/call" &&
-                    request.optJSONObject("params")?.optString("name") == "get_mcp_audits"
-                val auditResponse = if (auditHistoryRead)
-                    "[MCP audit-history response omitted; read operation recorded]"
-                    else responseBody
                 McpAuditStore.record(context, agent,
                     String(data, StandardCharsets.UTF_8),
-                    auditResponse, request.optString("method"),
+                    responseBody, request.optString("method"),
                     if (request.optString("method") == "tools/call")
                         request.optJSONObject("params")?.optString("name").orEmpty()
                     else request.optString("method"),
