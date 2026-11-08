@@ -26,7 +26,7 @@ class LocalMcpProtocolTest {
             .getJSONArray("content").getJSONObject(0).getString("text"))
         assertEquals(LocalMcpProtocol.CATALOG_REVISION,
             payload.getString("mcp_catalog_revision"))
-        assertEquals(17, payload.getInt("mcp_tool_count"))
+        assertEquals(18, payload.getInt("mcp_tool_count"))
         val toolNames = payload.getJSONArray("mcp_tool_names")
         val listed = LocalMcpProtocol.execute(JSONObject(
             """{"jsonrpc":"2.0","method":"tools/list","id":2}"""),
@@ -47,7 +47,7 @@ class LocalMcpProtocolTest {
         val reply = LocalMcpProtocol.execute(JSONObject(
             """{"jsonrpc":"2.0","method":"tools/list","id":2}"""))!!
         val list = reply.getJSONObject("result").getJSONArray("tools")
-        assertEquals(17, list.length())
+        assertEquals(18, list.length())
         for (i in 0 until list.length()) {
             val s = list.getJSONObject(i).getJSONArray("securitySchemes").getJSONObject(0)
             assertEquals("oauth2", s.getString("type"))
@@ -90,7 +90,7 @@ class LocalMcpProtocolTest {
         val list = LocalMcpProtocol.execute(JSONObject(
             """{"jsonrpc":"2.0","method":"tools/list","id":7}"""))!!
             .getJSONObject("result").getJSONArray("tools")
-        assertEquals(17, list.length())
+        assertEquals(18, list.length())
         assertFalse((0 until list.length()).any {
             list.getJSONObject(it).getString("name") == "get_mcp_audits"
         })
@@ -106,7 +106,7 @@ class LocalMcpProtocolTest {
         val tools = LocalMcpProtocol.execute(JSONObject(
             """{"jsonrpc":"2.0","method":"tools/list","id":1}"""), reader)!!
             .getJSONObject("result").getJSONArray("tools")
-        assertEquals(18, tools.length())
+        assertEquals(19, tools.length())
         val audit = (0 until tools.length()).map { tools.getJSONObject(it) }
             .single { it.getString("name") == "get_mcp_audits" }
         assertTrue(audit.getJSONObject("inputSchema").getJSONObject("properties")
