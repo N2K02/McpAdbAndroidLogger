@@ -52,6 +52,23 @@ internal object DiagnosticLogcat {
         }
     }
 
+    /** The LogFox parser requires epoch and uid, regardless of display preference. */
+    fun captureCommand(options: Options?): String {
+        if (options == null) return "logcat -b main -b system -b crash -v uid -v epoch -d -t 2000"
+        val buffers = options.buffers.ifEmpty { listOf("main", "system", "crash") }
+        return buildList {
+            add("logcat")
+            buffers.forEach { add("-b"); add(it) }
+            addAll(listOf("-v", "uid", "-v", "epoch", "-d", "-t", "2000"))
+            if (options.pid != null) { add("--pid"); add(options.pid) }
+            if (options.tags.isNotEmpty()) {
+                add("-s")
+                options.tags.forEach { (tag, priority) -> add("$tag:$priority") }
+                add("*:S")
+            }
+        }.joinToString(" ")
+    }
+
     fun parse(args: JSONObject): Options {
         val profile = args.optString("profile", "").lowercase()
         require(profile.isEmpty() || profile in profiles)
