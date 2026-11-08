@@ -8,14 +8,14 @@ internal object LocalMcpProtocol {
     const val VERSION = "2025-11-25"
     // Readable through the original get_device_status tool even when an MCP client
     // still has an old tools/list cache. Never starts a shell diagnostic.
-    const val CATALOG_REVISION = "2026-11-06-perfetto-reliability-3"
+    const val CATALOG_REVISION = "2026-11-09-diagnostic-logcat-1"
     private val names = listOf("get_device_status", "list_installed_apps", "get_live_logs",
         "search_logs", "get_crashes", "get_anrs", "get_cpu_usage",
         "get_frame_timing", "get_performance_snapshot",
         "get_battery_diagnostics", "get_memory_pressure", "get_wakelock_usage",
         "get_screen_off_baseline", "get_screen_off_report",
         "get_surfaceflinger_layers", "get_surfaceflinger_activity",
-        "get_surfaceflinger_perfetto")
+        "get_surfaceflinger_perfetto", "list_logcat_profiles")
 
     internal fun builtInToolNames(): List<String> = names.toList()
 
@@ -85,6 +85,7 @@ internal object LocalMcpProtocol {
             "List app-associated SurfaceFlinger layers (not per-app CPU or GPU); private layer titles omitted",
             "Sample 3-10 seconds of SurfaceFlinger TimeStats frames and compositor CPU, rank likely app render contributors; momentarily resets TimeStats",
             "Collect a 3-10 second Perfetto FrameTimeline and scheduling trace where an on-device processor is available; returns sanitized per-app counts and shared compositor CPU only",
+            "List built-in diagnostic Logcat profiles and their priority-tag filters",
             "Read sanitized, paginated MCP audit history (requires local owner opt-in)"
         )
         return JSONArray().apply {
@@ -104,6 +105,19 @@ internal object LocalMcpProtocol {
                 if (name in setOf("get_surfaceflinger_activity", "get_surfaceflinger_perfetto")) {
                     fields.put("duration_seconds", JSONObject().put("type", "integer")
                         .put("description", "Explicit capture duration 3-10 seconds, default 5."))
+                }
+                if (name in setOf("get_live_logs", "search_logs", "get_crashes", "get_anrs")) {
+                    fields.put("profile", JSONObject().put("type", "string"))
+                    fields.put("tags", JSONObject().put("type", "array")
+                        .put("items", JSONObject().put("type", "string")))
+                    fields.put("buffers", JSONObject().put("type", "array")
+                        .put("items", JSONObject().put("type", "string")))
+                    fields.put("format", JSONObject().put("type", "string"))
+                    fields.put("mode", JSONObject().put("type", "string")
+                        .put("description", "snapshot only; no remote continuous capture"))
+                    fields.put("since", JSONObject().put("type", "integer")
+                        .put("description", "Epoch milliseconds"))
+                    fields.put("pid", JSONObject().put("type", "integer"))
                 }
                 if (name == "get_live_logs") {
                     fields.put("after_cursor", JSONObject().put("type", "integer"))
@@ -164,6 +178,7 @@ internal object LocalMcpProtocol {
                     "get_wakelock_usage", "get_screen_off_baseline", "get_screen_off_report")))
                 .put("on_demand_health_ready", MonitorState.adb.value.startsWith(
                     "UID 2000 verified"))
+            "list_logcat_profiles" -> DiagnosticLogcat.catalog()
             "list_installed_apps" -> JSONArray((appsReader?.invoke() ?: MonitorState.packages.value).take(limit))
             "get_mcp_audits" -> {
                 val reader = auditReader ?: throw IllegalArgumentException(
@@ -201,7 +216,9 @@ internal object LocalMcpProtocol {
                 val query = args.optString("query").take(200)
                 val level = args.optString("level").take(1)
                 if (name == "search_logs" && query.isBlank()) throw IllegalArgumentException()
-                val events = logsReader?.invoke() ?: LogMonitorService.snapshot(0, 2000)
+                val options = DiagnosticLogcat.parse(args)
+                val events = DiagnosticLogcat.select(
+                    logsReader?.invoke() ?: LogMonitorService.snapshot(0, 2000), options)
                 val logs = McpLogQuery.select(
                     // Scan the fresh bounded Android buffer before applying UID filters.
                     // A cursor is assigned only for previously unseen entries.
