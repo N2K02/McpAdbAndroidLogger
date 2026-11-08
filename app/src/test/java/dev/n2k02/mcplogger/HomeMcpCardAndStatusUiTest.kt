@@ -10,19 +10,14 @@ class HomeMcpCardAndStatusUiTest {
         return listOf(File(p), File("../$p")).first { it.isFile }.readText()
     }
 
-    @Test fun homeDailyLogcatCardPrecedesReadOnlyMcpConnectionDetails() {
+    @Test fun homeShowsManualLogcatAndMcpReadCountersSeparately() {
         val home = code("HomeDashboard.kt")
-        val today = home.indexOf("\"Logcat (Today)\"")
-        val mcp = home.indexOf("\"Public MCP\"")
-        assertTrue(today >= 0)
-        assertTrue(mcp > today)
-        val card = home.substring(mcp, home.indexOf("    }\n}\n\n@Composable\nprivate fun StatMetric"))
-        assertTrue(card.contains("Copy public MCP URL"))
-        assertTrue(card.contains("Copy MCP client access key"))
-        assertFalse(card.contains("OutlinedTextField"))
-        assertFalse(card.contains("LOCAL_STOP"))
-        assertTrue(card.contains("sensitive = true"))
-        assertTrue(card.contains("\"•\".repeat(24)"))
+        assertTrue(home.contains("Manual Logcat (Today)"))
+        assertTrue(home.contains("MCP activity"))
+        assertTrue(home.contains("MCP Logcat reads"))
+        assertTrue(home.contains("MonitorState.mcpReadCount.collectAsState()"))
+        assertFalse(home.contains("HomeTab.PERFORMANCE"))
+        assertFalse(home.contains("HomeTab.CONNECTION"))
     }
 
     @Test fun tunnelToneMapsStatuses() {
