@@ -44,6 +44,19 @@ class AppRuntimeDiagnosticsTest {
         assertEquals("unavailable_or_not_listed", result.getString("permissions_status"))
     }
 
+    @Test fun numericUidStateIsAvailableWhenReadableAndSafeWhenNot() {
+        val value = AppRuntimeDiagnostics.parseUidState("10123", "200 TOP")
+        assertEquals("ok", value.getString("status"))
+        assertEquals(200, value.getInt("state_code"))
+        val unknown = AppRuntimeDiagnostics.parseUidState("10123", "Error: unavailable")
+        assertEquals("unavailable", unknown.getString("status"))
+        assertTrue(unknown.isNull("state_code"))
+        assertFalse(value.toString().contains("TOP"))
+        assertThrows(IllegalArgumentException::class.java) {
+            AppRuntimeDiagnostics.parseUidState("10123;id", "200")
+        }
+    }
+
     @Test fun arbitraryShellSyntaxCannotBeInjected() {
         for (name in listOf("", "app", "com.example;id", "com.example/../foo",
                 "com.example && rm", "com.example\nwhoami")) {
