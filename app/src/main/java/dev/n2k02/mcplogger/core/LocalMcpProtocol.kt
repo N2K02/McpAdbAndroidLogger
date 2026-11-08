@@ -16,7 +16,7 @@ internal object LocalMcpProtocol {
         "get_screen_off_baseline", "get_screen_off_report",
         "get_surfaceflinger_layers", "get_surfaceflinger_activity",
         "get_surfaceflinger_perfetto", "list_logcat_profiles",
-        "get_diagnostic_correlation", "get_app_runtime", "get_app_ops"
+        "get_diagnostic_correlation", "get_app_runtime", "get_app_ops")
 
     internal fun builtInToolNames(): List<String> = names.toList()
 
