@@ -57,7 +57,7 @@ class AppRuntimeDiagnosticsTest {
         val tools = LocalMcpProtocol.execute(JSONObject(
             """{"jsonrpc":"2.0","method":"tools/list","id":1}"""))!!
             .getJSONObject("result").getJSONArray("tools")
-        assertEquals(20, tools.length())
+        assertEquals(21, tools.length())
         val item = (0 until tools.length()).map { tools.getJSONObject(it) }
             .single { it.getString("name") == "get_app_runtime" }
         val schema = item.getJSONObject("inputSchema")
