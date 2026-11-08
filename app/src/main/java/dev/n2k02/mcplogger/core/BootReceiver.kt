@@ -15,6 +15,8 @@ import androidx.core.content.ContextCompat
 
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
+        if (intent?.action != Intent.ACTION_BOOT_COMPLETED &&
+            intent?.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
         val prefs = context.getSharedPreferences("mcp_logger", Context.MODE_PRIVATE)
         val manuallyQuit = prefs.getBoolean("manual_quit", false)
         if (manuallyQuit) return
