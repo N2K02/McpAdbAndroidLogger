@@ -102,11 +102,13 @@ internal object DiagnosticLogcat {
         // Continuous monitoring is intentionally not remotely startable.
         require(mode == "snapshot")
         val since = if (args.has("since")) {
+            require(args.opt("since") is Number)
             val value = args.optLong("since", -1)
             require(value >= 0)
             value
         } else null
         val pid = if (args.has("pid")) {
+            require(args.opt("pid") is Number)
             val value = args.optInt("pid", -1)
             require(value > 0)
             value.toString()
