@@ -34,7 +34,13 @@ data class RecentLogRequest(
 
 
 object MonitorState {
-    val active = MutableStateFlow(false)\n    val diagnosticSession = MutableStateFlow(false)\n    val diagnosticSessionEndsAt = MutableStateFlow(0L)
+    val active = MutableStateFlow(false)\n    val mcpReadCount = MutableStateFlow(0L)
+    val mcpLastReadAt = MutableStateFlow(0L)
+    @Synchronized fun registerMcpRead() {
+        mcpReadCount.value += 1L
+        mcpLastReadAt.value = System.currentTimeMillis()
+    }
+    val diagnosticSession = MutableStateFlow(false)\n    val diagnosticSessionEndsAt = MutableStateFlow(0L)
     val logReadOrigin = MutableStateFlow<LogReadOrigin?>(null)
     /** Tracks overlapping MCP tool calls so Home badges reflect any in-flight request. */
     val mcpToolsInFlight = MutableStateFlow<Set<String>>(emptySet())
