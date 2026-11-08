@@ -23,12 +23,13 @@ class McpAndAdbWorkflowContractTest {
         assertTrue(service.contains("QuickMcpTunnel.stop()"))
     }
 
-    @Test fun adbPairingStaysOnHomeAndSettingsMatchVrec() {
+    @Test fun adbPairingStaysInSettingsAndMcpDoesNotRequireHomeControls() {
         val settings = source("app/src/main/java/dev/n2k02/mcplogger/LoggerUi.kt")
             .substringAfter("private fun AdbPage(").substringBefore("private fun BridgePage(")
         val home = source("app/src/main/java/dev/n2k02/mcplogger/HomeDashboard.kt")
         val setup = source("app/src/main/java/dev/n2k02/mcplogger/AdbHomeSetupCard.kt")
-        assertTrue(home.contains("AdbHomeSetupCard()"))
+        assertTrue(home.contains("HomeStatusCard(Icons.Rounded.SettingsInputAntenna"))
+        assertFalse(home.contains("AdbHomeSetupCard()"))
         assertTrue(setup.contains("SharedAdbHostAdapter.core(context)"))
         assertTrue(setup.contains("AdbHomeSetupPage(adb, accessibilityEnabled"))
         assertTrue(setup.contains("AdbPageLifecycle(adb)"))
