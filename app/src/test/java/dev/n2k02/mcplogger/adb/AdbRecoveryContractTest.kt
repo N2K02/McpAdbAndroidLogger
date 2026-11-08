@@ -9,6 +9,12 @@ class AdbRecoveryContractTest {
         val path = "app/src/main/java/dev/n2k02/mcplogger/adb/" + name
         return listOf(File(path), File("../" + path)).first { it.isFile }.readText()
     }
+    @Test fun rotationDoesNotClearManualQuit() {
+        val activity = listOf(File("app/src/main/java/dev/n2k02/mcplogger/MainActivity.kt"),
+            File("../app/src/main/java/dev/n2k02/mcplogger/MainActivity.kt")).first { it.isFile }.readText()
+        assertTrue(activity.contains("if (savedInstanceState == null) AdbRecoverySettings.markForegroundOpened(this)"))
+    }
+
     @Test fun matchingVrecRecoveryCadenceAndQuit() {
         val s = code("AdbRecoveryLifecycle.kt")
         assertTrue(s.contains("delay(120_000)"))
