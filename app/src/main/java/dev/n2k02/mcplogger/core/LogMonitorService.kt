@@ -37,7 +37,9 @@ class LogMonitorService : Service() {
         const val START = "dev.n2k02.mcplogger.START"
         const val LOCAL_START = "dev.n2k02.mcplogger.LOCAL_MCP_START"
         const val TUNNEL_RESTART = "dev.n2k02.mcplogger.TUNNEL_RESTART"
-        const val STOP = "dev.n2k02.mcplogger.STOP"\n        const val START_DIAGNOSTIC_SESSION = "dev.n2k02.mcplogger.START_DIAGNOSTIC_SESSION"\n        const val STOP_DIAGNOSTIC_SESSION = "dev.n2k02.mcplogger.STOP_DIAGNOSTIC_SESSION"
+        const val STOP = "dev.n2k02.mcplogger.STOP"
+        const val START_DIAGNOSTIC_SESSION = "dev.n2k02.mcplogger.START_DIAGNOSTIC_SESSION"
+        const val STOP_DIAGNOSTIC_SESSION = "dev.n2k02.mcplogger.STOP_DIAGNOSTIC_SESSION"
         const val CLEAR_DEVICE_LOGCAT = "dev.n2k02.mcplogger.CLEAR_DEVICE_LOGCAT"
         const val LOCAL_STOP = "dev.n2k02.mcplogger.LOCAL_MCP_STOP"
         const val QUIT = "dev.n2k02.mcplogger.QUIT"
@@ -204,7 +206,8 @@ class LogMonitorService : Service() {
         }
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var job: Job? = null\n    private var diagnosticJob: Job? = null
+    private var job: Job? = null
+    private var diagnosticJob: Job? = null
     private var tunnelJob: Job? = null
     private var relayHeartbeatJob: Job? = null
     private var dailyPruneJob: Job? = null
@@ -215,7 +218,8 @@ class LogMonitorService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Never restart monitoring or the MCP listener while Quit is closing ADB.
         if (quitJob?.isActive == true) return START_NOT_STICKY
-        DiagnosticProfileStore.load(applicationContext)\n        // Android may restart a sticky foreground service without the original Intent.
+        DiagnosticProfileStore.load(applicationContext)
+        // Android may restart a sticky foreground service without the original Intent.
         when (intent?.action ?: LOCAL_START) {
             CLEAR_DEVICE_LOGCAT -> {
                 stopDiagnosticSession()
