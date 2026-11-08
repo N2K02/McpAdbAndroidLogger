@@ -43,7 +43,7 @@ internal object LocalMcpProtocol {
                     .put("serverInfo", JSONObject().put("name", "MCP ADB Android Logger")
                         .put("version", CATALOG_REVISION))
                 "ping" -> JSONObject()
-                "tools/list" -> JSONObject().put("tools", toolList(auditReader != null))
+                "tools/list" -> JSONObject().put("tools", toolList())
                 "tools/call" -> {
                     val params = req.optJSONObject("params") ?: JSONObject()
                     val name = params.optString("name")
@@ -67,8 +67,8 @@ internal object LocalMcpProtocol {
         }
     }
 
-    private fun toolList(includeAudits: Boolean): JSONArray {
-        val toolNames = if (includeAudits) names + "get_mcp_audits" else names
+    private fun toolList(): JSONArray {
+        val toolNames = names
         val descriptions = listOf(
             "Read cached ADB shell status and whether a Logcat request is currently running",
             "Fetch the installed third-party app list from Android on demand",
@@ -88,8 +88,7 @@ internal object LocalMcpProtocol {
             "Sample 3-10 seconds of SurfaceFlinger TimeStats frames and compositor CPU, rank likely app render contributors; momentarily resets TimeStats",
             "Collect a 3-10 second Perfetto FrameTimeline and scheduling trace where an on-device processor is available; returns sanitized per-app counts and shared compositor CPU only",
             "List built-in and locally saved diagnostic Logcat profiles",
-            "Capture bounded contemporaneous Logcat, CPU, memory and battery diagnostics",
-            "Read sanitized, paginated MCP audit history (requires local owner opt-in)"
+            "Capture bounded contemporaneous Logcat, CPU, memory and battery diagnostics"
         )
         return JSONArray().apply {
             toolNames.forEachIndexed { index, name ->
@@ -97,11 +96,9 @@ internal object LocalMcpProtocol {
                 if (name in setOf("list_installed_apps", "get_live_logs", "search_logs",
                         "get_crashes", "get_anrs", "get_cpu_usage", "get_wakelock_usage",
                         "get_screen_off_report", "get_surfaceflinger_layers",
-                        "get_surfaceflinger_activity", "get_surfaceflinger_perfetto",
-                        "get_mcp_audits")) {
+                        "get_surfaceflinger_activity", "get_surfaceflinger_perfetto")) {
                     fields.put("limit", JSONObject().put("type", "integer")
-                        .put("description", if (name == "get_mcp_audits") "1-25"
-                            else if (name in setOf("get_cpu_usage", "get_wakelock_usage",
+                        .put("description", if (name in setOf("get_cpu_usage", "get_wakelock_usage",
                                     "get_screen_off_report", "get_surfaceflinger_layers",
                                     "get_surfaceflinger_activity", "get_surfaceflinger_perfetto")) "1-50" else "1-500"))
                 }
@@ -147,12 +144,6 @@ internal object LocalMcpProtocol {
                             .put("description", "Frame budget 5-50 ms; 16.67 is 60 Hz and 8.33 is 120 Hz."))
                     }
                 }
-                if (name == "get_mcp_audits") {
-                    fields.put("before_id", JSONObject().put("type", "string")
-                        .put("description", "Optional cursor from next_before_id"))
-                    fields.put("include_payloads", JSONObject().put("type", "boolean")
-                        .put("description", "Show re-redacted request/response previews; default false"))
-                }
                 val schema = JSONObject().put("type", "object").put("properties", fields)
                     .put("additionalProperties", false)
                 if (name == "search_logs") schema.put("required", JSONArray().put("query"))
@@ -189,12 +180,6 @@ internal object LocalMcpProtocol {
                     "UID 2000 verified"))
             "list_logcat_profiles" -> DiagnosticLogcat.catalog()
             "list_installed_apps" -> JSONArray((appsReader?.invoke() ?: MonitorState.packages.value).take(limit))
-            "get_mcp_audits" -> {
-                val reader = auditReader ?: throw IllegalArgumentException(
-                    "MCP audit history access is disabled")
-                McpAuditPolicy.agentPage(reader(), args.optInt("limit", 20),
-                    args.optString("before_id"), args.optBoolean("include_payloads", false))
-            }
             "get_cpu_usage", "get_frame_timing", "get_performance_snapshot",
             "get_battery_diagnostics", "get_memory_pressure", "get_wakelock_usage",
             "get_screen_off_baseline", "get_screen_off_report",
