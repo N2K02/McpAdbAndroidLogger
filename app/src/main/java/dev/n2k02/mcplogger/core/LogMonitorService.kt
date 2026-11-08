@@ -98,7 +98,7 @@ class LogMonitorService : Service() {
          * cache preserves existing MCP cursors and the local Logs viewer, but is
          * never replenished in the background.
          */
-        suspend fun readOnDemand(origin: LogReadOrigin = LogReadOrigin.MCP,
+        internal suspend fun readOnDemand(origin: LogReadOrigin = LogReadOrigin.MCP,
             options: DiagnosticLogcat.Options? = null,
             commandTimeoutMs: Long = 12000): List<LogEvent> = readLock.withLock {
             if (origin == LogReadOrigin.MANUAL) cancelIdleLogCleanup()
