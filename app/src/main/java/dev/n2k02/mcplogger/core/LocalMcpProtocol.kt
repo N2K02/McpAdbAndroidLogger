@@ -8,7 +8,7 @@ internal object LocalMcpProtocol {
     const val VERSION = "2025-11-25"
     // Readable through the original get_device_status tool even when an MCP client
     // still has an old tools/list cache. Never starts a shell diagnostic.
-    const val CATALOG_REVISION = "2026-11-09-diagnostic-logcat-2"
+    const val CATALOG_REVISION = "2026-11-09-live-app-diagnostics-3"
     private val names = listOf("get_device_status", "list_installed_apps", "get_live_logs",
         "search_logs", "get_crashes", "get_anrs", "get_cpu_usage",
         "get_frame_timing", "get_performance_snapshot",
@@ -16,7 +16,7 @@ internal object LocalMcpProtocol {
         "get_screen_off_baseline", "get_screen_off_report",
         "get_surfaceflinger_layers", "get_surfaceflinger_activity",
         "get_surfaceflinger_perfetto", "list_logcat_profiles",
-        "get_diagnostic_correlation")
+        "get_diagnostic_correlation", "monitor_app_live")
 
     internal fun builtInToolNames(): List<String> = names.toList()
 
@@ -30,7 +30,8 @@ internal object LocalMcpProtocol {
                 logsReader: (() -> List<LogEvent>)? = null,
                 appsReader: (() -> List<String>)? = null,
                 performanceReader: ((String, JSONObject) -> JSONObject)? = null,
-                captureReader: ((DiagnosticLogcat.Options) -> List<LogEvent>)? = null): JSONObject? {
+                captureReader: ((DiagnosticLogcat.Options) -> List<LogEvent>)? = null,
+                liveReader: ((JSONObject) -> JSONObject)? = null): JSONObject? {
         val id = req.opt("id") ?: JSONObject.NULL
         val method = req.optString("method")
         if (req.optString("jsonrpc") != "2.0" || method.isEmpty())
@@ -50,7 +51,7 @@ internal object LocalMcpProtocol {
                     MonitorState.beginMcpTool(name)
                     val body = try {
                         readTool(name, params.optJSONObject("arguments") ?: JSONObject(),
-                            auditReader, logsReader, appsReader, performanceReader, captureReader)
+                            auditReader, logsReader, appsReader, performanceReader, captureReader, liveReader)
                     } finally {
                         MonitorState.endMcpTool(name)
                     }
@@ -88,7 +89,8 @@ internal object LocalMcpProtocol {
             "Sample 3-10 seconds of SurfaceFlinger TimeStats frames and compositor CPU, rank likely app render contributors; momentarily resets TimeStats",
             "Collect a 3-10 second Perfetto FrameTimeline and scheduling trace where an on-device processor is available; returns sanitized per-app counts and shared compositor CPU only",
             "List built-in and locally saved diagnostic Logcat profiles",
-            "Capture bounded contemporaneous Logcat, CPU, memory and battery diagnostics"
+            "Capture bounded contemporaneous Logcat, CPU, memory and battery diagnostics",
+            "Observe one verified Android app for 1-7 seconds on demand; hard 10-second request timeout"
         )
         return JSONArray().apply {
             toolNames.forEachIndexed { index, name ->
@@ -124,6 +126,13 @@ internal object LocalMcpProtocol {
                     fields.put("level", JSONObject().put("type", "string"))
                     fields.put("query", JSONObject().put("type", "string"))
                 }
+                if (name == "monitor_app_live") {
+                    fields.put("package_name", JSONObject().put("type", "string"))
+                    fields.put("duration_seconds", JSONObject().put("type", "integer")
+                        .put("description", "Live observation: 1-7 seconds, total deadline 10 seconds"))
+                    fields.put("limit", JSONObject().put("type", "integer"))
+                    fields.put("profile", JSONObject().put("type", "string"))
+                }
                 if (name == "get_diagnostic_correlation") {
                     fields.put("package_name", JSONObject().put("type", "string"))
                     fields.put("profile", JSONObject().put("type", "string"))
@@ -146,6 +155,7 @@ internal object LocalMcpProtocol {
                 }
                 val schema = JSONObject().put("type", "object").put("properties", fields)
                     .put("additionalProperties", false)
+                if (name == "monitor_app_live") schema.put("required", JSONArray().put("package_name"))
                 if (name == "search_logs") schema.put("required", JSONArray().put("query"))
                 if (name == "get_frame_timing") schema.put("required", JSONArray().put("package_name"))
                 put(JSONObject().put("name", name).put("description", descriptions[index])
@@ -162,7 +172,8 @@ internal object LocalMcpProtocol {
                          logsReader: (() -> List<LogEvent>)?,
                          appsReader: (() -> List<String>)?,
                          performanceReader: ((String, JSONObject) -> JSONObject)?,
-                         captureReader: ((DiagnosticLogcat.Options) -> List<LogEvent>)?): Any {
+                         captureReader: ((DiagnosticLogcat.Options) -> List<LogEvent>)?,
+                         liveReader: ((JSONObject) -> JSONObject)?): Any {
         val limit = args.optInt("limit", 100).coerceIn(1, 500)
         return when (name) {
             "get_device_status" -> JSONObject().put("adb", MonitorState.adb.value)
@@ -204,6 +215,15 @@ internal object LocalMcpProtocol {
                     .put("duration_seconds", duration)
                 performanceReader?.invoke(name, safeArgs)
                     ?: throw IllegalStateException("Performance diagnostics unavailable")
+            }
+            "monitor_app_live" -> {
+                val validated = LiveAppDiagnostics.parse(args)
+                liveReader?.invoke(JSONObject()
+                    .put("package_name", validated.packageName)
+                    .put("duration_seconds", validated.durationSeconds)
+                    .put("limit", validated.limit)
+                    .put("profile", validated.profile))
+                    ?: throw IllegalStateException("Live monitoring unavailable")
             }
             "get_diagnostic_correlation" -> {
                 val pkg = args.optString("package_name", "")
