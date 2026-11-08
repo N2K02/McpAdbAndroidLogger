@@ -79,7 +79,6 @@ fun LoggerApp(onQuit: () -> Unit) {
                                 Page.ADB -> Icons.Rounded.SettingsInputAntenna
                                 Page.BRIDGE -> Icons.Rounded.Cloud
                                 Page.MCP_AUDITS -> Icons.Rounded.ManageSearch
-                                Page.MCP_AGENT_ACCESS -> Icons.Rounded.AdminPanelSettings
                                 Page.LOGS -> Icons.Rounded.List
                                 Page.UPDATES -> Icons.Rounded.SystemUpdate
                             }, null, modifier = Modifier.size(22.dp))
@@ -87,7 +86,7 @@ fun LoggerApp(onQuit: () -> Unit) {
                         Text(page.title, style = MaterialTheme.typography.titleMedium)
                     }
                 },
-                navigationIcon = if (page !in listOf(Page.HOME, Page.LOGS, Page.SETTINGS)) {
+                navigationIcon = if (page !in listOf(Page.HOME, Page.MCP_AUDITS, Page.LOGS, Page.SETTINGS)) {
                     { IconButton(onClick = { navigateBack() }) {
                         Icon(Icons.Rounded.ArrowBack, "Back")
                     } }
@@ -113,6 +112,10 @@ fun LoggerApp(onQuit: () -> Unit) {
                 NavigationBarItem(selected = LoggerNavigation(page, subpageParent).homeSelected,
                     onClick = { navigateTo(Page.HOME) },
                     icon = { Icon(Icons.Rounded.Home, null) }, label = { Text("Home") })
+                NavigationBarItem(selected = LoggerNavigation(page, subpageParent).auditsSelected,
+                    onClick = { navigateTo(Page.MCP_AUDITS) },
+                    icon = { Icon(Icons.Rounded.ManageSearch, null) },
+                    label = { Text("Audits") })
                 NavigationBarItem(selected = LoggerNavigation(page, subpageParent).logsSelected,
                     onClick = { navigateTo(Page.LOGS) },
                     icon = { Icon(Icons.Rounded.Terminal, null) },
@@ -135,10 +138,6 @@ fun LoggerApp(onQuit: () -> Unit) {
                     Icons.Rounded.SettingsInputAntenna) { navigateTo(Page.ADB) }
                 SettingsRow("MCP connection", "Local MCP server and secure public tunnel",
                     Icons.Rounded.Cloud) { navigateTo(Page.BRIDGE) }
-                SettingsRow("MCP audits", "Requests and responses by authorized AI agent",
-                    Icons.Rounded.History) { navigateTo(Page.MCP_AUDITS) }
-                SettingsRow("Agent permissions", "Optional read access to MCP audit history",
-                    Icons.Rounded.AdminPanelSettings) { navigateTo(Page.MCP_AGENT_ACCESS) }
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 ListItem(headlineContent = { Text("About & updates") },
                     supportingContent = { Text("Stable and experimental APK updates") },
@@ -149,7 +148,6 @@ fun LoggerApp(onQuit: () -> Unit) {
             Page.ADB -> AdbPage(Modifier.padding(padding))
             Page.BRIDGE -> BridgePage(Modifier.padding(padding))
             Page.MCP_AUDITS -> McpAuditsScreen(Modifier.padding(padding))
-            Page.MCP_AGENT_ACCESS -> AgentPermissionsPage(Modifier.padding(padding))
             Page.LOGS -> LogsPage(Modifier.padding(padding))
             Page.UPDATES -> {
                 val experiment by LiveUpdater.experimentalEnabled.collectAsState()
