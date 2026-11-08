@@ -233,11 +233,13 @@ internal object LocalMcpProtocol {
                     DiagnosticLogcat.select(events, options),
                     "get_live_logs", pkg, MonitorState.packageUids.value,
                     limit = args.optInt("limit", 50).coerceIn(1, 100))
-                val cpu = performanceReader?.invoke("get_cpu_usage",
+                val reader = performanceReader ?:
+                    throw IllegalStateException("Performance diagnostics unavailable")
+                val cpu = reader.invoke("get_cpu_usage",
                     JSONObject().put("package_name", pkg).put("limit", 20))
                     ?: throw IllegalStateException("CPU diagnostics unavailable")
-                val memory = performanceReader.invoke("get_memory_pressure", JSONObject())
-                val battery = performanceReader.invoke("get_battery_diagnostics", JSONObject())
+                val memory = reader.invoke("get_memory_pressure", JSONObject())
+                val battery = reader.invoke("get_battery_diagnostics", JSONObject())
                 val after = System.currentTimeMillis()
                 JSONObject().put("window_start_ms", before)
                     .put("window_end_ms", after)
