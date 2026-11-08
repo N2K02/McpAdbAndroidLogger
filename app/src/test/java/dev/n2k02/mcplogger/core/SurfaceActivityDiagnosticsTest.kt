@@ -259,8 +259,9 @@ class SurfaceActivityDiagnosticsTest {
         assertTrue(src.contains("rm -f " + "$" + "stagedProcessor"))
         assertTrue(src.contains("effectiveSource"))
         assertTrue(src.contains("if (staged)"))
-        assertTrue(dashboard.contains("Render activity"))
-        assertTrue(dashboard.contains("Deep Perfetto"))
+        // Performance probes are MCP-only; the manual Home has no performance tab.
+        assertFalse(dashboard.contains("Render activity"))
+        assertFalse(dashboard.contains("Deep Perfetto"))
     }
 
     @Test fun bothMcpToolsExposeBoundedSchemaAndDispatchOnlyOnCall() {
@@ -277,7 +278,7 @@ class SurfaceActivityDiagnosticsTest {
             """{"jsonrpc":"2.0","method":"tools/list","id":1}"""),
             performanceReader = reader)!!
             .getJSONObject("result").getJSONArray("tools")
-        assertEquals(17, tools.length())
+        assertEquals(21, tools.length())
         assertEquals(0, called)
         for (name in names) {
             val schema = (0 until tools.length()).map { tools.getJSONObject(it) }
