@@ -38,8 +38,6 @@ class LogMonitorService : Service() {
         const val LOCAL_START = "dev.n2k02.mcplogger.LOCAL_MCP_START"
         const val TUNNEL_RESTART = "dev.n2k02.mcplogger.TUNNEL_RESTART"
         const val STOP = "dev.n2k02.mcplogger.STOP"
-        const val START_DIAGNOSTIC_SESSION = "dev.n2k02.mcplogger.START_DIAGNOSTIC_SESSION"
-        const val STOP_DIAGNOSTIC_SESSION = "dev.n2k02.mcplogger.STOP_DIAGNOSTIC_SESSION"
         const val CLEAR_DEVICE_LOGCAT = "dev.n2k02.mcplogger.CLEAR_DEVICE_LOGCAT"
         const val LOCAL_STOP = "dev.n2k02.mcplogger.LOCAL_MCP_STOP"
         const val QUIT = "dev.n2k02.mcplogger.QUIT"
@@ -210,7 +208,6 @@ class LogMonitorService : Service() {
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
-    private var diagnosticJob: Job? = null
     private var tunnelJob: Job? = null
     private var relayHeartbeatJob: Job? = null
     private var dailyPruneJob: Job? = null
@@ -225,7 +222,6 @@ class LogMonitorService : Service() {
         // Android may restart a sticky foreground service without the original Intent.
         when (intent?.action ?: LOCAL_START) {
             CLEAR_DEVICE_LOGCAT -> {
-                stopDiagnosticSession()
                 // Local user action only, never callable from remote MCP tools.
                 if (!resetGate.beginDeviceClear {
                         MonitorState.clearingDeviceLogcat.value = true
@@ -308,7 +304,6 @@ class LogMonitorService : Service() {
                 return START_STICKY
             }
             LOCAL_STOP -> {
-                stopDiagnosticSession()
                 // User-requested server stop: tunnel and local MCP go down and stay
                 // down (no auto-start on reopen or boot) until Start server is pressed.
                 QuickMcpTunnel.stop()
@@ -326,19 +321,6 @@ class LogMonitorService : Service() {
                     stopSelf()
                     return START_NOT_STICKY
                 }
-                return START_STICKY
-            }
-            START_DIAGNOSTIC_SESSION -> {
-                ensureForeground()
-                startDiagnosticSession(
-                    intent?.getStringExtra("profile").orEmpty(),
-                    intent?.getIntExtra("duration_seconds", 60) ?: 60,
-                    intent?.getIntExtra("interval_seconds", 5) ?: 5
-                )
-                return START_STICKY
-            }
-            STOP_DIAGNOSTIC_SESSION -> {
-                stopDiagnosticSession()
                 return START_STICKY
             }
             TUNNEL_RESTART -> {
@@ -457,55 +439,6 @@ class LogMonitorService : Service() {
     }
 
     /** One explicit Home/Logs refresh; never start a repeating polling loop. */
-    /**
-     * Foreground-only, explicitly user-started diagnostics. Never exposed as
-     * an MCP tool, capped to two minutes, and canceled by Quit/Stop/destroy.
-     */
-    private fun startDiagnosticSession(profile: String, duration: Int, interval: Int) {
-        if (duration !in 10..120 || interval !in 3..30 ||
-            (profile.isNotBlank() && !DiagnosticLogcat.catalog().has(profile))) {
-            MonitorState.error("Invalid diagnostic session settings")
-            return
-        }
-        if (diagnosticJob?.isActive == true) return
-        if (!AdbCoordinator.verified.value) {
-            MonitorState.error("Diagnostic session requires verified ADB UID 2000")
-            return
-        }
-        val options = if (profile.isBlank()) null else DiagnosticLogcat.parse(
-            org.json.JSONObject().put("profile", profile))
-        diagnosticJob = scope.launch {
-            MonitorState.diagnosticSession.value = true
-            MonitorState.diagnosticSessionEndsAt.value =
-                System.currentTimeMillis() + duration * 1000L
-            try {
-                val started = SystemClock.elapsedRealtime()
-                while (isActive && SystemClock.elapsedRealtime() - started < duration * 1000L) {
-                    try {
-                        readOnDemand(LogReadOrigin.MANUAL, options)
-                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                        throw cancelled
-                    } catch (_: Exception) {
-                        break
-                    }
-                    val remaining = duration * 1000L -
-                        (SystemClock.elapsedRealtime() - started)
-                    if (remaining > 0) delay(minOf(interval * 1000L, remaining))
-                }
-            } finally {
-                MonitorState.diagnosticSession.value = false
-                MonitorState.diagnosticSessionEndsAt.value = 0L
-            }
-        }
-    }
-
-    private fun stopDiagnosticSession() {
-        diagnosticJob?.cancel()
-        diagnosticJob = null
-        MonitorState.diagnosticSession.value = false
-        MonitorState.diagnosticSessionEndsAt.value = 0L
-    }
-
     private fun startCapture() {
         if (job?.isActive == true || MonitorState.active.value) return
         getSharedPreferences("mcp_logger", MODE_PRIVATE).edit()
