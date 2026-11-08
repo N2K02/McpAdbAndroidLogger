@@ -38,11 +38,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import java.text.DateFormat
 import java.util.Date
 
-private enum class HomeTab(val title: String) {
-    OVERVIEW("Overview"), PERFORMANCE("Performance"), CONNECTION("Connection")
-}
-
-/** Portrait-first dashboard; global Home / Logs / Settings / Quit remains unchanged. */
+/** Home is a single manual-Logcat overview; MCP diagnostics are remote-only. */
 @Composable
 internal fun HomeDashboard(
     modifier: Modifier = Modifier,
@@ -51,330 +47,83 @@ internal fun HomeDashboard(
     onMcp: () -> Unit,
 ) {
     val active by MonitorState.active.collectAsState()
-    val readOrigin by MonitorState.logReadOrigin.collectAsState()
-    val mcpToolsInFlight by MonitorState.mcpToolsInFlight.collectAsState()
-    val mcpLogReading = (active && readOrigin == LogReadOrigin.MCP) ||
-        mcpToolsInFlight.any { it in setOf("get_live_logs", "search_logs", "get_crashes", "get_anrs") }
-    val mcpPerformanceReading = mcpToolsInFlight.any {
-        it in setOf("get_cpu_usage", "get_frame_timing", "get_performance_snapshot",
-            "get_battery_diagnostics", "get_memory_pressure", "get_wakelock_usage",
-            "get_screen_off_baseline", "get_screen_off_report",
-            "get_surfaceflinger_layers", "get_surfaceflinger_activity",
-            "get_surfaceflinger_perfetto")
-    }
+    val inFlight by MonitorState.mcpToolsInFlight.collectAsState()
+    val mcpReadCount by MonitorState.mcpReadCount.collectAsState()
+    val mcpLastReadAt by MonitorState.mcpLastReadAt.collectAsState()
     val adb by MonitorState.adb.collectAsState()
     val tunnel by MonitorState.tunnel.collectAsState()
-    val publicUrl by MonitorState.publicMcpUrl.collectAsState()
     val stats by MonitorState.captureStats.collectAsState()
-    val buffered by MonitorState.logs.collectAsState()
+    val manualLogs by MonitorState.logs.collectAsState()
     val today = LogDayPolicy.dayStart(System.currentTimeMillis())
     val currentStats = if (stats.dayStartMs == today) stats else LogCaptureStats(dayStartMs = today)
-    val todayBuffered = remember(buffered, today) {
-        buffered.count { it.epochMillis >= today }
-    }
+    val buffered = manualLogs.count { it.epochMillis >= today }
     val verified = adb.startsWith("UID 2000 verified")
-    val context = LocalContext.current
-    val clientToken = BridgeClient.clientTokenState(context).collectAsState().value.orEmpty()
-    var copyHint by remember { mutableStateOf("") }
-    // Keep navigation history of *settled* pages. Swipes and tab taps both record
-    // visits; Back pops the last visit instead of exiting the Home destination.
-    var tabHistory by rememberSaveable {
-        mutableStateOf(listOf(HomeTab.OVERVIEW.ordinal))
-    }
-    val pagerState = rememberPagerState(
-        initialPage = tabHistory.last(), pageCount = { HomeTab.entries.size })
-    val pagerScope = rememberCoroutineScope()
-    LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.settledPage }
-            .distinctUntilChanged()
-            .collect { page ->
-                tabHistory = HomeTabHistory.visit(tabHistory, page, HomeTab.entries.size)
-            }
-    }
-    BackHandler(enabled = HomeTabHistory.canGoBack(tabHistory)) {
-        val prior = HomeTabHistory.back(tabHistory)
-        tabHistory = prior
-        pagerScope.launch { pagerState.scrollToPage(prior.last()) }
-    }
-    fun selectHomeTab(destination: HomeTab) {
-        pagerScope.launch { pagerState.animateScrollToPage(destination.ordinal) }
-    }
-    val perfScope = rememberCoroutineScope()
-    var perfPackage by remember { mutableStateOf("") }
-    var perfBusy by remember { mutableStateOf(false) }
-    var perfResult by remember { mutableStateOf("No performance snapshot yet.") }
-    var healthBusy by remember { mutableStateOf(false) }
-    var healthResult by remember { mutableStateOf("No device-health snapshot yet.") }
-    fun runHealth(read: suspend () -> JSONObject) {
-        healthBusy = true
-        perfScope.launch {
-            try {
-                healthResult = read().toString(2)
-            } catch (_: Exception) {
-                healthResult = "Diagnostic unavailable. Verify ADB UID 2000 and retry."
-            } finally {
-                healthBusy = false
-            }
-        }
-    }
-    Column(modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = pagerState.currentPage) {
-            HomeTab.entries.forEach { destination ->
-                Tab(selected = pagerState.currentPage == destination.ordinal,
-                    onClick = { selectHomeTab(destination) },
-                    text = { Text(destination.title, maxLines = 1,
-                        style = MaterialTheme.typography.labelLarge) })
-            }
-        }
-        HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { page ->
-            when (HomeTab.entries[page]) {
-            HomeTab.OVERVIEW -> {
-                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                    .padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CardHeader(Icons.Rounded.Terminal, "Logcat (Today)",
-                            if (active || mcpLogReading) Tone.BUSY else Tone.IDLE,
-                            if (active || mcpLogReading) "Reading" else "Daily reset enabled",
-                            subtitle = "Today's local-day capture")
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            StatMetric("Captured today", currentStats.uniqueCaptured.toString(),
-                                Modifier.weight(1f), Tone.GOOD)
-                            StatMetric("Buffered", todayBuffered.toString(),
-                                Modifier.weight(1f), Tone.BUSY)
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            StatMetric("Read cycles", currentStats.scanCycles.toString(),
-                                Modifier.weight(1f), Tone.IDLE)
-                            StatMetric("Last refresh",
-                                if (currentStats.lastSuccessAtMillis == 0L) "—" else
-                                    DateFormat.getTimeInstance(DateFormat.SHORT)
-                                        .format(Date(currentStats.lastSuccessAtMillis)),
-                                Modifier.weight(1f), Tone.IDLE)
-                        }
-                        if (currentStats.readFailures > 0L)
-                            Text("Read errors today: " + currentStats.readFailures,
-                                color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.labelSmall)
-                        TextButton(onClick = {
-                            LogMonitorService.resetHomeStatistics()
-                            copyHint = ""
-                        }, modifier = Modifier.align(Alignment.End)) {
-                            Icon(Icons.Rounded.RestartAlt, null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Reset Home statistics")
-                        }
-                    }
-                }
-                val lastReadSubtitle = if (currentStats.lastSuccessAtMillis == 0L)
-                    "No read yet · refresh from Logs"
-                else "Last read " + DateFormat.getTimeInstance(DateFormat.SHORT)
-                    .format(Date(currentStats.lastSuccessAtMillis)) +
-                    " · +" + currentStats.lastBatchCaptured + " new"
-                HomeStatusCard(Icons.Rounded.Terminal, "On-demand logs", lastReadSubtitle,
-                    HomeBadgePolicy.logs(active || mcpLogReading, todayBuffered > 0),
-                    sourceBadge = HomeBadgePolicy.mcpSource(mcpLogReading),
-                    onClick = onLogs)
-                HomeStatusCard(Icons.Rounded.SettingsInputAntenna, "ADB status",
-                    if (verified) "Connected · UID 2000" else "Authorization needed",
-                    HomeBadgePolicy.adb(verified, active || mcpPerformanceReading),
-                    onClick = { selectHomeTab(HomeTab.CONNECTION) })
-                HomeStatusCard(Icons.Rounded.Cloud, "MCP connection", tunnel,
-                    HomeBadgePolicy.mcp(tunnel, mcpToolsInFlight.isNotEmpty() || mcpLogReading),
-                    onClick = { selectHomeTab(HomeTab.CONNECTION) })
-                HomeStatusCard(Icons.Rounded.Speed, "Performance tools",
-                    "CPU, RAM, battery, wakelocks and layers · on demand",
-                    HomeBadgePolicy.performance(perfBusy || healthBusy || mcpPerformanceReading),
-                    sourceBadge = HomeBadgePolicy.mcpSource(mcpPerformanceReading),
-                    onClick = { selectHomeTab(HomeTab.PERFORMANCE) })
-                }
-            }
-            HomeTab.PERFORMANCE -> {
-                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                    .padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        // CPU and UI frame probes only run when explicitly tapped.
+    val mcpActive = inFlight.isNotEmpty()
+    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())
+        .padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                CardHeader(Icons.Rounded.Speed, "CPU & frame timing", Tone.IDLE,
-                    if (perfBusy) "Reading" else "On demand")
-                Text("One short CPU sample or recent View UI frames. No background sampling. " +
-                    "This does not measure hardware GPU utilization.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                OutlinedTextField(
-                    value = perfPackage, onValueChange = { perfPackage = it.take(150) },
-                    label = { Text("Package (optional for CPU)") },
-                    placeholder = { Text("com.vrec.app") },
-                    singleLine = true, modifier = Modifier.fillMaxWidth())
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(onClick = {
-                        perfBusy = true
-                        perfScope.launch {
-                            try {
-                                val result = PerformanceDiagnostics.cpu(perfPackage.trim(), 10)
-                                val processes = result.getJSONArray("processes")
-                                perfResult = if (processes.length() == 0)
-                                    "No matching running processes in this snapshot."
-                                else (0 until minOf(5, processes.length())).joinToString("\n") { i ->
-                                    val process = processes.getJSONObject(i)
-                                    process.getString("process") + " · " +
-                                        process.getDouble("cpu_percent") + "% CPU · " +
-                                        process.getString("resident_memory") + " RAM"
-                                }
-                            } catch (_: Exception) {
-                                perfResult = "CPU read unavailable. Check ADB and the package name."
-                            } finally {
-                                perfBusy = false
-                            }
-                        }
-                    }, enabled = verified && !perfBusy, modifier = Modifier.weight(1f)) {
-                        Text("CPU snapshot")
-                    }
-                    OutlinedButton(onClick = {
-                        perfBusy = true
-                        perfScope.launch {
-                            try {
-                                val result = PerformanceDiagnostics.frames(perfPackage.trim())
-                                perfResult = if (result.getString("status") != "ok")
-                                    "No View frame timing for this app; video/GPU paths may not be exposed."
-                                else result.getInt("sample_frames").toString() +
-                                    " UI frames · p95 " +
-                                    result.getDouble("frame_p95_ms") + " ms · slow " +
-                                    result.getInt("slow_frames") + " (60 Hz reference)"
-                            } catch (_: Exception) {
-                                perfResult = "Frame timing unavailable. Check ADB and package name."
-                            } finally {
-                                perfBusy = false
-                            }
-                        }
-                    }, enabled = verified && !perfBusy &&
-                        PerformanceDiagnostics.validPackage(perfPackage.trim()),
-                        modifier = Modifier.weight(1f)) {
-                        Text("Frame timing")
-                    }
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                CardHeader(Icons.Rounded.Terminal, "Manual Logcat (Today)",
+                    if (active) Tone.BUSY else Tone.IDLE,
+                    if (active) "Reading" else "Ready",
+                    subtitle = "Manual Logs page only; MCP reads are separate")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StatMetric("Captured today", currentStats.uniqueCaptured.toString(),
+                        Modifier.weight(1f), Tone.GOOD)
+                    StatMetric("Buffered", buffered.toString(), Modifier.weight(1f), Tone.BUSY)
                 }
-                Text(perfResult, style = MaterialTheme.typography.bodySmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StatMetric("Manual searches", currentStats.scanCycles.toString(),
+                        Modifier.weight(1f), Tone.IDLE)
+                    StatMetric("Last manual search",
+                        if (currentStats.lastSuccessAtMillis == 0L) "—"
+                        else DateFormat.getTimeInstance(DateFormat.SHORT)
+                            .format(Date(currentStats.lastSuccessAtMillis)),
+                        Modifier.weight(1f), Tone.IDLE)
+                }
+                if (currentStats.readFailures > 0) {
+                    Text("Manual read errors: " + currentStats.readFailures,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.labelSmall)
+                }
+                TextButton(onClick = { LogMonitorService.resetHomeStatistics() },
+                    modifier = Modifier.align(Alignment.End)) {
+                    Icon(Icons.Rounded.RestartAlt, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Reset Home statistics")
+                }
             }
         }
+        HomeStatusCard(Icons.Rounded.Terminal, "Manual Logs",
+            "Open Logs and tap Search to scan Android Logcat",
+            HomeBadgePolicy.logs(active, buffered > 0), onClick = onLogs)
         ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                CardHeader(Icons.Rounded.BatteryFull, "Device health", Tone.IDLE,
-                    if (healthBusy) "Reading" else "On demand")
-                Text("Battery, RAM pressure and wake locks use fixed, read-only ADB commands. " +
-                    "No background polling or persistent health history.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                CardHeader(Icons.Rounded.Cloud, "MCP activity",
+                    if (mcpActive) Tone.BUSY else Tone.IDLE,
+                    if (mcpActive) "Reading" else "Idle",
+                    subtitle = "Remote diagnostics do not change manual Logs")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { runHealth { DeviceDiagnostics.battery() } },
-                        enabled = verified && !healthBusy,
-                        modifier = Modifier.weight(1f)) { Text("Battery") }
-                    OutlinedButton(onClick = { runHealth { DeviceDiagnostics.memory() } },
-                        enabled = verified && !healthBusy,
-                        modifier = Modifier.weight(1f)) { Text("RAM / PSI") }
+                    StatMetric("MCP Logcat reads", mcpReadCount.toString(),
+                        Modifier.weight(1f), Tone.GOOD)
+                    StatMetric("Tools active", inFlight.size.toString(),
+                        Modifier.weight(1f), if (mcpActive) Tone.BUSY else Tone.IDLE)
                 }
-                OutlinedButton(onClick = { runHealth { DeviceDiagnostics.wakelocks() } },
-                    enabled = verified && !healthBusy,
-                    modifier = Modifier.fillMaxWidth()) { Text("Wakelock snapshot") }
-                OutlinedButton(onClick = { runHealth { dev.n2k02.mcplogger.core.SurfaceLayersDiagnostics.layers() } },
-                    enabled = verified && !healthBusy,
-                    modifier = Modifier.fillMaxWidth()) { Text("SurfaceFlinger layers") }
-                Text("Lists app-associated display layers, not per-app compositor CPU " +
-                    "or GPU usage. Raw window titles stay private.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = {
-                        runHealth { dev.n2k02.mcplogger.core.SurfaceActivityDiagnostics.activity() }
-                    }, enabled = verified && !healthBusy, modifier = Modifier.weight(1f)) {
-                        Text("Render activity")
-                    }
-                    OutlinedButton(onClick = {
-                        runHealth { dev.n2k02.mcplogger.core.SurfaceActivityDiagnostics.perfetto(
-                            nativeLibraryDir = context.applicationInfo.nativeLibraryDir) }
-                    }, enabled = verified && !healthBusy, modifier = Modifier.weight(1f)) {
-                        Text("Deep Perfetto")
-                    }
-                }
-                Text("Five-second manual capture. Render activity ranks app layers by frames " +
-                    "and shows shared SurfaceFlinger CPU. Deep Perfetto also queries " +
-                    "FrameTimeline/jank and CPU scheduling when supported. No raw trace " +
-                    "is shared; TimeStats counters are briefly reset and disabled.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                HorizontalDivider()
-                Text("Screen-off comparison: save a baseline, turn the screen off, " +
-                    "then return to compare cumulative Android counters.",
+                Text("Last MCP Logcat read: " +
+                    if (mcpLastReadAt == 0L) "—" else
+                        DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(mcpLastReadAt)),
                     style = MaterialTheme.typography.bodySmall)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { runHealth { DeviceDiagnostics.beginScreenOff() } },
-                        enabled = verified && !healthBusy,
-                        modifier = Modifier.weight(1f)) { Text("Start baseline") }
-                    Button(onClick = { runHealth { DeviceDiagnostics.reportScreenOff() } },
-                        enabled = verified && !healthBusy,
-                        modifier = Modifier.weight(1f)) { Text("Compare") }
-                }
-                Text(healthResult, style = MaterialTheme.typography.bodySmall)
+                Text("ADB: " + if (verified) "UID 2000 verified" else "Authorization needed",
+                    style = MaterialTheme.typography.bodySmall)
+                Text("MCP: " + tunnel, style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2)
             }
         }
-
-                }
-            }
-            HomeTab.CONNECTION -> {
-                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                    .padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        ElevatedCard(onClick = onAdb, modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                CardHeader(Icons.Rounded.SettingsInputAntenna, "ADB shell", adbTone(adb),
-                    if (verified) "UID 2000" else "Needs setup",
-                    subtitle = if (verified) "Connected · shell verified" else "ADB authorization needed")
-                Text(adb, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("Connection details", style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary)
-            }
-        }
-
-        AdbHomeSetupCard()
-
-        // Read-only MCP connection details; changes happen on the MCP connection page.
-        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                CardHeader(Icons.Rounded.Cloud, "Public MCP", tunnelTone(tunnel),
-                    when (tunnelTone(tunnel)) {
-                        Tone.GOOD -> "Online"; Tone.BUSY -> "Connecting"
-                        Tone.BAD -> "Offline"; Tone.IDLE -> "Stopped"
-                    }, subtitle = tunnel) {
-                    IconButton(onClick = onMcp) {
-                        Icon(Icons.Rounded.ChevronRight, contentDescription = "MCP connection")
-                    }
-                }
-                Text("MCP server catalog: " +
-                    LocalMcpProtocol.builtInToolNames().size + " built-in tools · " +
-                    LocalMcpProtocol.CATALOG_REVISION,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("If an AI client still lists six tools after updating, reconnect its " +
-                    "MCP integration to refresh its cached tool catalog.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                ReadOnlyCopyField("Public HTTPS MCP URL", publicUrl.ifBlank { "Not available yet" },
-                    copyEnabled = publicUrl.isNotBlank(), copyDescription = "Copy public MCP URL") {
-                    copyHint = copyText(context, "Public MCP URL", publicUrl, sensitive = false)
-                }
-                ReadOnlyCopyField("MCP client access key",
-                    if (clientToken.isBlank()) "Not set" else "•".repeat(24),
-                    copyEnabled = clientToken.isNotBlank(),
-                    copyDescription = "Copy MCP client access key") {
-                    copyHint = copyText(context, "MCP client access key", clientToken, sensitive = true)
-                }
-                if (copyHint.isNotEmpty()) Text(copyHint, style = MaterialTheme.typography.bodySmall)
-            }
-        }
-
-                }
-            }
-            }
-        }
+        HomeStatusCard(Icons.Rounded.SettingsInputAntenna, "ADB connection",
+            if (verified) "Connected · UID 2000" else "Setup required",
+            HomeBadgePolicy.adb(verified, false), onClick = onAdb)
+        HomeStatusCard(Icons.Rounded.Cloud, "MCP connection", tunnel,
+            HomeBadgePolicy.mcp(tunnel, mcpActive), onClick = onMcp)
     }
 }
 
