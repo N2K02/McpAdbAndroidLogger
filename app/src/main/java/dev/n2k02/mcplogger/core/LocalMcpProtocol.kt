@@ -30,8 +30,7 @@ internal object LocalMcpProtocol {
                 logsReader: (() -> List<LogEvent>)? = null,
                 appsReader: (() -> List<String>)? = null,
                 performanceReader: ((String, JSONObject) -> JSONObject)? = null,
-                captureReader: ((DiagnosticLogcat.Options) -> List<LogEvent>)? = null,
-): JSONObject? {
+                captureReader: ((DiagnosticLogcat.Options) -> List<LogEvent>)? = null): JSONObject? {
         val id = req.opt("id") ?: JSONObject.NULL
         val method = req.optString("method")
         if (req.optString("jsonrpc") != "2.0" || method.isEmpty())
