@@ -34,7 +34,8 @@ data class RecentLogRequest(
 
 
 object MonitorState {
-    val active = MutableStateFlow(false)\n    val mcpReadCount = MutableStateFlow(0L)
+    val active = MutableStateFlow(false)
+    val mcpReadCount = MutableStateFlow(0L)
     val mcpLastReadAt = MutableStateFlow(0L)
     @Synchronized fun registerMcpRead() {
         mcpReadCount.value += 1L
