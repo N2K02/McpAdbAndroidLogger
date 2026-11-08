@@ -95,7 +95,8 @@ class LogMonitorService : Service() {
          * cache preserves existing MCP cursors and the local Logs viewer, but is
          * never replenished in the background.
          */
-        suspend fun readOnDemand(origin: LogReadOrigin = LogReadOrigin.MCP): List<LogEvent> = readLock.withLock {
+        suspend fun readOnDemand(origin: LogReadOrigin = LogReadOrigin.MCP,
+            options: DiagnosticLogcat.Options? = null): List<LogEvent> = readLock.withLock {
             cancelIdleLogCleanup()
             rotateDay(System.currentTimeMillis())
             val readGeneration = resetGate.generation()
@@ -107,7 +108,7 @@ class LogMonitorService : Service() {
                 // every remote MCP log query while keeping an explicit refresh path.
                 refreshInstalledApps(force = false)
                 val output = AdbTransport.exec(
-                    "logcat -b main -b system -b crash -v uid -v epoch -d -t 2000",
+                    DiagnosticLogcat.captureCommand(options),
                     timeoutMs = 12000
                 ).getOrThrow()
                 val scannedAt = System.currentTimeMillis()
