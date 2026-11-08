@@ -138,7 +138,6 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
     val uids by MonitorState.packageUids.collectAsState()
     val filter by MonitorState.logFilter.collectAsState()
     val active by MonitorState.active.collectAsState()
-    val sessionActive by MonitorState.diagnosticSession.collectAsState()
     val adbVerified by dev.n2k02.mcplogger.adb.AdbCoordinator.verified.collectAsState()
     val deviceLogcatClearing by MonitorState.clearingDeviceLogcat.collectAsState()
     val deviceLogcatStatus by MonitorState.logcatMaintenanceStatus.collectAsState()
@@ -372,7 +371,7 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                         Text(filtered.size.toString() + " shown · " + logs.size + " buffered",
                             style = MaterialTheme.typography.labelSmall,
                             maxLines = 1, modifier = Modifier.weight(1f))
-                        Text(if (sessionActive) "● Session" else if (active) "● Reading" else "● Idle",
+                        Text(if (active) "● Reading" else "● Idle",
                             style = MaterialTheme.typography.labelSmall,
                             color = if (active) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -421,27 +420,6 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                                 HorizontalDivider()
                                 DropdownMenuItem(text = { Text("Save / delete diagnostic profile") },
                                     onClick = { actionMenu = false; profileDialog = true })
-                                DropdownMenuItem(text = { Text("Start 60-second diagnostic session") },
-                                    enabled = !sessionActive && adbVerified,
-                                    onClick = {
-                                        actionMenu = false
-                                        val chosen = profileName.takeIf {
-                                            DiagnosticLogcat.catalog().has(it)
-                                        }.orEmpty()
-                                        ContextCompat.startForegroundService(context,
-                                            Intent(context, LogMonitorService::class.java)
-                                                .setAction(LogMonitorService.START_DIAGNOSTIC_SESSION)
-                                                .putExtra("profile", chosen)
-                                                .putExtra("duration_seconds", 60)
-                                                .putExtra("interval_seconds", 5))
-                                    })
-                                DropdownMenuItem(text = { Text("Stop diagnostic session") },
-                                    enabled = sessionActive, onClick = {
-                                        actionMenu = false
-                                        context.startService(Intent(context,
-                                            LogMonitorService::class.java)
-                                            .setAction(LogMonitorService.STOP_DIAGNOSTIC_SESSION))
-                                    })
                                 DropdownMenuItem(text = { Text("Reset filters") }, onClick = {
                                     actionMenu = false
                                     update(LogViewPolicy.reset())
