@@ -100,7 +100,8 @@ class LogMonitorService : Service() {
          * never replenished in the background.
          */
         suspend fun readOnDemand(origin: LogReadOrigin = LogReadOrigin.MCP,
-            options: DiagnosticLogcat.Options? = null): List<LogEvent> = readLock.withLock {
+            options: DiagnosticLogcat.Options? = null,
+            commandTimeoutMs: Long = 12000): List<LogEvent> = readLock.withLock {
             cancelIdleLogCleanup()
             rotateDay(System.currentTimeMillis())
             val readGeneration = resetGate.generation()
@@ -112,10 +113,12 @@ class LogMonitorService : Service() {
                 check(AdbCoordinator.verified.value) { "ADB shell UID 2000 is not verified" }
                 // Package identities rarely change; avoid invoking PackageManager for
                 // every remote MCP log query while keeping an explicit refresh path.
-                refreshInstalledApps(force = false)
+                if (origin == LogReadOrigin.MANUAL ||
+                    MonitorState.packageUids.value.isEmpty())
+                    refreshInstalledApps(force = false)
                 val output = AdbTransport.exec(
                     DiagnosticLogcat.captureCommand(options),
-                    timeoutMs = 12000
+                    timeoutMs = commandTimeoutMs.coerceIn(1000, 12000)
                 ).getOrThrow()
                 val scannedAt = System.currentTimeMillis()
                 val parsed = LogDayPolicy.recentToday(
