@@ -11,7 +11,7 @@ class SharedAdbHostAdapterContractTest {
         val build = root.resolve("build.gradle.kts").readText()
         val src = root.resolve("src/main/java/dev/n2k02/mcplogger/adb/SharedAdbHostAdapter.kt").readText()
         assertTrue(settings.contains("n2k02AdbCoreLibrary"))
-        assertTrue(build.contains("dev.n2k02:adb-core:0.1.6"))
+        assertTrue(build.contains("dev.n2k02:adb-core:0.1.7"))
         assertTrue(src.contains("AdbIdentity.getOrCreate(ctx)"))
         assertTrue(src.contains("AdbRecoverySettings."))
         assertTrue(src.contains("manuallyStopped()"))
