@@ -27,6 +27,9 @@ recorded locally for troubleshooting.
 - `get_app_runtime`: exact-package, read-only snapshot of visible process IDs,
   per-app memory PSS (when exposed) and Android permission grant states.
   Raw process tables, package dumps and private paths are not returned.
+- `get_app_ops`: read-only, allowlisted AppOps modes (audio recording, camera,
+  location, notifications, background execution, overlays and media). No
+  timestamps or proxy-attribution details are returned.
 - `get_diagnostic_correlation`: sequential Logcat, CPU, memory and battery
   observations with a capture window and explicit non-causality caveat.
 - Existing CPU, frame timing, battery, PSI memory, wakelock, screen-off,
@@ -73,14 +76,12 @@ Sample app diagnosis:
 
 ## Recommended next tools
 
-1. Exact-app `cmd appops get` **read-only** summary with a validated package,
-   allowlisted operation names, and output redaction.
-2. App process/foreground importance and service summaries from ActivityManager.
-3. Audio-focus/playback/recording state reports that return only safe parsed
+1. App process/foreground importance and service summaries from ActivityManager.
+2. Audio-focus/playback/recording state reports that return only safe parsed
    metadata, never user audio or other app content.
-4. Short thermal/CPU frequency snapshots from supported, readable sysfs paths
+3. Short thermal/CPU frequency snapshots from supported, readable sysfs paths
    or `dumpsys thermalservice`.
-5. Automated crash triage with timestamped log context, deduplicated signatures
+4. Automated crash triage with timestamped log context, deduplicated signatures
    and an explicit "insufficient evidence" state.
 
 Avoid remotely exposing arbitrary `adb shell`, `am` actions, writes to
