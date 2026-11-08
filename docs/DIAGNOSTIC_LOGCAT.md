@@ -1,39 +1,89 @@
-# Diagnostic Logcat MCP extension (experimental)
+# MCP ADB diagnostics (experimental)
 
-The Android MCP endpoint now advertises `list_logcat_profiles` and accepts
-`profile`, `tags`, `since`, `pid`, `buffers`, `format`, and `mode`
-on the four existing log-reading tools. These are read-only and bounded.
+## On demand only
 
-Profiles: `audio`, `crashes`, `performance`, `battery`, `system`.
-Tags use Android priority syntax such as `SEQ-Audio:V` or
-`AudioFlinger:W`. Unknown profiles, invalid tags, shell metacharacters,
-and remote streaming requests are rejected.
+Every remote MCP request executes a bounded, read-only snapshot and returns.
+There are **no MCP-triggered background monitors, timers, streams, or remote
+shell commands**. Android's circular Logcat buffers permit repeated snapshots;
+an agent may call again when it needs new evidence. A completed ADB request
+can take longer than 10 seconds on a slow or blocked transport; a universal
+10-second capture guarantee is not advertised.
 
-Example MCP arguments:
+Home and the Logs menu are for **manual Logcat**. Their cache, search count,
+and captured-entry statistics are separate from MCP reads. Home additionally
+shows a read-only MCP Logcat request count and active tool count. The Logs
+page includes a **Search** button and owner-only TXT, JSON, ZIP export.
+
+MCP Audits is the second main-navigation item, available only in the Android
+UI. Remote access to audit history has been removed; request metadata remains
+recorded locally for troubleshooting.
+
+## MCP diagnostic features
+
+- `list_logcat_profiles`: read built-in and locally saved tag profiles.
+- `get_live_logs`, `search_logs`, `get_crashes`, `get_anrs`:
+  bounded Android Logcat snapshots with optional verified package UID,
+  tag/priority, PID, time, buffer, text and severity filters.
+- `get_app_runtime`: exact-package, read-only snapshot of visible process IDs,
+  per-app memory PSS (when exposed) and Android permission grant states.
+  Raw process tables, package dumps and private paths are not returned.
+- `get_diagnostic_correlation`: sequential Logcat, CPU, memory and battery
+  observations with a capture window and explicit non-causality caveat.
+- Existing CPU, frame timing, battery, PSI memory, wakelock, screen-off,
+  SurfaceFlinger and Perfetto tools remain available on demand.
+
+Custom profiles are created/deleted locally in the Logs menu, validated
+before private persistence, and only listed/read remotely. Presets include
+`audio`, `crashes`, `performance`, `battery`, and `system`.
+
+Sample Logcat arguments:
 
 ```json
 {
   "profile": "audio",
   "tags": ["SEQ-Audio:V", "AndroidRuntime:E"],
-  "since": 1700000000000,
+  "buffers": ["main", "system", "crash"],
   "limit": 100
 }
 ```
 
-## Current limitations
+Sample app diagnosis:
 
-Filtering operates on the already acquired, bounded on-device Logcat snapshot.
-The validated argv builder is not yet connected to the Android ADB capture
-transport. Consequently, `buffers` and `format` are validated but do
-not change capture, and a tag filter cannot recover entries absent from the
-snapshot. The `mode` parameter permits only `snapshot`: remote continuous
-streaming would change the existing no-background-polling security model.
+```json
+{"package_name": "com.example.app"}
+```
 
-The existing verified package/UID boundary, redaction, limits, and local
-UI filter isolation remain in place. Profiles are built in, not yet editable
-or persisted by users. JSON/TXT/ZIP export, cross-source correlation, and
-session lifecycle controls are not implemented in this increment.
+## Important limitations
 
-Next integration step: route validated argv through the existing UID-2000 ADB
-snapshot executor, with explicit output/time limits, before advertising native
-buffer and format support.
+- Actual ADB capture keeps the LogFox-compatible `uid` and `epoch` output
+  format regardless of the optional `format` argument. This is intentional:
+  switching the transport format would break the existing parser. Use event
+  timestamps and fields instead of assuming native `threadtime` output.
+- ADB snapshot capture currently retains the newest 2,000 lines; old events
+  already evicted by Android's Logcat ring buffer cannot be recovered.
+- `since` filters parsed events, not a live kernel or continuous capture.
+- Package filtering uses a verified UID mapping. Android framework logs under
+  system UID are not falsely attributed to a target app.
+- `get_app_runtime` is a sequential snapshot; reported processes may exit
+  before subsequent commands. Android version, SELinux and OEM policies can
+  prevent memory or permission details from being visible.
+- Some existing SurfaceFlinger / Perfetto tools deliberately sample for 3–10
+  seconds and alter transient TimeStats collection state. They are explicit
+  tool calls, not persistent monitoring, and may exceed 10 seconds end to end.
+
+## Recommended next tools
+
+1. Exact-app `cmd appops get` **read-only** summary with a validated package,
+   allowlisted operation names, and output redaction.
+2. App process/foreground importance and service summaries from ActivityManager.
+3. Audio-focus/playback/recording state reports that return only safe parsed
+   metadata, never user audio or other app content.
+4. Short thermal/CPU frequency snapshots from supported, readable sysfs paths
+   or `dumpsys thermalservice`.
+5. Automated crash triage with timestamped log context, deduplicated signatures
+   and an explicit "insufficient evidence" state.
+
+Avoid remotely exposing arbitrary `adb shell`, `am` actions, writes to
+system settings, permission grants, full bugreports, content providers, or
+unredacted `dumpsys` output. Privileged ADB access does not imply root or
+unrestricted access to protected Android app data.
