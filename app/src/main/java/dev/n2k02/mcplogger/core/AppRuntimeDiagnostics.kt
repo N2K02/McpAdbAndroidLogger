@@ -17,7 +17,7 @@ internal object AppRuntimeDiagnostics {
     private val spaces = Regex("\\s+")
     private val androidPermission = Regex("android\\.permission\\.[A-Za-z0-9_.]+")
     private val grantPattern = Regex(
-        """(android\\.permission\\.[A-Za-z0-9_.]+):\\s+granted=(true|false)""")
+        """(android\.permission\.[A-Za-z0-9_.]+):\s+granted=(true|false)""")
 
     fun validate(packageName: String): String {
         require(PerformanceDiagnostics.validPackage(packageName))
@@ -69,7 +69,7 @@ internal object AppRuntimeDiagnostics {
         }
         var totalPss: Long? = null
         for (line in meminfo.lineSequence().take(4000)) {
-            val match = Regex("""^\\s*TOTAL PSS:\\s*(\\d+)""").find(line)
+            val match = Regex("""^\s*TOTAL PSS:\s*(\d+)""").find(line)
             if (match != null) {
                 totalPss = match.groupValues[1].toLongOrNull()
                 break
