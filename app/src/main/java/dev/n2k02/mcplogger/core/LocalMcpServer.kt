@@ -434,27 +434,16 @@ object LocalMcpServer {
         val safeHeaders = extra.entries.filter { (key, value) ->
             !key.equals("Content-Security-Policy", true) &&
                 key.matches(Regex("[A-Za-z-]+")) &&
-                !value.contains('\r') && !value.contains('
-')
-        }.joinToString("") { it.key + ": " + it.value + "\r
-" }
+                !value.contains('\r') && !value.contains('\n')
+        }.joinToString("") { it.key + ": " + it.value + "\r\n" }
         val policy = responseSecurityPolicy(type, extra)
-        val header = "HTTP/1.1 " + code + " " + reason + "\r
-" +
-            "Content-Type: " + type + "; charset=utf-8\r
-" +
-            "Content-Length: " + bytes.size + "\r
-" +
-            "Cache-Control: no-store\r
-X-Content-Type-Options: nosniff\r
-" +
-            "Referrer-Policy: " + referrerPolicy(type) + "\r
-" +
-            "Content-Security-Policy: " + policy + "\r
-" +
-            safeHeaders + "Connection: close\r
-\r
-"
+        val header = "HTTP/1.1 " + code + " " + reason + "\r\n" +
+            "Content-Type: " + type + "; charset=utf-8\r\n" +
+            "Content-Length: " + bytes.size + "\r\n" +
+            "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n" +
+            "Referrer-Policy: " + referrerPolicy(type) + "\r\n" +
+            "Content-Security-Policy: " + policy + "\r\n" +
+            safeHeaders + "Connection: close\r\n\r\n"
         output.write(header.toByteArray(StandardCharsets.UTF_8))
         output.write(bytes)
         output.flush()
