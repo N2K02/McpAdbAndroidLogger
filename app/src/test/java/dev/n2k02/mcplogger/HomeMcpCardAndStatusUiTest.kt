@@ -35,6 +35,16 @@ class HomeMcpCardAndStatusUiTest {
         assertFalse(home.contains("Text(\"ADB: \""))
     }
 
+    @Test fun mcpResetButtonMatchesManualActionButRemainsIndependent() {
+        val home = code("HomeDashboard.kt")
+        assertTrue(home.contains("Text(\"Reset Home statistics\")"))
+        assertTrue(home.contains("Text(\"Reset MCP statistics\")"))
+        assertTrue(home.contains("onClick = { MonitorState.resetMcpHomeStatistics() }"))
+        assertTrue(home.contains("onClick = { LogMonitorService.resetHomeStatistics() }"))
+        assertTrue(home.contains("MonitorState.mcpReadCount.collectAsState()"))
+        assertTrue(home.contains("MonitorState.mcpLastReadAt.collectAsState()"))
+    }
+
     @Test fun tunnelToneMapsStatuses() {
         assertEquals(Tone.GOOD, tunnelTone("Public MCP connected"))
         assertEquals(Tone.BUSY, tunnelTone("Tunnel is reconnecting"))
