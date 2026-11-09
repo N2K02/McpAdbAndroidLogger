@@ -67,10 +67,18 @@ internal object DeviceDiagnostics {
             val state = parseBattery(raw)
             val checkin = parseCheckin(stats)
             state.put("estimated_power_since_charge", powerList(checkin, 20))
-                .put("power_status", if (checkin.estimatedMah.isEmpty()) "unavailable" else "ok")
+                .put("power_status", powerEstimateStatus(checkin))
                 .put("notes", "Battery power estimates are cumulative since charging, not current per-app watts. " +
                     "The owner of a shared Android UID cannot always be uniquely attributed.")
         }.put("taken_at", System.currentTimeMillis())
+    }
+
+    /** A parsed zero row is not evidence of meaningful power attribution. */
+    internal fun powerEstimateStatus(stats: BatteryStats): String = when {
+        stats.estimatedMah.isEmpty() -> "unavailable"
+        stats.estimatedMah.values.none { it.isFinite() && it > 0.0 } ->
+            "no_positive_estimates"
+        else -> "ok"
     }
 
     suspend fun wakelocks(limit: Int = 20): JSONObject = snapshot {
