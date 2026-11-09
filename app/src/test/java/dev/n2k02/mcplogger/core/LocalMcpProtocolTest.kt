@@ -5,6 +5,35 @@ import org.junit.Test
 import org.json.JSONObject
 
 class LocalMcpProtocolTest {
+    @Test fun mcpHomeResetClearsOnlyCountersWhileRequestRemainsActive() {
+        val originalReads = MonitorState.mcpReadCount.value
+        val originalLastRead = MonitorState.mcpLastReadAt.value
+        val originalStats = MonitorState.captureStats.value
+        val originalLogs = MonitorState.logs.value
+        val originalAdb = MonitorState.adb.value
+        val originalTunnel = MonitorState.tunnel.value
+        MonitorState.beginMcpTool("mcp-reset-test")
+        try {
+            MonitorState.registerMcpRead()
+            assertTrue(MonitorState.mcpReadCount.value > 0)
+            MonitorState.resetMcpHomeStatistics()
+            assertEquals(0L, MonitorState.mcpReadCount.value)
+            assertEquals(0L, MonitorState.mcpLastReadAt.value)
+            assertTrue("mcp-reset-test" in MonitorState.mcpToolsInFlight.value)
+            assertEquals(originalStats, MonitorState.captureStats.value)
+            assertEquals(originalLogs, MonitorState.logs.value)
+            assertEquals(originalAdb, MonitorState.adb.value)
+            assertEquals(originalTunnel, MonitorState.tunnel.value)
+            MonitorState.registerMcpRead()
+            assertEquals(1L, MonitorState.mcpReadCount.value)
+            assertTrue(MonitorState.mcpLastReadAt.value > 0)
+        } finally {
+            MonitorState.endMcpTool("mcp-reset-test")
+            MonitorState.mcpReadCount.value = originalReads
+            MonitorState.mcpLastReadAt.value = originalLastRead
+        }
+    }
+
     @Test fun initializeReturnsCapabilitiesAndVersion() {
         val reply = LocalMcpProtocol.execute(JSONObject(
             """{"jsonrpc":"2.0","method":"initialize","id":1}"""))!!
