@@ -64,6 +64,9 @@ class LocalMcpProtocolTest {
         assertEquals((0 until listed.length()).map {
             listed.getJSONObject(it).getString("name")
         }, (0 until toolNames.length()).map { toolNames.getString(it) })
+        assertEquals(2000, payload.getInt("logcat_snapshot_max_lines"))
+        assertTrue(payload.getString("package_log_filter").contains("exact UID"))
+        assertTrue(payload.getJSONArray("diagnostic_coverage_notes").length() >= 4)
         assertTrue(payload.getBoolean("on_demand_health_available"))
         assertEquals(MonitorState.adb.value.startsWith("UID 2000 verified"),
             payload.getBoolean("on_demand_health_ready"))
@@ -103,6 +106,9 @@ class LocalMcpProtocolTest {
             assertFalse(schema.getJSONObject("properties").getJSONObject("package_name")
                 .getString("description").contains("message text"))
         }
+        assertTrue(schemas.getValue("get_live_logs").getJSONObject("properties")
+            .getJSONObject("format").getString("description")
+            .contains("uid+epoch"))
         assertFalse(schemas.getValue("get_device_status").getJSONObject("properties")
             .has("package_name"))
         assertFalse(schemas.getValue("list_installed_apps").getJSONObject("properties")
