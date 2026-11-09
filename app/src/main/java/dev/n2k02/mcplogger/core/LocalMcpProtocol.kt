@@ -8,7 +8,7 @@ internal object LocalMcpProtocol {
     const val VERSION = "2025-11-25"
     // Readable through the original get_device_status tool even when an MCP client
     // still has an old tools/list cache. Never starts a shell diagnostic.
-    const val CATALOG_REVISION = "2026-11-09-system-diagnostics-7"
+    const val CATALOG_REVISION = "2026-11-09-diagnostic-coverage-8"
     private val names = listOf("get_device_status", "list_installed_apps", "get_live_logs",
         "search_logs", "get_crashes", "get_anrs", "get_cpu_usage",
         "get_frame_timing", "get_performance_snapshot",
@@ -119,7 +119,9 @@ internal object LocalMcpProtocol {
                         .put("items", JSONObject().put("type", "string")))
                     fields.put("buffers", JSONObject().put("type", "array")
                         .put("items", JSONObject().put("type", "string")))
-                    fields.put("format", JSONObject().put("type", "string"))
+                    fields.put("format", JSONObject().put("type", "string")
+                        .put("description", "Legacy accepted parameter. Captures always use " +
+                            "uid+epoch for parser compatibility; JSON response format is fixed."))
                     fields.put("mode", JSONObject().put("type", "string")
                         .put("description", "snapshot only; no remote continuous capture"))
                     fields.put("since", JSONObject().put("type", "integer")
@@ -187,6 +189,15 @@ internal object LocalMcpProtocol {
                 .put("mcp_catalog_revision", CATALOG_REVISION)
                 .put("mcp_tool_count", names.size)
                 .put("mcp_tool_names", JSONArray(names))
+                .put("logcat_snapshot_max_lines", 2000)
+                .put("logcat_retention", "current Android circular buffer; day-scoped locally")
+                .put("package_log_filter", "exact UID; system-UID crash/ANR lines may be omitted")
+                .put("diagnostic_coverage_notes", JSONArray().apply {
+                    put("ADB shell authorization does not guarantee all dumpsys and procfs access")
+                    put("A missing app-specific record is unknown, not evidence of inactivity")
+                    put("SurfaceFlinger TimeStats sampling temporarily resets global TimeStats")
+                    put("Perfetto trace capture can succeed without usable frame/scheduler events")
+                })
                 .put("on_demand_health_available", names.containsAll(listOf(
                     "get_cpu_usage", "get_battery_diagnostics", "get_memory_pressure",
                     "get_wakelock_usage", "get_screen_off_baseline", "get_screen_off_report")))
