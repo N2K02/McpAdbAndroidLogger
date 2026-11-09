@@ -51,7 +51,6 @@ class LogMonitorService : Service() {
             if (!MonitorState.active.value) {
                 resetGate.reset {
                     buffer.clear(resetDedup = true)
-                    mcpBuffer.clear(resetDedup = true)
                     MonitorState.logs.value = emptyList()
                     MonitorState.recentLogRequest.value = null
                 }
@@ -63,6 +62,7 @@ class LogMonitorService : Service() {
             idleHandler.postDelayed(idleCleanup, IDLE_CACHE_MILLIS)
         }
         private var logDayStart = -1L
+        private var mcpDayStart = -1L
 
         /** Rotate only the private in-memory capture and stats, never Android's logd. */
         private fun rotateDay(now: Long): Boolean {
@@ -102,7 +102,7 @@ class LogMonitorService : Service() {
             options: DiagnosticLogcat.Options? = null,
             commandTimeoutMs: Long = 12000): List<LogEvent> = readLock.withLock {
             if (origin == LogReadOrigin.MANUAL) cancelIdleLogCleanup()
-            rotateDay(System.currentTimeMillis())
+            if (origin == LogReadOrigin.MANUAL) rotateDay(System.currentTimeMillis())
             val readGeneration = resetGate.generation()
             if (origin == LogReadOrigin.MANUAL) {
                 MonitorState.logReadOrigin.value = origin
@@ -128,6 +128,11 @@ class LogMonitorService : Service() {
                     // Keep every remote query outside the manual viewer, counters
                     // and cache. Preserve MCP cursor IDs in its own bounded buffer.
                     val accepted = resetGate.applyIfCurrent(readGeneration) {
+                        val today = LogDayPolicy.dayStart(scannedAt)
+                        if (mcpDayStart != today) {
+                            mcpBuffer.clear(resetDedup = true)
+                            mcpDayStart = today
+                        }
                         mcpBuffer.add(parsed, null, null)
                         MonitorState.registerMcpRead()
                     }
