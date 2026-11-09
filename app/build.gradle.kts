@@ -59,7 +59,7 @@ val verifySharedLibraries = tasks.register("verifySharedLibraries") {
         val found = configurations.getByName("implementation").dependencies
             .filter { it.group == "dev.n2k02" }
             .associate { it.name to it.version }
-        check(found["theme"] == "0.1.5" && found["updater"] == "0.1.20") {
+        check(found["theme"] == "0.1.5" && found["updater"] == "0.1.30") {
             "Shared N2K02 theme and updater must be pinned to approved versions"
         }
     }
