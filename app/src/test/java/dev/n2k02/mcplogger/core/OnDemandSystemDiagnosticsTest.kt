@@ -65,6 +65,34 @@ class OnDemandSystemDiagnosticsTest {
                 .getString("status"))
     }
 
+    @Test fun thermalIgnoresZeroAndInvalidPlaceholderMeasurements() {
+        val result = OnDemandSystemDiagnostics.parseThermal("""
+            Thermal Status: 1
+            Temperature{mName=cpu0, mValue=0.0, mType=0}
+            Temperature{mName=gpu0, mValue=0, mType=1}
+            Temperature{mName=skin0, mValue=38.5, mType=3}
+            Temperature{mName=battery0, mValue=39.4, mType=2}
+        """.trimIndent())
+        assertEquals(2, result.getJSONArray("temperatures").length())
+        assertTrue(result.getBoolean("zero_or_invalid_temperatures_excluded"))
+        assertEquals(1, result.getInt("thermal_status_code"))
+    }
+
+    @Test fun unsupportedOrDeniedServiceDumpsNeverAppearSuccessful() {
+        val services = OnDemandSystemDiagnostics.parseServices(pkg,
+            "Permission Denial: cannot dump ActivityManager")
+        assertEquals("unavailable", services.getString("status"))
+        val audio = OnDemandSystemDiagnostics.parseAudio(pkg,
+            "SecurityException: access denied")
+        assertEquals("unavailable", audio.getString("status"))
+        val jobs = OnDemandSystemDiagnostics.parseJobs(pkg,
+            "Can't find service: jobscheduler")
+        assertEquals("unavailable", jobs.getString("status"))
+        val thermal = OnDemandSystemDiagnostics.parseThermal(
+            "Permission denied")
+        assertEquals("unavailable", thermal.getString("status"))
+    }
+
     @Test fun allFourMcpToolsRequireExplicitCallsAndOnlyValidatedPackages() {
         val names = listOf("get_app_services", "get_app_audio_state", "get_app_jobs",
             "get_thermal_state")
