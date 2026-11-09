@@ -18,6 +18,16 @@ internal object OnDemandSystemDiagnostics {
     private val thermalStatus = Regex("""(?i)(?:Thermal Status|mStatus|status)\s*[:=]\s*(\d{1,2})""")
     private val temp = Regex("""(?i)(?:Temperature\{[^}]{0,200}\}|(?:cpu|gpu|skin|battery)[^\n]{0,120})""")
     private val number = Regex("""(?i)(?:mValue=|value=|temperature=|temp=)\s*(-?\d+(?:\.\d+)?)""")
+    private fun outputUnavailable(output: String): Boolean {
+        val lower = output.trim().lowercase()
+        return lower.isBlank() ||
+            lower.startsWith("permission denial") ||
+            lower.startsWith("permission denied") ||
+            lower.startsWith("securityexception") ||
+            lower.startsWith("can't find service") ||
+            lower.startsWith("service not found") ||
+            lower.startsWith("unknown command")
+    }
 
     private suspend fun snapshot(command: String, parser: (String) -> JSONObject): JSONObject {
         check(AdbCoordinator.verified.value) { "ADB shell UID 2000 not verified" }
@@ -82,7 +92,7 @@ internal object OnDemandSystemDiagnostics {
             .put("service_record_matches", records.coerceAtMost(1000))
             .put("foreground_hints", foregroundHints.coerceAtMost(1000))
             .put("running_hints", runningHints.coerceAtMost(1000))
-            .put("status", if (output.isBlank()) "unavailable" else "partial_snapshot")
+            .put("status", if (outputUnavailable(output)) "unavailable" else "partial_snapshot")
             .put("source", "dumpsys activity services")
             .put("notes", "Only exact-package service record hints are counted. No service " +
                 "names or other app data are exported. Absence does not prove no service is running.")
@@ -106,7 +116,7 @@ internal object OnDemandSystemDiagnostics {
             .put("audio_focus_mentions", focus.coerceAtMost(500))
             .put("recording_mentions", record.coerceAtMost(500))
             .put("playback_mentions", playback.coerceAtMost(500))
-            .put("status", if (output.isBlank()) "unavailable" else "partial_snapshot")
+            .put("status", if (outputUnavailable(output)) "unavailable" else "partial_snapshot")
             .put("source", "dumpsys audio")
             .put("notes", "Counts package-associated audio dump mentions, not active " +
                 "stream certainty. No microphone data, audio content, device IDs, " +
@@ -138,7 +148,7 @@ internal object OnDemandSystemDiagnostics {
             .put("pending_hints", pending.coerceAtMost(2000))
             .put("running_hints", running.coerceAtMost(2000))
             .put("restriction_hints", restricted.coerceAtMost(2000))
-            .put("status", if (output.isBlank()) "unavailable" else "partial_snapshot")
+            .put("status", if (outputUnavailable(output)) "unavailable" else "partial_snapshot")
             .put("source", "dumpsys jobscheduler")
             .put("notes", "Counts only lines explicitly naming this package. " +
                 "Job restrictions and scheduling sections can span multiple lines, " +
@@ -160,17 +170,19 @@ internal object OnDemandSystemDiagnostics {
                 else -> continue
             }
             val value = number.find(trimmed)?.groupValues?.get(1)?.toDoubleOrNull()
-                ?.takeIf { it.isFinite() && it in -50.0..180.0 } ?: continue
+                ?.takeIf { it.isFinite() && it in 0.1..180.0 } ?: continue
             if (rows.length() < 16) rows.put(JSONObject()
                 .put("type", type).put("temperature_c", value))
         }
-        return JSONObject().put("status", if (status != null || rows.length() > 0)
+        return JSONObject().put("status", if (!outputUnavailable(output) &&
+            (status != null || rows.length() > 0))
             "ok" else "unavailable")
             .put("thermal_status_code", status ?: JSONObject.NULL)
             .put("temperatures", rows)
+            .put("zero_or_invalid_temperatures_excluded", true)
             .put("source", "dumpsys thermalservice")
             .put("notes", "Thermal status follows Android 0..6 scale when exposed; " +
-                "temperature sensors and throttling levels are OEM dependent. " +
+                "temperature sensors and throttling levels are OEM dependent. Zero and implausible readings are excluded. " +
                 "No hardware identifiers or raw dump are returned.")
     }
 }
