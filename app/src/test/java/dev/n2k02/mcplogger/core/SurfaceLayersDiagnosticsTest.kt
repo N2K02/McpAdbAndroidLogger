@@ -108,7 +108,7 @@ class SurfaceLayersDiagnosticsTest {
         val list = LocalMcpProtocol.execute(JSONObject(
             """{"jsonrpc":"2.0","method":"tools/list","id":1}"""))!!
             .getJSONObject("result").getJSONArray("tools")
-        assertEquals(25, list.length())
+        assertEquals(27, list.length())
         val surface = (0 until list.length()).map { list.getJSONObject(it) }
             .single { it.getString("name") == "get_surfaceflinger_layers" }
         assertTrue(surface.getString("description").contains("not per-app CPU"))
