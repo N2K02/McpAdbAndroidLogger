@@ -20,6 +20,19 @@ class DiagnosticLogcatTest {
         assertEquals("*:S", options.argv().last())
     }
 
+    @Test fun deviceObservedAudioAndThermalTagsHaveBoundedPresets() {
+        val audio = DiagnosticLogcat.parse(JSONObject("""{"profile":"audio"}"""))
+        assertTrue(audio.tags.contains("StHal" to "I"))
+        assertTrue(audio.tags.contains("BTAudioSessionAidl" to "D"))
+        assertTrue(audio.tags.size <= 48)
+        val battery = DiagnosticLogcat.parse(JSONObject("""{"profile":"battery"}"""))
+        assertTrue(battery.tags.contains("pixel-thermal" to "I"))
+        assertTrue(battery.tags.size <= 48)
+        val log = LogEvent(17L, 1_700_000_000_000L, "1000", "111",
+            "I", "pixel-thermal", "VIRTUAL-SKIN:39", "")
+        assertEquals(listOf(17L), DiagnosticLogcat.select(listOf(log), battery).map { it.id })
+    }
+
     @Test fun rejectsCommandInjectionAndUnboundedModes() {
         for (payload in listOf(
             """{"tags":["AudioFlinger:W;id"]}""",
