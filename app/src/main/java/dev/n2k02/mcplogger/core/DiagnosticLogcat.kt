@@ -14,12 +14,15 @@ internal object DiagnosticLogcat {
     private val allowedFormats = setOf("time", "threadtime", "epoch")
     private val profiles = linkedMapOf(
         "audio" to listOf("SEQ-Audio:V", "AndroidRuntime:E", "AudioFlinger:W",
-            "AudioPolicyManager:W", "AudioTrack:W", "AudioRecord:W", "AudioService:D"),
+            "AudioPolicyManager:W", "AudioTrack:W", "AudioRecord:W", "AudioService:D",
+            "StHal:I", "BTAudioSessionAidl:D", "AudioPolicyService:W",
+            "AAudio:W"),
         "crashes" to listOf("AndroidRuntime:E", "ActivityManager:E", "libc:F", "DEBUG:E"),
         "performance" to listOf("ActivityManager:I", "Choreographer:W",
             "OpenGLRenderer:W", "HWUI:W", "lmkd:W"),
         "battery" to listOf("BatteryService:D", "PowerManagerService:D",
-            "DeviceIdleController:D", "JobScheduler:D", "AlarmManager:D"),
+            "DeviceIdleController:D", "JobScheduler:D", "AlarmManager:D",
+            "pixel-thermal:I"),
         "system" to listOf("AndroidRuntime:E", "ActivityManager:W", "SystemServer:W"),
     )
     fun catalog(): JSONObject = JSONObject().apply {
