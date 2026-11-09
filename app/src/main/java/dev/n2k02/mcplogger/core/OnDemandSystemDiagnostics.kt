@@ -1,0 +1,163 @@
+package dev.n2k02.mcplogger.core
+
+import dev.n2k02.mcplogger.adb.AdbCoordinator
+import dev.n2k02.mcplogger.adb.AdbTransport
+import kotlinx.coroutines.sync.Mutex
+import org.json.JSONArray
+import org.json.JSONObject
+
+/**
+ * Explicit, bounded, read-only ADB snapshots. No live capture, toggles,
+ * arbitrary shell strings, content exports, or background monitoring.
+ * Only parsed summary fields are returned to remote callers.
+ */
+internal object OnDemandSystemDiagnostics {
+    private val lock = Mutex()
+    private const val TIMEOUT_MS = 9_000L
+    private val serviceRecord = Regex("""ServiceRecord\{[^\n]{0,220}""")
+    private val thermalStatus = Regex("""(?i)(?:Thermal Status|mStatus|status)\s*[:=]\s*(\d{1,2})""")
+    private val temp = Regex("""(?i)(?:Temperature\{[^}]{0,200}\}|(?:cpu|gpu|skin|battery)[^\n]{0,120})""")
+    private val number = Regex("""(?i)(?:mValue=|value=|temperature=|temp=)\s*(-?\d+(?:\.\d+)?)""")
+
+    private suspend fun snapshot(command: String, parser: (String) -> JSONObject): JSONObject {
+        check(AdbCoordinator.verified.value) { "ADB shell UID 2000 not verified" }
+        check(lock.tryLock()) { "Another system diagnostic is in progress" }
+        try {
+            val result = AdbTransport.exec(command, timeoutMs = TIMEOUT_MS).getOrThrow()
+            return parser(result).put("taken_at", System.currentTimeMillis())
+        } finally { lock.unlock() }
+    }
+
+    suspend fun services(pkg: String): JSONObject {
+        val name = AppRuntimeDiagnostics.validate(pkg)
+        return snapshot("dumpsys activity services $name | head -c 65536") {
+            parseServices(name, it)
+        }
+    }
+
+    suspend fun audio(pkg: String): JSONObject {
+        val name = AppRuntimeDiagnostics.validate(pkg)
+        return snapshot("dumpsys audio | head -c 131072") { parseAudio(name, it) }
+    }
+
+    suspend fun jobs(pkg: String): JSONObject {
+        val name = AppRuntimeDiagnostics.validate(pkg)
+        return snapshot("dumpsys jobscheduler | head -c 196608") { parseJobs(name, it) }
+    }
+
+    suspend fun thermal(): JSONObject =
+        snapshot("dumpsys thermalservice | head -c 65536", ::parseThermal)
+
+    private fun containsPackage(line: String, pkg: String): Boolean {
+        var start = line.indexOf(pkg)
+        while (start >= 0) {
+            val end = start + pkg.length
+            val before = start == 0 || !line[start - 1].let { it.isLetterOrDigit() || it == '_' || it == '.' }
+            val after = end == line.length || !line[end].let { it.isLetterOrDigit() || it == '_' || it == '.' }
+            if (before && after) return true
+            start = line.indexOf(pkg, start + 1)
+        }
+        return false
+    }
+
+    internal fun parseServices(pkg: String, output: String): JSONObject {
+        AppRuntimeDiagnostics.validate(pkg)
+        var records = 0
+        var foregroundHints = 0
+        var runningHints = 0
+        for (line in output.lineSequence().take(1600)) {
+            val text = line.trim()
+            if (!containsPackage(text, pkg)) continue
+            if (serviceRecord.containsMatchIn(text) || text.startsWith("Service ")) records++
+            if (text.contains("isForeground=true", true) ||
+                text.contains("foreground=true", true) ||
+                text.contains("fgRequired=true", true)) foregroundHints++
+            if (text.contains("app=ProcessRecord") || text.contains("executing=true")) runningHints++
+        }
+        return JSONObject().put("package_name", pkg)
+            .put("service_record_matches", records.coerceAtMost(1000))
+            .put("foreground_hints", foregroundHints.coerceAtMost(1000))
+            .put("running_hints", runningHints.coerceAtMost(1000))
+            .put("status", if (output.isBlank()) "unavailable" else "partial_snapshot")
+            .put("source", "dumpsys activity services")
+            .put("notes", "Only exact-package service record hints are counted. No service " +
+                "names or other app data are exported. Absence does not prove no service is running.")
+    }
+
+    internal fun parseAudio(pkg: String, output: String): JSONObject {
+        AppRuntimeDiagnostics.validate(pkg)
+        var focus = 0
+        var record = 0
+        var playback = 0
+        for (line in output.lineSequence().take(2500)) {
+            if (!containsPackage(line, pkg)) continue
+            if (line.contains("focus", true) || line.contains("FocusRequester", true)) focus++
+            if (line.contains("record", true) || line.contains("Recording", true)) record++
+            if (line.contains("playback", true) || line.contains("player", true)) playback++
+        }
+        return JSONObject().put("package_name", pkg)
+            .put("audio_focus_mentions", focus.coerceAtMost(500))
+            .put("recording_mentions", record.coerceAtMost(500))
+            .put("playback_mentions", playback.coerceAtMost(500))
+            .put("status", if (output.isBlank()) "unavailable" else "partial_snapshot")
+            .put("source", "dumpsys audio")
+            .put("notes", "Counts package-associated audio dump mentions, not active " +
+                "stream certainty. No microphone data, audio content, device IDs, " +
+                "or other packages' information is returned.")
+    }
+
+    internal fun parseJobs(pkg: String, output: String): JSONObject {
+        AppRuntimeDiagnostics.validate(pkg)
+        var jobs = 0
+        var pending = 0
+        var running = 0
+        var restricted = 0
+        for (line in output.lineSequence().take(3500)) {
+            if (!containsPackage(line, pkg)) continue
+            val lower = line.lowercase()
+            if ("jobstatus{" in lower || "job #" in lower) jobs++
+            if ("pending" in lower || "waiting" in lower) pending++
+            if ("running" in lower || "active" in lower) running++
+            if ("restricted" in lower || "quota" in lower || "constraint" in lower) restricted++
+        }
+        return JSONObject().put("package_name", pkg)
+            .put("job_record_matches", jobs.coerceAtMost(2000))
+            .put("pending_hints", pending.coerceAtMost(2000))
+            .put("running_hints", running.coerceAtMost(2000))
+            .put("restriction_hints", restricted.coerceAtMost(2000))
+            .put("status", if (output.isBlank()) "unavailable" else "partial_snapshot")
+            .put("source", "dumpsys jobscheduler")
+            .put("notes", "Counts only lines explicitly naming this package. " +
+                "Job restrictions and scheduling sections can span multiple lines, " +
+                "so absent matches mean unknown, not unrestricted or idle.")
+    }
+
+    internal fun parseThermal(output: String): JSONObject {
+        val status = thermalStatus.find(output)?.groupValues?.get(1)?.toIntOrNull()
+            ?.takeIf { it in 0..6 }
+        val rows = JSONArray()
+        for (line in output.lineSequence().take(1600)) {
+            val trimmed = line.trim()
+            if (!temp.containsMatchIn(trimmed)) continue
+            val type = when {
+                trimmed.contains("CPU", true) -> "cpu"
+                trimmed.contains("GPU", true) -> "gpu"
+                trimmed.contains("SKIN", true) -> "skin"
+                trimmed.contains("BATTERY", true) -> "battery"
+                else -> continue
+            }
+            val value = number.find(trimmed)?.groupValues?.get(1)?.toDoubleOrNull()
+                ?.takeIf { it.isFinite() && it in -50.0..180.0 } ?: continue
+            if (rows.length() < 16) rows.put(JSONObject()
+                .put("type", type).put("temperature_c", value))
+        }
+        return JSONObject().put("status", if (status != null || rows.length() > 0)
+            "ok" else "unavailable")
+            .put("thermal_status_code", status ?: JSONObject.NULL)
+            .put("temperatures", rows)
+            .put("source", "dumpsys thermalservice")
+            .put("notes", "Thermal status follows Android 0..6 scale when exposed; " +
+                "temperature sensors and throttling levels are OEM dependent. " +
+                "No hardware identifiers or raw dump are returned.")
+    }
+}
