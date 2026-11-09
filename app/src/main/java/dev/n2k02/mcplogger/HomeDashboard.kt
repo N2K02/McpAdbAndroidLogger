@@ -100,7 +100,7 @@ internal fun HomeDashboard(
                 HorizontalDivider()
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Searches: " + currentStats.scanCycles,
+                        Text("Manual searches: " + currentStats.scanCycles,
                             style = MaterialTheme.typography.bodySmall)
                         Text("Last manual search: " +
                             if (currentStats.lastSuccessAtMillis == 0L) "—"
