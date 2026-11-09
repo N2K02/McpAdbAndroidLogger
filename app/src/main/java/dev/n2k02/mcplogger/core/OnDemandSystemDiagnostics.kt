@@ -140,6 +140,7 @@ internal object OnDemandSystemDiagnostics {
         var focus = 0
         var record = 0
         var playback = 0
+        val audioEvidence = mutableSetOf<String>()
         for (line in output.lineSequence().take(2500)) {
             if (!containsPackage(line, pkg)) continue
             // A package name can itself contain "player", "record", etc.
@@ -148,11 +149,25 @@ internal object OnDemandSystemDiagnostics {
             if (signal.contains("focus", true) || signal.contains("FocusRequester", true)) focus++
             if (signal.contains("record", true) || signal.contains("Recording", true)) record++
             if (signal.contains("playback", true) || signal.contains("player", true)) playback++
+            val lower = signal.lowercase()
+            if ("focus_gain" in lower || "focus gain" in lower)
+                audioEvidence.add("focus_gain_mentioned")
+            if ("focus_loss" in lower || "focus loss" in lower)
+                audioEvidence.add("focus_loss_mentioned")
+            if ("recording=true" in lower || "startrecord" in lower)
+                audioEvidence.add("recording_started_mentioned")
+            if ("recording=false" in lower || "stoprecord" in lower)
+                audioEvidence.add("recording_stopped_mentioned")
+            if ("playerstate=started" in lower || "state:started" in lower)
+                audioEvidence.add("playback_started_mentioned")
+            if ("playerstate=stopped" in lower || "state:stopped" in lower)
+                audioEvidence.add("playback_stopped_mentioned")
         }
         return JSONObject().put("package_name", pkg)
             .put("audio_focus_mentions", focus.coerceAtMost(500))
             .put("recording_mentions", record.coerceAtMost(500))
             .put("playback_mentions", playback.coerceAtMost(500))
+            .put("audio_evidence", JSONArray(audioEvidence.sorted()))
             .put("status", if (outputUnavailable(output)) "unavailable" else "partial_snapshot")
             .put("interpretation", "historical_or_current_mentions_only")
             .put("focus_state", "unknown")
@@ -171,6 +186,7 @@ internal object OnDemandSystemDiagnostics {
         var running = 0
         var restricted = 0
         var currentJobMatches = false
+        val reasons = mutableSetOf<String>()
         for (line in output.lineSequence().take(3500)) {
             val text = line.trim()
             val lower = text.lowercase()
@@ -183,12 +199,27 @@ internal object OnDemandSystemDiagnostics {
             if ("running" in lower || "active" in lower) running++
             if ("restricted" in lower || "quota" in lower ||
                 "constraint" in lower) restricted++
+            if ("quota" in lower) reasons.add("quota_mentioned")
+            if ("standby" in lower || "bucket" in lower)
+                reasons.add("standby_bucket_mentioned")
+            if ("background restriction" in lower || "background_restricted" in lower)
+                reasons.add("background_restriction_mentioned")
+            if ("constraint" in lower || "unsatisfied" in lower)
+                reasons.add("constraint_mentioned")
+            if ("unsatisfied" in lower || "not satisfied" in lower) {
+                listOf("charging", "idle", "connectivity", "battery_not_low",
+                    "storage_not_low", "timing_delay", "deadline").filter {
+                    it in lower
+                }.forEach { reasons.add("unsatisfied_" + it) }
+            }
         }
         return JSONObject().put("package_name", pkg)
             .put("job_record_matches", jobs.coerceAtMost(2000))
             .put("pending_hints", pending.coerceAtMost(2000))
             .put("running_hints", running.coerceAtMost(2000))
             .put("restriction_hints", restricted.coerceAtMost(2000))
+            .put("restriction_evidence", JSONArray(reasons.sorted()))
+            .put("restriction_evidence_is_not_verdict", true)
             .put("quota_state", "unknown")
             .put("restriction_state", "unknown")
             .put("evidence_coverage", "package-associated job blocks only")
