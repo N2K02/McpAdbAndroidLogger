@@ -570,12 +570,12 @@ The **existing** `get_device_status` tool reports
 `mcp_catalog_revision`, `mcp_tool_count`,
 `mcp_tool_names`, `on_demand_health_available`, and
 `on_demand_health_ready` without running any ADB diagnostics.
-The experimental catalog contains **21 built-in tools**, including
-`get_app_runtime` and `get_app_ops`. The MCP audit tool is not exposed.
+The experimental catalog contains **25 built-in tools**, including
+`get_app_runtime`, `get_app_ops`, and four read-only system diagnostic tools. The MCP audit tool is not exposed.
 `get_device_status` reports the installed catalog revision.
 
 If ChatGPT still offers only the original six tool names but
-`get_device_status` reports 21 built-in tools, the phone server is updated
+`get_device_status` reports 25 built-in tools, the phone server is updated
 and the *ChatGPT MCP integration's cached tool schema* is out of date.
 Reconnect or re-add the existing MCP integration (using the same public MCP URL
 and authorized access) to force tool rediscovery. Merely rebuilding or
