@@ -183,9 +183,12 @@ internal object LocalMcpProtocol {
         return when (name) {
             "get_device_status" -> JSONObject().put("adb", MonitorState.adb.value)
                 .put("monitoring", MonitorState.active.value)
+                .put("manual_logcat_reading", MonitorState.active.value)
+                .put("mcp_tools_active", JSONArray(MonitorState.mcpToolsInFlight.value.sorted()))
                 .put("local_mcp", MonitorState.localMcp.value)
                 .put("package", MonitorState.selectedPackage.value)
                 .put("buffered_logs", MonitorState.logs.value.size)
+                .put("manual_buffered_logs", MonitorState.logs.value.size)
                 .put("mcp_catalog_revision", CATALOG_REVISION)
                 .put("mcp_tool_count", names.size)
                 .put("mcp_tool_names", JSONArray(names))
