@@ -95,9 +95,12 @@ internal object OnDemandSystemDiagnostics {
         var playback = 0
         for (line in output.lineSequence().take(2500)) {
             if (!containsPackage(line, pkg)) continue
-            if (line.contains("focus", true) || line.contains("FocusRequester", true)) focus++
-            if (line.contains("record", true) || line.contains("Recording", true)) record++
-            if (line.contains("playback", true) || line.contains("player", true)) playback++
+            // A package name can itself contain "player", "record", etc.
+            // Remove only the verified package token before classifying hints.
+            val signal = line.replace(pkg, "")
+            if (signal.contains("focus", true) || signal.contains("FocusRequester", true)) focus++
+            if (signal.contains("record", true) || signal.contains("Recording", true)) record++
+            if (signal.contains("playback", true) || signal.contains("player", true)) playback++
         }
         return JSONObject().put("package_name", pkg)
             .put("audio_focus_mentions", focus.coerceAtMost(500))
