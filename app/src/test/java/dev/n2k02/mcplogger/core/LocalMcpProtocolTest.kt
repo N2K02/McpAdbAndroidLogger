@@ -249,7 +249,11 @@ class LocalMcpProtocolTest {
                 assertTrue("get_live_logs" in MonitorState.mcpToolsInFlight.value)
                 throw IllegalStateException("test read failure")
             })!!
-            assertTrue(failed.has("error"))
+            assertFalse(failed.has("error"))
+            assertTrue(failed.getJSONObject("result").getBoolean("isError"))
+            val failure = JSONObject(failed.getJSONObject("result")
+                .getJSONArray("content").getJSONObject(0).getString("text"))
+            assertEquals("diagnostic_failed", failure.getString("reason"))
             assertTrue(MonitorState.mcpToolsInFlight.value.isEmpty())
 
             MonitorState.beginMcpTool("get_live_logs")
