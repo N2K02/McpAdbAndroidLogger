@@ -64,6 +64,12 @@ class LocalMcpProtocolTest {
         assertEquals((0 until listed.length()).map {
             listed.getJSONObject(it).getString("name")
         }, (0 until toolNames.length()).map { toolNames.getString(it) })
+        assertEquals(MonitorState.active.value,
+            payload.getBoolean("manual_logcat_reading"))
+        assertEquals(MonitorState.logs.value.size,
+            payload.getInt("manual_buffered_logs"))
+        assertTrue(payload.getJSONArray("mcp_tools_active").toString()
+            .contains("get_device_status"))
         assertEquals(2000, payload.getInt("logcat_snapshot_max_lines"))
         assertTrue(payload.getString("package_log_filter").contains("exact UID"))
         assertTrue(payload.getJSONArray("diagnostic_coverage_notes").length() >= 4)
