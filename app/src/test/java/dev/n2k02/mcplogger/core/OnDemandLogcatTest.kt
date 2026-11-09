@@ -71,7 +71,13 @@ class OnDemandLogcatTest {
     @Test fun commandFailureIsNotReplacedByStaleCachedData() {
         val reply = LocalMcpProtocol.execute(call("get_live_logs"),
             logsReader = { error("ADB is offline") })!!
-        assertEquals(-32603, reply.getJSONObject("error").getInt("code"))
+        assertFalse(reply.has("error"))
+        val toolResult = reply.getJSONObject("result")
+        assertTrue(toolResult.getBoolean("isError"))
+        val detail = org.json.JSONObject(toolResult.getJSONArray("content")
+            .getJSONObject(0).getString("text"))
+        assertEquals("unavailable", detail.getString("status"))
+        assertEquals("diagnostic_failed", detail.getString("reason"))
         assertFalse(reply.toString().contains("ADB is offline"))
     }
 

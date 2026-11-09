@@ -15,6 +15,7 @@ import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.Semaphore
 import org.json.JSONObject
 
 /** Loopback-only authenticated local MCP endpoint. Owned by LogMonitorService. */
@@ -32,6 +33,8 @@ object LocalMcpServer {
         { task -> Thread(task, "mcp-local-client").apply { isDaemon = true } },
         ThreadPoolExecutor.AbortPolicy()
     )
+    // Keep independent HTTP/OAuth workers responsive during shell diagnostics.
+    private val diagnosticSlots = Semaphore(2, true)
     private var workers: ExecutorService? = null
     @Volatile private var listener: ServerSocket? = null
     @Volatile private var active = false
@@ -318,8 +321,15 @@ object LocalMcpServer {
                     },
                     performanceReader = { name, arguments ->
                         // Authenticated requests only; no caller-defined commands.
-                        kotlinx.coroutines.runBlocking {
-                            val pkg = arguments.optString("package_name")
+                        if (!diagnosticSlots.tryAcquire(250, TimeUnit.MILLISECONDS))
+                            throw IllegalStateException("diagnostic_busy")
+                        try {
+                            kotlinx.coroutines.runBlocking {
+                                // Captures are bounded to 10 seconds; the trace parser
+                                // may need more time after capture to process its output.
+                                val budgetMs = if (name == "get_surfaceflinger_perfetto") 60_000L else 20_000L
+                                kotlinx.coroutines.withTimeout(budgetMs) {
+                                    val pkg = arguments.optString("package_name")
                             val budget = arguments.optDouble("frame_budget_ms", 16.67)
                             when (name) {
                                 "get_app_runtime" -> AppRuntimeDiagnostics.inspect(pkg)
@@ -345,11 +355,16 @@ object LocalMcpServer {
                                     arguments.optInt("duration_seconds", 5), arguments.optInt("limit", 15),
                                     context.applicationInfo.nativeLibraryDir)
                                 else -> throw IllegalArgumentException()
+                                    }
+                                }
                             }
+                        } finally {
+                            diagnosticSlots.release()
                         }
                     })
                 val status = if (result == null) "Accepted"
-                    else if (result.has("error")) "Error" else "OK"
+                    else if (result.has("error") || result.optJSONObject("result")?.optBoolean("isError") == true)
+                        "Error" else "OK"
                 val responseBody = result?.toString().orEmpty()
                 if (result == null) respond(output, 202, "")
                 else respond(output, 200, responseBody, "application/json")
