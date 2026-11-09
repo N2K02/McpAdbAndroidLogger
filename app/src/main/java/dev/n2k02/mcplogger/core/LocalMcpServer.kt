@@ -363,7 +363,8 @@ object LocalMcpServer {
                         }
                     })
                 val status = if (result == null) "Accepted"
-                    else if (result.has("error")) "Error" else "OK"
+                    else if (result.has("error") || result.optJSONObject("result")?.optBoolean("isError") == true)
+                        "Error" else "OK"
                 val responseBody = result?.toString().orEmpty()
                 if (result == null) respond(output, 202, "")
                 else respond(output, 200, responseBody, "application/json")
