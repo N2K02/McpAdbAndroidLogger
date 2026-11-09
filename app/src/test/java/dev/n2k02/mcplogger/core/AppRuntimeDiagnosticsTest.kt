@@ -37,7 +37,7 @@ class AppRuntimeDiagnosticsTest {
     }
 
     @Test fun processListTruncationDoesNotUnderreportMatches() {
-        val ps = (1..40).joinToString("\\n") { index ->
+        val ps = (1..40).joinToString("\n") { index ->
             "${1000 + index} u0_a123 com.example.target:worker$index"
         }
         val result = AppRuntimeDiagnostics.summarize(name, ps, "", "")
