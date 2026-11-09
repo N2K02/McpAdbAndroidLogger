@@ -37,14 +37,16 @@ internal object DiagnosticProfileStore {
     @Synchronized fun save(context: Context, name: String, tags: List<String>) {
         require(valid(name, tags))
         require(name in custom || custom.size < 20)
+        val updated = custom.toMutableMap().apply { put(name, tags.toList()) }
+        persist(context, updated)
         custom[name] = tags.toList()
-        persist(context)
     }
 
     @Synchronized fun remove(context: Context, name: String) {
         require(name in custom)
+        val updated = custom.toMutableMap().apply { remove(name) }
+        persist(context, updated)
         custom.remove(name)
-        persist(context)
     }
 
     private fun valid(name: String, tags: List<String>): Boolean {
@@ -56,9 +58,9 @@ internal object DiagnosticProfileStore {
         }.getOrDefault(false)
     }
 
-    private fun persist(context: Context) {
+    private fun persist(context: Context, profiles: Map<String, List<String>>) {
         val obj = JSONObject()
-        custom.forEach { (name, tags) -> obj.put(name, JSONArray(tags)) }
+        profiles.forEach { (name, tags) -> obj.put(name, JSONArray(tags)) }
         check(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY, obj.toString()).commit()) {
             "Could not persist diagnostic profile"
