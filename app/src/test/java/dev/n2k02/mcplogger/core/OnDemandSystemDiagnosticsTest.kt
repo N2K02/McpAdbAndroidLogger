@@ -99,7 +99,7 @@ class OnDemandSystemDiagnosticsTest {
         val tools = LocalMcpProtocol.execute(JSONObject(
             """{"jsonrpc":"2.0","method":"tools/list","id":1}"""))!!
             .getJSONObject("result").getJSONArray("tools")
-        assertEquals(25, tools.length())
+        assertEquals(27, tools.length())
         val catalog = (0 until tools.length()).map { tools.getJSONObject(it) }
         for (name in names) {
             val schema = catalog.single { it.getString("name") == name }
