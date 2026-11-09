@@ -30,6 +30,11 @@ recorded locally for troubleshooting.
 - `get_app_ops`: read-only, allowlisted AppOps modes (audio recording, camera,
   location, notifications, background execution, overlays and media). No
   timestamps or proxy-attribution details are returned.
+- `get_app_services`: exact-app ActivityManager service and foreground hints.
+- `get_app_audio_state`: exact-app audio focus, playback and recording mentions.
+- `get_app_jobs`: exact-app JobScheduler activity and restriction hints.
+- `get_thermal_state`: available Android thermal severity and temperatures.
+  These four commands return only sanitized counts/measurements, no raw dumps.
 - `get_diagnostic_correlation`: sequential Logcat, CPU, memory and battery
   observations with a capture window and explicit non-causality caveat.
 - Existing CPU, frame timing, battery, PSI memory, wakelock, screen-off,
@@ -76,11 +81,9 @@ Sample app diagnosis:
 
 ## Recommended next tools
 
-1. App process/foreground importance and service summaries from ActivityManager.
-2. Audio-focus/playback/recording state reports that return only safe parsed
-   metadata, never user audio or other app content.
-3. Short thermal/CPU frequency snapshots from supported, readable sysfs paths
-   or `dumpsys thermalservice`.
+1. App-specific running foreground-service types and exact start/stop state, where the platform exposes them.
+2. Better parser coverage for audio-focus/playback/recording across OEM builds.
+3. Per-app JobScheduler quota explanations instead of only text hints.
 4. Automated crash triage with timestamped log context, deduplicated signatures
    and an explicit "insufficient evidence" state.
 
