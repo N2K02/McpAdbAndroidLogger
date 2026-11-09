@@ -41,6 +41,11 @@ object MonitorState {
         mcpReadCount.value += 1L
         mcpLastReadAt.value = System.currentTimeMillis()
     }
+    /** Home-only reset; never changes active MCP requests, captures or audit history. */
+    @Synchronized fun resetMcpHomeStatistics() {
+        mcpReadCount.value = 0L
+        mcpLastReadAt.value = 0L
+    }
     val logReadOrigin = MutableStateFlow<LogReadOrigin?>(null)
     /** Tracks overlapping MCP tool calls so Home badges reflect any in-flight request. */
     val mcpToolsInFlight = MutableStateFlow<Set<String>>(emptySet())
