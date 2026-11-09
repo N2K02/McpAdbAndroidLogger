@@ -150,6 +150,12 @@ internal fun HomeDashboard(
                         .format(Date(mcpLastReadAt)),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onClick = { MonitorState.resetMcpHomeStatistics() },
+                    modifier = Modifier.align(Alignment.End)) {
+                    Icon(Icons.Rounded.RestartAlt, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Reset MCP statistics")
+                }
             }
         }
     }
