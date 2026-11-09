@@ -36,6 +36,16 @@ class AppRuntimeDiagnosticsTest {
         assertFalse(out.contains("com.example.target2"))
     }
 
+    @Test fun processListTruncationDoesNotUnderreportMatches() {
+        val ps = (1..40).joinToString("\\n") { index ->
+            "${1000 + index} u0_a123 com.example.target:worker$index"
+        }
+        val result = AppRuntimeDiagnostics.summarize(name, ps, "", "")
+        assertEquals(40, result.getInt("process_count"))
+        assertEquals(30, result.getInt("returned_process_count"))
+        assertTrue(result.getBoolean("processes_truncated"))
+    }
+
     @Test fun missingFieldsAreUnavailableRatherThanZero() {
         val result = AppRuntimeDiagnostics.summarize(name, "", "Permission denied", "")
         assertEquals("not_visible_or_stopped", result.getString("process_status"))
