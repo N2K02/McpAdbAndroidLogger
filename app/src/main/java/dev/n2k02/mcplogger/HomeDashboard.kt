@@ -59,27 +59,63 @@ internal fun HomeDashboard(
     val buffered = manualLogs.count { it.epochMillis >= today }
     val verified = adb.startsWith("UID 2000 verified")
     val mcpActive = inFlight.isNotEmpty()
+
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())
-        .padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)) {
+
+        // Connection health is visible immediately; no duplicated status rows.
+        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Text("Connection status", style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                HomeConnectionTile("ADB",
+                    if (verified) "Shell UID 2000" else "Setup required",
+                    Icons.Rounded.SettingsInputAntenna,
+                    HomeBadgePolicy.adb(verified, false), Modifier.weight(1f), onAdb)
+                HomeConnectionTile("MCP",
+                    when (tunnelTone(tunnel)) {
+                        Tone.GOOD -> "Public endpoint"
+                        Tone.BUSY -> "Connecting…"
+                        else -> "Check connection"
+                    },
+                    Icons.Rounded.Cloud,
+                    HomeBadgePolicy.mcp(tunnel, mcpActive), Modifier.weight(1f), onMcp)
+            }
+        }
+
         ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 CardHeader(Icons.Rounded.Terminal, "Manual Logcat (Today)",
                     if (active) Tone.BUSY else Tone.IDLE,
-                    if (active) "Reading" else "Ready",
-                    subtitle = "Manual Logs page only; MCP reads are separate")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    StatMetric("Captured today", currentStats.uniqueCaptured.toString(),
-                        Modifier.weight(1f), Tone.GOOD)
-                    StatMetric("Buffered", buffered.toString(), Modifier.weight(1f), Tone.BUSY)
+                    if (active) "Reading" else if (verified) "Ready" else "No ADB",
+                    subtitle = "Local searches only")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    HomeInlineMetric("Captured today", currentStats.uniqueCaptured.toString(),
+                        Modifier.weight(1f), emphasized = true)
+                    VerticalDivider(Modifier.height(44.dp))
+                    HomeInlineMetric("Buffered", buffered.toString(),
+                        Modifier.weight(1f).padding(start = 16.dp))
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    StatMetric("Manual searches", currentStats.scanCycles.toString(),
-                        Modifier.weight(1f), Tone.IDLE)
-                    StatMetric("Last manual search",
-                        if (currentStats.lastSuccessAtMillis == 0L) "—"
-                        else DateFormat.getTimeInstance(DateFormat.SHORT)
-                            .format(Date(currentStats.lastSuccessAtMillis)),
-                        Modifier.weight(1f), Tone.IDLE)
+                HorizontalDivider()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Searches: " + currentStats.scanCycles,
+                            style = MaterialTheme.typography.bodySmall)
+                        Text("Last manual search: " +
+                            if (currentStats.lastSuccessAtMillis == 0L) "—"
+                            else DateFormat.getTimeInstance(DateFormat.SHORT)
+                                .format(Date(currentStats.lastSuccessAtMillis)),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = onLogs, enabled = !active,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)) {
+                        Icon(Icons.Rounded.Terminal, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Manual Logs", maxLines = 1)
+                    }
                 }
                 if (currentStats.readFailures > 0) {
                     Text("Manual read errors: " + currentStats.readFailures,
@@ -94,36 +130,67 @@ internal fun HomeDashboard(
                 }
             }
         }
-        HomeStatusCard(Icons.Rounded.Terminal, "Manual Logs",
-            "Open Logs and tap Search to scan Android Logcat",
-            HomeBadgePolicy.logs(active, buffered > 0), onClick = onLogs)
+
         ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 CardHeader(Icons.Rounded.Cloud, "MCP activity",
                     if (mcpActive) Tone.BUSY else Tone.IDLE,
                     if (mcpActive) "Reading" else "Idle",
-                    subtitle = "Remote diagnostics do not change manual Logs")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    StatMetric("MCP Logcat reads", mcpReadCount.toString(),
-                        Modifier.weight(1f), Tone.GOOD)
-                    StatMetric("Tools active", inFlight.size.toString(),
-                        Modifier.weight(1f), if (mcpActive) Tone.BUSY else Tone.IDLE)
+                    subtitle = "On-demand diagnostics · separate from manual Logs")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    HomeInlineMetric("MCP Logcat reads", mcpReadCount.toString(),
+                        Modifier.weight(1f), emphasized = true)
+                    VerticalDivider(Modifier.height(44.dp))
+                    HomeInlineMetric("Tools active", inFlight.size.toString(),
+                        Modifier.weight(1f).padding(start = 16.dp))
                 }
                 Text("Last MCP Logcat read: " +
-                    if (mcpLastReadAt == 0L) "—" else
-                        DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(mcpLastReadAt)),
-                    style = MaterialTheme.typography.bodySmall)
-                Text("ADB: " + if (verified) "UID 2000 verified" else "Authorization needed",
-                    style = MaterialTheme.typography.bodySmall)
-                Text("MCP: " + tunnel, style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2)
+                    if (mcpLastReadAt == 0L) "—"
+                    else DateFormat.getTimeInstance(DateFormat.SHORT)
+                        .format(Date(mcpLastReadAt)),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        HomeStatusCard(Icons.Rounded.SettingsInputAntenna, "ADB connection",
-            if (verified) "Connected · UID 2000" else "Setup required",
-            HomeBadgePolicy.adb(verified, false), onClick = onAdb)
-        HomeStatusCard(Icons.Rounded.Cloud, "MCP connection", tunnel,
-            HomeBadgePolicy.mcp(tunnel, mcpActive), onClick = onMcp)
+    }
+}
+
+@Composable
+private fun HomeInlineMetric(label: String, value: String, modifier: Modifier,
+    emphasized: Boolean = false) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(value, style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+            color = if (emphasized) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurface)
+        Text(label, style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** Two compact, separately navigable connection cards instead of repeated rows. */
+@Composable
+private fun HomeConnectionTile(title: String, subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector, badge: HomeBadge,
+    modifier: Modifier = Modifier, onClick: () -> Unit) {
+    OutlinedCard(onClick = onClick, modifier = modifier) {
+        Column(Modifier.fillMaxWidth().padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(7.dp))
+                Text(title, style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Icon(Icons.Rounded.ChevronRight,
+                    contentDescription = "Open " + title + " connection",
+                    modifier = Modifier.size(16.dp))
+            }
+            StatusBadge(badge.label, badge.tone)
+            Text(subtitle, style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 
