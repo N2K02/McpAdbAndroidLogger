@@ -5,6 +5,35 @@ import org.junit.Test
 import org.json.JSONObject
 
 class LocalMcpProtocolTest {
+    @Test fun mcpHomeResetClearsOnlyCountersWhileRequestRemainsActive() {
+        val originalReads = MonitorState.mcpReadCount.value
+        val originalLastRead = MonitorState.mcpLastReadAt.value
+        val originalStats = MonitorState.captureStats.value
+        val originalLogs = MonitorState.logs.value
+        val originalAdb = MonitorState.adb.value
+        val originalTunnel = MonitorState.tunnel.value
+        MonitorState.beginMcpTool("mcp-reset-test")
+        try {
+            MonitorState.registerMcpRead()
+            assertTrue(MonitorState.mcpReadCount.value > 0)
+            MonitorState.resetMcpHomeStatistics()
+            assertEquals(0L, MonitorState.mcpReadCount.value)
+            assertEquals(0L, MonitorState.mcpLastReadAt.value)
+            assertTrue("mcp-reset-test" in MonitorState.mcpToolsInFlight.value)
+            assertEquals(originalStats, MonitorState.captureStats.value)
+            assertEquals(originalLogs, MonitorState.logs.value)
+            assertEquals(originalAdb, MonitorState.adb.value)
+            assertEquals(originalTunnel, MonitorState.tunnel.value)
+            MonitorState.registerMcpRead()
+            assertEquals(1L, MonitorState.mcpReadCount.value)
+            assertTrue(MonitorState.mcpLastReadAt.value > 0)
+        } finally {
+            MonitorState.endMcpTool("mcp-reset-test")
+            MonitorState.mcpReadCount.value = originalReads
+            MonitorState.mcpLastReadAt.value = originalLastRead
+        }
+    }
+
     @Test fun initializeReturnsCapabilitiesAndVersion() {
         val reply = LocalMcpProtocol.execute(JSONObject(
             """{"jsonrpc":"2.0","method":"initialize","id":1}"""))!!
@@ -26,7 +55,7 @@ class LocalMcpProtocolTest {
             .getJSONArray("content").getJSONObject(0).getString("text"))
         assertEquals(LocalMcpProtocol.CATALOG_REVISION,
             payload.getString("mcp_catalog_revision"))
-        assertEquals(17, payload.getInt("mcp_tool_count"))
+        assertEquals(27, payload.getInt("mcp_tool_count"))
         val toolNames = payload.getJSONArray("mcp_tool_names")
         val listed = LocalMcpProtocol.execute(JSONObject(
             """{"jsonrpc":"2.0","method":"tools/list","id":2}"""),
@@ -35,6 +64,15 @@ class LocalMcpProtocolTest {
         assertEquals((0 until listed.length()).map {
             listed.getJSONObject(it).getString("name")
         }, (0 until toolNames.length()).map { toolNames.getString(it) })
+        assertEquals(MonitorState.active.value,
+            payload.getBoolean("manual_logcat_reading"))
+        assertEquals(MonitorState.logs.value.size,
+            payload.getInt("manual_buffered_logs"))
+        assertTrue(payload.getJSONArray("mcp_tools_active").toString()
+            .contains("get_device_status"))
+        assertEquals(2000, payload.getInt("logcat_snapshot_max_lines"))
+        assertTrue(payload.getString("package_log_filter").contains("exact UID"))
+        assertTrue(payload.getJSONArray("diagnostic_coverage_notes").length() >= 4)
         assertTrue(payload.getBoolean("on_demand_health_available"))
         assertEquals(MonitorState.adb.value.startsWith("UID 2000 verified"),
             payload.getBoolean("on_demand_health_ready"))
@@ -47,7 +85,7 @@ class LocalMcpProtocolTest {
         val reply = LocalMcpProtocol.execute(JSONObject(
             """{"jsonrpc":"2.0","method":"tools/list","id":2}"""))!!
         val list = reply.getJSONObject("result").getJSONArray("tools")
-        assertEquals(17, list.length())
+        assertEquals(27, list.length())
         for (i in 0 until list.length()) {
             val s = list.getJSONObject(i).getJSONArray("securitySchemes").getJSONObject(0)
             assertEquals("oauth2", s.getString("type"))
@@ -74,6 +112,9 @@ class LocalMcpProtocolTest {
             assertFalse(schema.getJSONObject("properties").getJSONObject("package_name")
                 .getString("description").contains("message text"))
         }
+        assertTrue(schemas.getValue("get_live_logs").getJSONObject("properties")
+            .getJSONObject("format").getString("description")
+            .contains("uid+epoch"))
         assertFalse(schemas.getValue("get_device_status").getJSONObject("properties")
             .has("package_name"))
         assertFalse(schemas.getValue("list_installed_apps").getJSONObject("properties")
@@ -86,46 +127,19 @@ class LocalMcpProtocolTest {
             "MCP", "tools/call", "OK", 2, req, """{"api_key":"sensitive"}""",
             false, false, "POST", "/mcp", 200, "")
 
-    @Test fun auditHistoryHiddenAndRejectedWhenPermissionDisabled() {
+    @Test fun remoteAuditHistoryNeverAvailableEvenIfReaderProvided() {
+        val reader = { listOf(sample("id-1", 123L)) }
         val list = LocalMcpProtocol.execute(JSONObject(
-            """{"jsonrpc":"2.0","method":"tools/list","id":7}"""))!!
+            """{"jsonrpc":"2.0","method":"tools/list","id":7}"""), reader)!!
             .getJSONObject("result").getJSONArray("tools")
-        assertEquals(17, list.length())
+        assertEquals(27, list.length())
         assertFalse((0 until list.length()).any {
             list.getJSONObject(it).getString("name") == "get_mcp_audits"
         })
         val denied = LocalMcpProtocol.execute(JSONObject(
             """{"jsonrpc":"2.0","method":"tools/call","id":8,
-                 "params":{"name":"get_mcp_audits","arguments":{"limit":25}}}"""))!!
+                 "params":{"name":"get_mcp_audits","arguments":{"limit":25}}}"""), reader)!!
         assertEquals(-32602, denied.getJSONObject("error").getInt("code"))
-    }
-
-    @Test fun enabledAuditHistoryHasCorrectToolMetadataAndBoundedPaging() {
-        val entries = (1..60).map { sample("id-" + it, it.toLong()) }
-        val reader = { entries }
-        val tools = LocalMcpProtocol.execute(JSONObject(
-            """{"jsonrpc":"2.0","method":"tools/list","id":1}"""), reader)!!
-            .getJSONObject("result").getJSONArray("tools")
-        assertEquals(18, tools.length())
-        val audit = (0 until tools.length()).map { tools.getJSONObject(it) }
-            .single { it.getString("name") == "get_mcp_audits" }
-        assertTrue(audit.getJSONObject("inputSchema").getJSONObject("properties")
-            .has("include_payloads"))
-        val response = LocalMcpProtocol.execute(JSONObject(
-            """{"jsonrpc":"2.0","method":"tools/call","id":2,
-                 "params":{"name":"get_mcp_audits","arguments":{"limit":500}}}"""),
-            reader)!!.getJSONObject("result")
-        val content = JSONObject(response.getJSONArray("content").getJSONObject(0).getString("text"))
-        val first = content.getJSONArray("entries")
-        assertEquals(25, first.length())
-        assertEquals("id-60", first.getJSONObject(0).getString("id"))
-        assertEquals("id-36", first.getJSONObject(24).getString("id"))
-        assertFalse(first.getJSONObject(0).has("request"))
-        assertFalse(first.getJSONObject(0).has("response"))
-        assertEquals("id-36", content.getString("next_before_id"))
-        val next = McpAuditPolicy.agentPage(entries, 10, "id-36")
-        assertEquals("id-35", next.getJSONArray("entries").getJSONObject(0).getString("id"))
-        assertEquals("id-26", next.getString("next_before_id"))
     }
 
     @Test fun agentAuditPayloadsAreOptInAndRedactedAgain() {

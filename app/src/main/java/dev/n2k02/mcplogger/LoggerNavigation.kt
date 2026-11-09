@@ -1,43 +1,42 @@
 package dev.n2k02.mcplogger
 
-/** Home, Logs and Settings are root destinations; details belong to Home or Settings. */
+/** Main navigation: Home, MCP Audits, Logs, Settings, Quit. */
 internal enum class Page(val title: String) {
-    HOME("Home"), LOGS("Android Logcat"), SETTINGS("Settings"),
-    ADB("ADB connection"), BRIDGE("MCP connection"), MCP_AUDITS("MCP audits"),
-    MCP_AGENT_ACCESS("Agent permissions"), UPDATES("About & updates")
+    HOME("Home"), MCP_AUDITS("MCP audits"), LOGS("Android Logcat"),
+    SETTINGS("Settings"), ADB("ADB connection"), BRIDGE("MCP connection"),
+    UPDATES("About & updates")
 }
 
-/** One navigation policy for toolbar Back and Android system gesture. */
+/** Settings details retain their parent; Audits is an independent root page. */
 internal data class LoggerNavigation(
     val page: Page = Page.HOME,
     val parent: Page = Page.SETTINGS,
 ) {
     init {
-        require(parent == Page.HOME || parent == Page.SETTINGS) {
-            "Details must have Home or Settings as their parent"
-        }
+        require(parent == Page.HOME || parent == Page.SETTINGS)
     }
+    private val roots = setOf(Page.HOME, Page.MCP_AUDITS, Page.LOGS, Page.SETTINGS)
     val handlesBack get() = page != Page.HOME
     val homeSelected get() = page == Page.HOME ||
-        (page !in listOf(Page.HOME, Page.LOGS, Page.SETTINGS) && parent == Page.HOME)
+        (page !in roots && parent == Page.HOME)
+    val auditsSelected get() = page == Page.MCP_AUDITS
     val logsSelected get() = page == Page.LOGS
     val settingsSelected get() = page == Page.SETTINGS ||
-        (page !in listOf(Page.HOME, Page.LOGS, Page.SETTINGS) && parent == Page.SETTINGS)
+        (page !in roots && parent == Page.SETTINGS)
 
     fun open(destination: Page): LoggerNavigation = when (destination) {
-        Page.HOME, Page.LOGS, Page.SETTINGS -> LoggerNavigation(destination)
+        in roots -> LoggerNavigation(destination)
         else -> LoggerNavigation(destination,
             when (page) {
-                Page.HOME, Page.LOGS -> Page.HOME
+                Page.HOME, Page.MCP_AUDITS, Page.LOGS -> Page.HOME
                 Page.SETTINGS -> Page.SETTINGS
                 else -> parent
-            },
-        )
+            })
     }
 
     fun back(): LoggerNavigation = when (page) {
         Page.HOME -> this
-        Page.LOGS, Page.SETTINGS -> LoggerNavigation(Page.HOME)
+        Page.MCP_AUDITS, Page.LOGS, Page.SETTINGS -> LoggerNavigation(Page.HOME)
         else -> LoggerNavigation(parent)
     }
 }

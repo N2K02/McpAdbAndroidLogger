@@ -30,7 +30,6 @@ import dev.n2k02.mcplogger.adb.AdbCoordinator
 import dev.n2k02.mcplogger.adb.AdbRecoverySettings
 import dev.n2k02.mcplogger.adb.AdbRecoveryLifecycle
 import dev.n2k02.mcplogger.core.BridgeClient
-import dev.n2k02.mcplogger.core.McpAgentAuditAccess
 import dev.n2k02.mcplogger.core.McpConnectionSetup
 import dev.n2k02.mcplogger.core.StableMcpRelay
 import dev.n2k02.mcplogger.core.LogMonitorService
@@ -79,7 +78,6 @@ fun LoggerApp(onQuit: () -> Unit) {
                                 Page.ADB -> Icons.Rounded.SettingsInputAntenna
                                 Page.BRIDGE -> Icons.Rounded.Cloud
                                 Page.MCP_AUDITS -> Icons.Rounded.ManageSearch
-                                Page.MCP_AGENT_ACCESS -> Icons.Rounded.AdminPanelSettings
                                 Page.LOGS -> Icons.Rounded.List
                                 Page.UPDATES -> Icons.Rounded.SystemUpdate
                             }, null, modifier = Modifier.size(22.dp))
@@ -87,7 +85,7 @@ fun LoggerApp(onQuit: () -> Unit) {
                         Text(page.title, style = MaterialTheme.typography.titleMedium)
                     }
                 },
-                navigationIcon = if (page !in listOf(Page.HOME, Page.LOGS, Page.SETTINGS)) {
+                navigationIcon = if (page !in listOf(Page.HOME, Page.MCP_AUDITS, Page.LOGS, Page.SETTINGS)) {
                     { IconButton(onClick = { navigateBack() }) {
                         Icon(Icons.Rounded.ArrowBack, "Back")
                     } }
@@ -113,6 +111,10 @@ fun LoggerApp(onQuit: () -> Unit) {
                 NavigationBarItem(selected = LoggerNavigation(page, subpageParent).homeSelected,
                     onClick = { navigateTo(Page.HOME) },
                     icon = { Icon(Icons.Rounded.Home, null) }, label = { Text("Home") })
+                NavigationBarItem(selected = LoggerNavigation(page, subpageParent).auditsSelected,
+                    onClick = { navigateTo(Page.MCP_AUDITS) },
+                    icon = { Icon(Icons.Rounded.ManageSearch, null) },
+                    label = { Text("Audits") })
                 NavigationBarItem(selected = LoggerNavigation(page, subpageParent).logsSelected,
                     onClick = { navigateTo(Page.LOGS) },
                     icon = { Icon(Icons.Rounded.Terminal, null) },
@@ -135,10 +137,6 @@ fun LoggerApp(onQuit: () -> Unit) {
                     Icons.Rounded.SettingsInputAntenna) { navigateTo(Page.ADB) }
                 SettingsRow("MCP connection", "Local MCP server and secure public tunnel",
                     Icons.Rounded.Cloud) { navigateTo(Page.BRIDGE) }
-                SettingsRow("MCP audits", "Requests and responses by authorized AI agent",
-                    Icons.Rounded.History) { navigateTo(Page.MCP_AUDITS) }
-                SettingsRow("Agent permissions", "Optional read access to MCP audit history",
-                    Icons.Rounded.AdminPanelSettings) { navigateTo(Page.MCP_AGENT_ACCESS) }
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 ListItem(headlineContent = { Text("About & updates") },
                     supportingContent = { Text("Stable and experimental APK updates") },
@@ -149,7 +147,6 @@ fun LoggerApp(onQuit: () -> Unit) {
             Page.ADB -> AdbPage(Modifier.padding(padding))
             Page.BRIDGE -> BridgePage(Modifier.padding(padding))
             Page.MCP_AUDITS -> McpAuditsScreen(Modifier.padding(padding))
-            Page.MCP_AGENT_ACCESS -> AgentPermissionsPage(Modifier.padding(padding))
             Page.LOGS -> LogsPage(Modifier.padding(padding))
             Page.UPDATES -> {
                 val experiment by LiveUpdater.experimentalEnabled.collectAsState()
@@ -489,52 +486,6 @@ private fun BridgePage(modifier: Modifier) {
             style = MaterialTheme.typography.bodySmall)
         }
         }
-    }
-}
-
-/** Settings submenu only: remote MCP clients cannot change this permission. */
-@Composable
-private fun AgentPermissionsPage(modifier: Modifier) {
-    val context = LocalContext.current
-    var enabled by remember { mutableStateOf(McpAgentAuditAccess.enabled(context)) }
-    var feedback by remember { mutableStateOf("") }
-
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())
-        .padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("MCP agent permissions", style = MaterialTheme.typography.titleMedium)
-        Text("Choose what authenticated MCP agents can read. Existing device-status " +
-            "and redacted Android Logcat tools are unchanged.",
-            style = MaterialTheme.typography.bodyMedium)
-        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-            ListItem(
-                headlineContent = { Text("Read MCP audit history") },
-                supportingContent = { Text("Off by default. When enabled, all " +
-                    "authenticated MCP agents may read recent redacted MCP activity, " +
-                    "including other agents' activity. Request/response previews " +
-                    "require an additional tool argument.") },
-                leadingContent = { Icon(Icons.Rounded.History, null) },
-                trailingContent = {
-                    Switch(checked = enabled, onCheckedChange = { allow ->
-                        if (McpAgentAuditAccess.setEnabled(context, allow)) {
-                            enabled = allow
-                            feedback = if (allow) "Agent audit access enabled"
-                                else "Agent audit access disabled immediately"
-                        } else feedback = "Could not save the agent audit permission"
-                    })
-                })
-        }
-        Text(if (enabled)
-            "Enabled: authenticated agents can discover get_mcp_audits. " +
-                "Disable this switch to block new reads immediately."
-            else "Disabled: get_mcp_audits is hidden from tools/list and unavailable " +
-                "to every remote agent.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text("Refresh the agent's tool list after changing this permission. " +
-            "Audit history remains private on the phone while access is disabled.",
-            style = MaterialTheme.typography.bodySmall)
-        if (feedback.isNotBlank()) Text(feedback,
-            style = MaterialTheme.typography.labelMedium)
     }
 }
 

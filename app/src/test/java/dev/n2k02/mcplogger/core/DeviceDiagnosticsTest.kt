@@ -26,6 +26,15 @@ class DeviceDiagnosticsTest {
         ignored
     """.trimIndent()
 
+    @Test fun batteryPowerStatusDoesNotTreatZeroOnlyRowsAsUsefulAttribution() {
+        val baseline = DeviceDiagnostics.parseCheckin(checkinStart)
+        assertEquals("ok", DeviceDiagnostics.powerEstimateStatus(baseline))
+        assertEquals("unavailable", DeviceDiagnostics.powerEstimateStatus(
+            baseline.copy(estimatedMah = emptyMap())))
+        assertEquals("no_positive_estimates", DeviceDiagnostics.powerEstimateStatus(
+            baseline.copy(estimatedMah = mapOf(10123 to 0.0))))
+    }
+
     @Test fun batteryStateParsesNumericalFactsButNotSensitiveStrings() {
         val raw = """
             Current Battery Service state:

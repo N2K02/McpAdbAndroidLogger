@@ -42,6 +42,7 @@ class LogMonitorService : Service() {
         const val LOCAL_STOP = "dev.n2k02.mcplogger.LOCAL_MCP_STOP"
         const val QUIT = "dev.n2k02.mcplogger.QUIT"
         private val buffer = LogBuffer()
+        private val mcpBuffer = LogBuffer()
         private val resetGate = LogcatResetGate()
         private val readLock = Mutex()
         private const val IDLE_CACHE_MILLIS = 5 * 60_000L
@@ -61,6 +62,7 @@ class LogMonitorService : Service() {
             idleHandler.postDelayed(idleCleanup, IDLE_CACHE_MILLIS)
         }
         private var logDayStart = -1L
+        private var mcpDayStart = -1L
 
         /** Rotate only the private in-memory capture and stats, never Android's logd. */
         private fun rotateDay(now: Long): Boolean {
@@ -77,6 +79,7 @@ class LogMonitorService : Service() {
             } else {
                 // App process may recreate its foreground service without restarting.
                 buffer.clear(resetDedup = true)
+                mcpBuffer.clear(resetDedup = true)
                 MonitorState.logs.value = emptyList()
                 MonitorState.recentLogRequest.value = null
                 MonitorState.captureStats.value = LogCaptureStats(dayStartMs = today)
@@ -95,54 +98,72 @@ class LogMonitorService : Service() {
          * cache preserves existing MCP cursors and the local Logs viewer, but is
          * never replenished in the background.
          */
-        suspend fun readOnDemand(origin: LogReadOrigin = LogReadOrigin.MCP): List<LogEvent> = readLock.withLock {
-            cancelIdleLogCleanup()
-            rotateDay(System.currentTimeMillis())
+        internal suspend fun readOnDemand(origin: LogReadOrigin = LogReadOrigin.MCP,
+            options: DiagnosticLogcat.Options? = null,
+            commandTimeoutMs: Long = 12000): List<LogEvent> = readLock.withLock {
+            if (origin == LogReadOrigin.MANUAL) cancelIdleLogCleanup()
+            if (origin == LogReadOrigin.MANUAL) rotateDay(System.currentTimeMillis())
             val readGeneration = resetGate.generation()
-            MonitorState.logReadOrigin.value = origin
-            MonitorState.active.value = true
+            if (origin == LogReadOrigin.MANUAL) {
+                MonitorState.logReadOrigin.value = origin
+                MonitorState.active.value = true
+            }
             try {
                 check(AdbCoordinator.verified.value) { "ADB shell UID 2000 is not verified" }
                 // Package identities rarely change; avoid invoking PackageManager for
                 // every remote MCP log query while keeping an explicit refresh path.
-                refreshInstalledApps(force = false)
+                if (origin == LogReadOrigin.MANUAL ||
+                    MonitorState.packageUids.value.isEmpty())
+                    refreshInstalledApps(force = false)
                 val output = AdbTransport.exec(
-                    "logcat -b main -b system -b crash -v uid -v epoch -d -t 2000",
-                    timeoutMs = 12000
+                    DiagnosticLogcat.captureCommand(options),
+                    timeoutMs = commandTimeoutMs.coerceIn(1000, 12000)
                 ).getOrThrow()
                 val scannedAt = System.currentTimeMillis()
                 val parsed = LogDayPolicy.recentToday(
                     output.lineSequence().mapNotNull(LogFoxParser::parse).toList(), scannedAt)
                 // Serialize manual Clear with the midnight rollover: an in-flight
                 // read must never repopulate entries the user explicitly cleared.
-                val accepted = resetGate.applyIfCurrent(readGeneration) {
-                    rotateDay(scannedAt)
-                    val newEntries = buffer.add(parsed, null, null)
-                    MonitorState.logs.value = buffer.snapshot(0, 2000)
-                    val previous = MonitorState.captureStats.value
-                    MonitorState.captureStats.value = previous.copy(
-                        linesScanned = previous.linesScanned + parsed.size,
-                        uniqueCaptured = previous.uniqueCaptured + newEntries.size,
-                        scanCycles = previous.scanCycles + 1,
-                        lastSuccessAtMillis = System.currentTimeMillis(),
-                        lastBatchCaptured = newEntries.size,
-                    )
-                }
-                // Never return entries that a concurrent Clear discarded.
-                if (accepted) {
-                    if (origin == LogReadOrigin.MANUAL) {
+                if (origin == LogReadOrigin.MCP) {
+                    // Keep every remote query outside the manual viewer, counters
+                    // and cache. Preserve MCP cursor IDs in its own bounded buffer.
+                    val accepted = resetGate.applyIfCurrent(readGeneration) {
+                        val today = LogDayPolicy.dayStart(scannedAt)
+                        if (mcpDayStart != today) {
+                            mcpBuffer.clear(resetDedup = true)
+                            mcpDayStart = today
+                        }
+                        mcpBuffer.add(parsed, null, null)
+                        MonitorState.registerMcpRead()
+                    }
+                    if (accepted) mcpBuffer.snapshot(0, 2000) else emptyList()
+                } else {
+                    val accepted = resetGate.applyIfCurrent(readGeneration) {
+                        rotateDay(scannedAt)
+                        val newEntries = buffer.add(parsed, null, null)
+                        MonitorState.logs.value = buffer.snapshot(0, 2000)
+                        val previous = MonitorState.captureStats.value
+                        MonitorState.captureStats.value = previous.copy(
+                            linesScanned = previous.linesScanned + parsed.size,
+                            uniqueCaptured = previous.uniqueCaptured + newEntries.size,
+                            scanCycles = previous.scanCycles + 1,
+                            lastSuccessAtMillis = System.currentTimeMillis(),
+                            lastBatchCaptured = newEntries.size,
+                        )
+                    }
+                    if (accepted) {
                         MonitorState.recentLogRequest.value = RecentLogRequest(
                             origin = LogReadOrigin.MANUAL,
                             tool = "Manual refresh",
                             atMillis = System.currentTimeMillis()
                         )
-                    }
-                    buffer.snapshot(0, 2000)
-                } else emptyList()
+                        buffer.snapshot(0, 2000)
+                    } else emptyList()
+                }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                resetGate.applyIfCurrent(readGeneration) {
+                if (origin == LogReadOrigin.MANUAL) resetGate.applyIfCurrent(readGeneration) {
                     val previous = MonitorState.captureStats.value
                     MonitorState.captureStats.value = previous.copy(
                         readFailures = previous.readFailures + 1
@@ -151,9 +172,11 @@ class LogMonitorService : Service() {
                 MonitorState.error("Logcat: " + (error.message ?: "read failed"))
                 throw error
             } finally {
-                MonitorState.active.value = false
-                MonitorState.logReadOrigin.value = null
-                scheduleIdleLogCleanup()
+                if (origin == LogReadOrigin.MANUAL) {
+                    MonitorState.active.value = false
+                    MonitorState.logReadOrigin.value = null
+                    scheduleIdleLogCleanup()
+                }
             }
         }
 
@@ -201,6 +224,7 @@ class LogMonitorService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Never restart monitoring or the MCP listener while Quit is closing ADB.
         if (quitJob?.isActive == true) return START_NOT_STICKY
+        DiagnosticProfileStore.load(applicationContext)
         // Android may restart a sticky foreground service without the original Intent.
         when (intent?.action ?: LOCAL_START) {
             CLEAR_DEVICE_LOGCAT -> {
@@ -235,6 +259,7 @@ class LogMonitorService : Service() {
                         resetGate.finishDeviceClear {
                             if (cleared) {
                                 buffer.clear(resetDedup = true)
+                                mcpBuffer.clear(resetDedup = true)
                                 MonitorState.logs.value = emptyList()
                                 MonitorState.captureStats.value = LogCaptureStats(
                                     dayStartMs = LogDayPolicy.dayStart(System.currentTimeMillis()))
@@ -252,6 +277,7 @@ class LogMonitorService : Service() {
                 dailyPruneJob?.cancel()
                 dailyPruneJob = null
                 stopCapture()
+                mcpBuffer.clear(resetDedup = true)
                 clear()
                 QuickMcpTunnel.stop()
                 tunnelJob?.cancel()

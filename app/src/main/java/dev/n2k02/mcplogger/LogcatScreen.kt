@@ -183,6 +183,9 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
     val recentFirst = remember(filtered) { filtered.asReversed() }
     var exportSnapshot by remember { mutableStateOf<List<LogEvent>>(emptyList()) }
     var feedback by remember { mutableStateOf("") }
+    var profileDialog by remember { mutableStateOf(false) }
+    var profileName by remember { mutableStateOf("audio") }
+    var profileTags by remember { mutableStateOf("SEQ-Audio:V, AndroidRuntime:E, AudioFlinger:W") }
 
     fun update(next: LogViewFilter) {
         MonitorState.logFilter.value = next
@@ -223,6 +226,76 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                 else "Could not save logs; select another destination"
             }
         }
+    }
+
+    val jsonLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) {
+            val rows = exportSnapshot.toList()
+            scope.launch {
+                feedback = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openOutputStream(uri)?.use {
+                            it.write(DiagnosticLogExport.json(rows).toByteArray(Charsets.UTF_8))
+                        } ?: error("Storage unavailable")
+                        "Saved redacted JSON"
+                    }.getOrElse { "Could not save JSON" }
+                }
+            }
+        }
+    }
+    val zipLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        if (uri != null) {
+            val rows = exportSnapshot.toList()
+            scope.launch {
+                feedback = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openOutputStream(uri)?.use {
+                            it.write(DiagnosticLogExport.zip(rows))
+                        } ?: error("Storage unavailable")
+                        "Saved redacted ZIP"
+                    }.getOrElse { "Could not save ZIP" }
+                }
+            }
+        }
+    }
+    if (profileDialog) {
+        AlertDialog(onDismissRequest = { profileDialog = false },
+            title = { Text("Diagnostic profile") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(profileName, { profileName = it.trim().lowercase() },
+                        label = { Text("Name (or built-in profile)") }, singleLine = true)
+                    OutlinedTextField(profileTags, { profileTags = it },
+                        label = { Text("Comma-separated TAG:LEVEL") }, minLines = 2)
+                    Text("Saved profiles stay private to this device. Remote MCP may read profiles but cannot edit them.",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val tags = profileTags.split(',').map { it.trim() }
+                        .filter { it.isNotEmpty() }
+                    feedback = runCatching {
+                        DiagnosticProfileStore.save(context, profileName, tags)
+                        "Saved diagnostic profile " + profileName
+                    }.getOrElse { "Invalid or reserved profile; use a unique name and valid tags" }
+                    if (feedback.startsWith("Saved")) profileDialog = false
+                }) { Text("Save") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        feedback = runCatching {
+                            DiagnosticProfileStore.remove(context, profileName)
+                            "Removed profile " + profileName
+                        }.getOrElse { "No saved custom profile to remove" }
+                        profileDialog = false
+                    }) { Text("Delete") }
+                    TextButton(onClick = { profileDialog = false }) { Text("Close") }
+                }
+            })
     }
 
     if (showPicker) AppPickerDialog(apps, filter.packageName,
@@ -293,21 +366,28 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
             LogcatTab.LOGS -> {
                 // A single full-size layout root is required for each pager page.
                 Column(Modifier.fillMaxSize()) {
-                    Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().padding(
+                            start = 8.dp, end = 8.dp, top = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(filtered.size.toString() + " shown · " + logs.size + " buffered",
                             style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1, modifier = Modifier.weight(1f))
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f))
                         Text(if (active) "● Reading" else "● Idle",
                             style = MaterialTheme.typography.labelSmall,
                             color = if (active) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurfaceVariant)
-                        IconButton(onClick = {
+                        Button(onClick = {
                             ContextCompat.startForegroundService(context,
                                 Intent(context, LogMonitorService::class.java)
                                     .setAction(LogMonitorService.START))
-                        }, enabled = !active && !deviceLogcatClearing && adbVerified) {
-                            Icon(Icons.Rounded.Refresh, contentDescription = "Refresh logs")
+                        }, enabled = !active && !deviceLogcatClearing && adbVerified,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                            Icon(Icons.Rounded.Search, contentDescription = null,
+                                modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Search")
                         }
                         Box {
                             IconButton(onClick = { actionMenu = true }) {
@@ -326,6 +406,23 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
                                         exportLauncher.launch("Android-Logcat-" +
                                             System.currentTimeMillis().toString() + ".txt")
                                     })
+                                DropdownMenuItem(text = { Text("Export visible JSON") },
+                                    enabled = filtered.isNotEmpty(), onClick = {
+                                        actionMenu = false
+                                        exportSnapshot = filtered.toList()
+                                        jsonLauncher.launch("Android-Logcat-" +
+                                            System.currentTimeMillis() + ".json")
+                                    })
+                                DropdownMenuItem(text = { Text("Export visible ZIP (TXT + JSON)") },
+                                    enabled = filtered.isNotEmpty(), onClick = {
+                                        actionMenu = false
+                                        exportSnapshot = filtered.toList()
+                                        zipLauncher.launch("Android-Logcat-" +
+                                            System.currentTimeMillis() + ".zip")
+                                    })
+                                HorizontalDivider()
+                                DropdownMenuItem(text = { Text("Save / delete diagnostic profile") },
+                                    onClick = { actionMenu = false; profileDialog = true })
                                 DropdownMenuItem(text = { Text("Reset filters") }, onClick = {
                                     actionMenu = false
                                     update(LogViewPolicy.reset())

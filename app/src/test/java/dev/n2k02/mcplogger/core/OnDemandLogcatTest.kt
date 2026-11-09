@@ -99,7 +99,11 @@ class OnDemandLogcatTest {
         assertTrue(service.contains("scheduleIdleLogCleanup()"))
         assertTrue(service.contains("cancelIdleLogCleanup()"))
         assertTrue(service.contains("MonitorState.logReadOrigin.value = null"))
-        assertTrue(service.contains("logcat -b main -b system -b crash -v uid -v epoch -d -t 2000"))
+        val capture = listOf(File("app/src/main/java/dev/n2k02/mcplogger/core/DiagnosticLogcat.kt"),
+            File("../app/src/main/java/dev/n2k02/mcplogger/core/DiagnosticLogcat.kt"))
+            .first { it.isFile }.readText()
+        assertTrue(service.contains("DiagnosticLogcat.captureCommand(options)"))
+        assertTrue(capture.contains("logcat -b main -b system -b crash -v uid -v epoch -d -t 2000"))
         assertTrue(service.contains("MonitorState.active.value = false"))
         val serverPath = "app/src/main/java/dev/n2k02/mcplogger/core/LocalMcpServer.kt"
         val server = listOf(File(serverPath), File("../$serverPath"))

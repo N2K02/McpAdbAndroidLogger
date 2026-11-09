@@ -20,7 +20,7 @@ class HomeAndLogcatUiContractTest {
         assertFalse(settings.contains("SettingsRow(\"Logs\""))
         val home = code("HomeDashboard.kt")
         assertFalse(home.contains("Recent logs"))
-        assertFalse(home.contains("Open Logs"))
+        assertTrue(home.contains("Manual Logs"))
         assertFalse(home.contains("Filter application"))
         assertTrue(home.contains("MonitorState.captureStats.collectAsState()"))
     }
@@ -87,13 +87,15 @@ class HomeAndLogcatUiContractTest {
         assertEquals(Tone.BAD, tunnelTone("Off"))
     }
 
-    @Test fun logcatTabsSwipeAndTapLikeHome() {
+    @Test fun logcatTabsSwipeWhileHomeRemainsOnePage() {
         val home = code("HomeDashboard.kt")
         val logcat = code("LogcatScreen.kt")
+        assertFalse(home.contains("HorizontalPager(state = pagerState"))
+        assertFalse(home.contains("HomeTab.PERFORMANCE"))
+        assertFalse(home.contains("HomeTab.CONNECTION"))
         for (token in listOf("rememberPagerState(", "HorizontalPager(state = pagerState",
                 "snapshotFlow { pagerState.settledPage }", "animateScrollToPage(",
                 "TabRow(selectedTabIndex = pagerState.currentPage)")) {
-            assertTrue("Home missing " + token, home.contains(token))
             assertTrue("Logcat missing " + token, logcat.contains(token))
         }
         assertTrue(logcat.contains("pageCount = { LogcatTab.entries.size }"))
@@ -104,12 +106,8 @@ class HomeAndLogcatUiContractTest {
         assertTrue(logcat.contains("selectLogcatTab(LogcatTab.LOGS)"))
         assertTrue(logcat.contains("BackHandler(enabled = HomeTabHistory.canGoBack(tabHistory))"))
         assertTrue(logcat.contains("HomeTabHistory.visit(tabHistory, page"))
-        assertTrue(logcat.contains("scope.launch { pagerState.scrollToPage(prior.last()) }"))
         assertTrue(logcat.contains("LazyColumn(Modifier.fillMaxWidth().weight(1f)"))
-        assertTrue(logcat.contains("LogcatTab.LOGS -> {"))
-        assertTrue(logcat.contains("Column(Modifier.fillMaxSize())"))
-        assertTrue(logcat.contains("MonitorState.logFilter.collectAsState()"))
-        assertFalse(logcat.contains("when (tab)"))
+        assertTrue(logcat.contains("Text(\"Search\")"))
     }
 
 }

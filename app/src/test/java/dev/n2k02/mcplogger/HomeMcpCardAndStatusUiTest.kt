@@ -10,19 +10,39 @@ class HomeMcpCardAndStatusUiTest {
         return listOf(File(p), File("../$p")).first { it.isFile }.readText()
     }
 
-    @Test fun homeDailyLogcatCardPrecedesReadOnlyMcpConnectionDetails() {
+    @Test fun homeShowsManualLogcatAndMcpReadCountersSeparately() {
         val home = code("HomeDashboard.kt")
-        val today = home.indexOf("\"Logcat (Today)\"")
-        val mcp = home.indexOf("\"Public MCP\"")
-        assertTrue(today >= 0)
-        assertTrue(mcp > today)
-        val card = home.substring(mcp, home.indexOf("    }\n}\n\n@Composable\nprivate fun StatMetric"))
-        assertTrue(card.contains("Copy public MCP URL"))
-        assertTrue(card.contains("Copy MCP client access key"))
-        assertFalse(card.contains("OutlinedTextField"))
-        assertFalse(card.contains("LOCAL_STOP"))
-        assertTrue(card.contains("sensitive = true"))
-        assertTrue(card.contains("\"•\".repeat(24)"))
+        assertTrue(home.contains("Manual Logcat (Today)"))
+        assertTrue(home.contains("MCP activity"))
+        assertTrue(home.contains("MCP Logcat reads"))
+        assertTrue(home.contains("MonitorState.mcpReadCount.collectAsState()"))
+        assertFalse(home.contains("HomeTab.PERFORMANCE"))
+        assertFalse(home.contains("HomeTab.CONNECTION"))
+    }
+
+    @Test fun homeConnectionAndActivityLayoutIsCompactAndSeparatesManualFromMcp() {
+        val home = code("HomeDashboard.kt")
+        assertTrue(home.contains("Connection status"))
+        assertTrue(home.contains("HomeConnectionTile(\"ADB\""))
+        assertTrue(home.contains("HomeConnectionTile(\"MCP\""))
+        assertTrue(home.contains("HomeInlineMetric(\"Captured today\""))
+        assertTrue(home.contains("HomeInlineMetric(\"MCP Logcat reads\""))
+        assertTrue(home.contains("Button(onClick = onLogs"))
+        assertTrue(home.contains("Text(\"Manual Logs\""))
+        assertTrue(home.contains("onClick = { LogMonitorService.resetHomeStatistics() }"))
+        assertFalse(home.contains("HomeStatusCard(Icons.Rounded.Terminal"))
+        assertFalse(home.contains("HomeStatusCard(Icons.Rounded.Cloud"))
+        assertFalse(home.contains("Text(\"ADB: \""))
+    }
+
+    @Test fun mcpResetButtonMatchesManualActionButRemainsIndependent() {
+        val home = code("HomeDashboard.kt")
+        assertTrue(home.contains("Text(\"Reset Home statistics\")"))
+        assertTrue(home.contains("Text(\"Reset MCP statistics\")"))
+        assertTrue(home.contains("onClick = { MonitorState.resetMcpHomeStatistics() }"))
+        assertTrue(home.contains("onClick = { LogMonitorService.resetHomeStatistics() }"))
+        assertTrue(home.contains("MonitorState.mcpReadCount.collectAsState()"))
+        assertTrue(home.contains("MonitorState.mcpLastReadAt.collectAsState()"))
     }
 
     @Test fun tunnelToneMapsStatuses() {

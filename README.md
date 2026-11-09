@@ -42,9 +42,9 @@ This repository's Actions secrets must be configured; secrets from other reposit
 ## Device setup
 
 1. Install debug APK. Enable USB debugging and Wireless debugging.
-2. In **Home → Connection → Connect Android ADB**, open Android's **Pair device with pairing code** and enter the code using **Pair manually** (or enable the optional Accessibility helper in **Settings → ADB connection**). Android must authorize the app's ADB key once.
+2. In **Settings → ADB connection**, open Android's **Pair device with pairing code** and enter the code using **Pair manually** (or enable the optional Accessibility helper in **Settings → ADB connection**). Android must authorize the app's ADB key once.
 3. The app validates `id -u == 2000` before starting capture. TCP/5555 is enabled by default but can expose an ADB listener to the LAN; disable in Settings if not wanted.
-4. Use **Home → Refresh** or **Logs → Refresh logs from Android**, or request a Logcat tool from MCP. Each request reads Android's existing logd buffer once and stops. ADB and the phone-hosted MCP foreground service remain connected; no continuous capture runs.
+4. Use **Logs → Search**, or request a Logcat tool from MCP. Each request reads Android's existing logd buffer once and stops. ADB and the phone-hosted MCP foreground service remain connected; no continuous capture runs.
 5. For remote AI access, follow the **Start here** Cloudflare Worker steps above. Your phone hosts the MCP service; once the permanent Worker endpoint is **Online**, connect via OAuth/DCR. **Do not generate or rotate the MCP client access key merely to troubleshoot a Worker deployment.**
 
 ## Legacy external MCP gateway (optional, not the recommended phone-hosted flow)
@@ -178,26 +178,26 @@ to display them using only filters chosen on the phone.
 Permissions, public MCP URL, registration token, and client access key are
 unchanged. Update the experimental APK to receive this behavior.
 
-## Home and Android Logcat redesign
+## Home, MCP Audits and manual Android Logcat
 
-The bottom navigation is **Home · Logs · Settings · Quit**. Home shows ADB shell
-readiness, an on-demand Refresh/Cancel control, this-session metrics (lines scanned,
-unique events, buffered entries, scan cycles, last successful scan, errors),
-and local/public MCP status. It no longer displays recent Logcat entries or an
-app selector.
+The bottom navigation is **Home · Audits · Logs · Settings · Quit**.
+Home has one page with manual Logcat statistics and a separate MCP activity
+card (read count, active tools and last read time). Home no longer contains
+performance or connection tabs, and MCP reads never modify manual Logs or
+manual search statistics. ADB and MCP connection settings remain under Settings.
 
-**Logs** is a separate top-level Android Logcat screen. The app picker uses real
-installed-app names and icons when Android allows launcher visibility, with
-package-name/icon fallbacks for hidden packages. Filter by app UID, severity
-minimum, text, time window, crash/ANR, tag and PID. Filtering never changes
-which Android events are read on demand: recent snapshots accumulate in a bounded
-2,000-entry in-memory buffer for local review and MCP cursors. No continuous Logcat reader runs. **Reset filters** changes only the
-view. **Clear logs** drops captured rows but preserves recent deduplication so
-a repeated logcat snapshot does not immediately repopulate old messages.
-**Copy** copies up to the 200 newest visible redacted entries; **Export** saves
-all currently visible redacted entries using Android's system document picker.
-No all-files storage permission or persistent private issue-log journal is used.
+**Logs** is for manual Logcat only. Tap **Search** for an explicit device
+snapshot, then use its app, severity, time, text, tag or PID filters. The
+2,000-entry private local cache and its export are separate from MCP captures.
+Copy or export redacted TXT, JSON or ZIP (TXT + JSON) through Android's
+document picker. Custom diagnostic tag profiles can be saved/deleted locally,
+and MCP agents can list/use those profiles but cannot edit them.
 
+**Audits** is the second root destination. The app-private audit journal
+remains available locally, but MCP agents cannot request audit history.
+Remote diagnostics are strictly on demand, with no background Logcat polling,
+streaming or arbitrary shell command access. See
+[Diagnostic MCP tools](docs/DIAGNOSTIC_LOGCAT.md).
 
 ## VRec ADB parity and persistent background MCP
 
@@ -312,23 +312,6 @@ A 302 approval by itself does not mean ChatGPT finished connecting.
 Do not rotate the public URL or access key during the OAuth flow. If the
 callback cannot reach ChatGPT, restart connection setup using the current URL.
 
-## Settings → Agent permissions: optional MCP audit history
-
-The Settings submenu **Agent permissions** has a **Read MCP audit history**
-switch. It is **OFF by default** for new and upgraded installations, and it
-can only be changed locally on the phone. When enabled, authenticated remote
-MCP agents can discover and use the read-only `get_mcp_audits` tool. When
-disabled, it is hidden from `tools/list` and calls are rejected, even with
-an old cached tool name. Regular Logcat tools remain available.
-
-Audit results are paged newest first (max 25/request) with a `before_id`
-cursor. The `include_payloads=true` option returns capped, re-redacted
-request/response previews; the default is false. All authenticated agents
-share this optional permission and may inspect other agents' prior activity.
-The tool never exposes raw OAuth credentials or HTTP headers. Its responses
-are not saved recursively in the audit journal. Refresh agent tools after
-changing the switch.
-
 ## Clear Logcat and reset Home cards
 
 - **Logs → Clear** removes only captured in-memory Logcat events, preserving
@@ -344,14 +327,14 @@ changing the switch.
   error count and last-scan timestamp without deleting the buffered events.
   ADB connection, public MCP URL, access key and live statuses remain
   authoritative and unchanged.
-- None of these actions deletes **Settings → MCP audits** records; use that
+- None of these actions deletes **Audits** records; use that
   screen's separate Clear history button for the private MCP audit journal.
 
 These are on-device UI actions only. No remote MCP clear/reset tool exists.
 
-## Settings → MCP audits
+## Audits
 
-The **MCP audits** subpage captures MCP JSON-RPC requests processed by the
+The **MCP audits** page captures MCP JSON-RPC requests processed by the
 embedded phone server, linked to the OAuth agent's registered name, callback
 domain and client ID. Direct shared bearer-key requests appear as **Direct
 key** (that key cannot identify which application sent them). Unauthorized MCP
@@ -587,12 +570,12 @@ The **existing** `get_device_status` tool reports
 `mcp_catalog_revision`, `mcp_tool_count`,
 `mcp_tool_names`, `on_demand_health_available`, and
 `on_demand_health_ready` without running any ADB diagnostics.
-The new catalog should report **17 built-in tools**, plus the optional audit
-tool if locally authorized. Home → Connection shows the same built-in
-catalog revision and the recommended client refresh steps.
+The experimental catalog contains **25 built-in tools**, including
+`get_app_runtime`, `get_app_ops`, and four read-only system diagnostic tools. The MCP audit tool is not exposed.
+`get_device_status` reports the installed catalog revision.
 
 If ChatGPT still offers only the original six tool names but
-`get_device_status` reports 17 built-in tools, the phone server is updated
+`get_device_status` reports 25 built-in tools, the phone server is updated
 and the *ChatGPT MCP integration's cached tool schema* is out of date.
 Reconnect or re-add the existing MCP integration (using the same public MCP URL
 and authorized access) to force tool rediscovery. Merely rebuilding or

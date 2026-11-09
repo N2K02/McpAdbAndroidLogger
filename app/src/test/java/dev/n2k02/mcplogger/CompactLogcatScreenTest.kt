@@ -76,24 +76,34 @@ class CompactLogcatScreenTest {
         assertTrue(screen.contains("LogMonitorService.clear()"))
     }
 
-    @Test fun homeDailyCardUsesTodayOnlyCountersAndSharedMidnightPolicy() {
+    @Test fun logsToolbarKeepsIdleStatusAndSearchButtonSeparated() {
+        val screen = code("LogcatScreen.kt")
+        val toolbar = screen.substringAfter(
+            "Text(filtered.size.toString() + \" shown · \" + logs.size + \" buffered\"")
+            .substringBefore("Box {\n                            IconButton(onClick = { actionMenu = true })")
+        assertTrue(toolbar.contains("horizontalArrangement = Arrangement.spacedBy(8.dp)") ||
+            screen.contains("horizontalArrangement = Arrangement.spacedBy(8.dp)) {\n                        Text(filtered.size"))
+        assertTrue(toolbar.contains("overflow = TextOverflow.Ellipsis"))
+        assertTrue(toolbar.contains("\"● Idle\""))
+        assertTrue(toolbar.contains("Text(\"Search\")"))
+    }
+
+    @Test fun homeDailyCardCountsOnlyManualSearches() {
         val home = code("HomeDashboard.kt")
         val state = code("core/MonitorState.kt")
         val service = code("core/LogMonitorService.kt")
-        assertTrue(home.contains("Logcat (Today)"))
-        assertTrue(home.contains("Daily reset enabled"))
-        assertTrue(home.contains("todayBuffered.toString()"))
-        assertTrue(home.contains("HomeTab.OVERVIEW"))
-        assertTrue(home.contains("HomeTab.PERFORMANCE"))
-        assertTrue(home.contains("HomeTab.CONNECTION"))
-        assertFalse(home.contains("Device diagnostics"))
+        assertTrue(home.contains("Manual Logcat (Today)"))
+        assertTrue(home.contains("Manual searches"))
+        assertTrue(home.contains("MCP Logcat reads"))
         assertTrue(home.contains("currentStats.uniqueCaptured"))
         assertTrue(home.contains("currentStats.scanCycles"))
         assertTrue(home.contains("LogDayPolicy.dayStart(System.currentTimeMillis())"))
+        assertFalse(home.contains("HomeTab.PERFORMANCE"))
+        assertFalse(home.contains("HomeTab.CONNECTION"))
         assertTrue(state.contains("val dayStartMs: Long = 0L"))
         assertTrue(service.contains("LogCaptureStats(dayStartMs = today)"))
         assertTrue(service.contains("LogDayPolicy.nextMidnight(now)"))
-        assertTrue(service.contains("buffer.clear(resetDedup = true)"))
+        assertTrue(service.contains("mcpBuffer.add(parsed, null, null)"))
     }
 
     @Test fun performanceSnapshotsAreBoundedAndDoNotRedrawLogRowsRepeatedly() {

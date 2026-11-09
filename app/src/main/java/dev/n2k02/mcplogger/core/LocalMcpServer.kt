@@ -302,12 +302,7 @@ object LocalMcpServer {
                 val started = System.nanoTime()
                 // Capability is checked for every request, not just at OAuth login.
                 // A cached remote tool name cannot bypass a disabled permission.
-                val auditReader: (() -> List<McpAuditEntry>)? =
-                    if (McpAgentAuditAccess.enabled(context)) {
-                        { if (McpAgentAuditAccess.enabled(context))
-                            McpAuditStore.readForAgent(context) else emptyList() }
-                    } else null
-                val result = LocalMcpProtocol.execute(request, auditReader,
+                val result = LocalMcpProtocol.execute(request,
                     logsReader = {
                         // The authenticated MCP worker thread may block while
                         // one bounded shell read executes; no background polling.
@@ -316,12 +311,24 @@ object LocalMcpServer {
                     appsReader = {
                         kotlinx.coroutines.runBlocking { LogMonitorService.refreshInstalledApps() }
                     },
+                    captureReader = { options ->
+                        kotlinx.coroutines.runBlocking {
+                            LogMonitorService.readOnDemand(options = options)
+                        }
+                    },
                     performanceReader = { name, arguments ->
                         // Authenticated requests only; no caller-defined commands.
                         kotlinx.coroutines.runBlocking {
                             val pkg = arguments.optString("package_name")
                             val budget = arguments.optDouble("frame_budget_ms", 16.67)
                             when (name) {
+                                "get_app_runtime" -> AppRuntimeDiagnostics.inspect(pkg)
+                                "get_app_ops" -> AppOpsDiagnostics.inspect(pkg)
+                                "get_app_services" -> OnDemandSystemDiagnostics.services(pkg)
+                                "get_app_audio_state" -> OnDemandSystemDiagnostics.audio(pkg)
+                                "get_app_jobs" -> OnDemandSystemDiagnostics.jobs(pkg)
+                                "get_thermal_state" -> OnDemandSystemDiagnostics.thermal()
+                                "get_device_capabilities" -> OnDemandSystemDiagnostics.capabilities()
                                 "get_cpu_usage" -> PerformanceDiagnostics.cpu(
                                     pkg, arguments.optInt("limit", 20))
                                 "get_frame_timing" -> PerformanceDiagnostics.frames(pkg, budget)
@@ -348,16 +355,9 @@ object LocalMcpServer {
                 else respond(output, 200, responseBody, "application/json")
                 // Capture the same response payload prepared for and written to
                 // this authenticated MCP connection. No HTTP/OAuth headers saved.
-                // Prevent audit-history replies from recursively embedding themselves
-                // into the private journal or growing on each successive query.
-                val auditHistoryRead = request.optString("method") == "tools/call" &&
-                    request.optJSONObject("params")?.optString("name") == "get_mcp_audits"
-                val auditResponse = if (auditHistoryRead)
-                    "[MCP audit-history response omitted; read operation recorded]"
-                    else responseBody
                 McpAuditStore.record(context, agent,
                     String(data, StandardCharsets.UTF_8),
-                    auditResponse, request.optString("method"),
+                    responseBody, request.optString("method"),
                     if (request.optString("method") == "tools/call")
                         request.optJSONObject("params")?.optString("name").orEmpty()
                     else request.optString("method"),

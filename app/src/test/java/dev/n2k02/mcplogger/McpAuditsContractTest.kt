@@ -4,19 +4,20 @@ import java.io.File
 import org.junit.Assert.*
 import org.junit.Test
 
-/** Audits must remain a Settings-only page and never log authorization secrets. */
+/** Local-only audit journal has its own second main-navigation tab. */
 class McpAuditsContractTest {
     private fun source(path: String) = listOf(File(path), File("../" + path))
         .first { it.isFile }.readText()
     private val root = "app/src/main/java/dev/n2k02/mcplogger/"
 
-    @Test fun settingsPageShowsAuditsWithConsistentNavigation() {
+    @Test fun auditsIsSecondMainNavigationPage() {
         val ui = source(root + "LoggerUi.kt")
         val nav = source(root + "LoggerNavigation.kt")
-        assertTrue(ui.contains("SettingsRow(\"MCP audits\""))
+        assertTrue(ui.contains("LoggerNavigation(page, subpageParent).auditsSelected"))
         assertTrue(ui.contains("Page.MCP_AUDITS -> McpAuditsScreen(Modifier.padding(padding))"))
         assertTrue(nav.contains("MCP_AUDITS(\"MCP audits\")"))
-        assertFalse(ui.contains("NavigationBarItem(selected = LoggerNavigation(page, subpageParent).auditsSelected"))
+        assertFalse(ui.contains("SettingsRow(\"MCP audits\""))
+        assertFalse(ui.contains("SettingsRow(\"Agent permissions\""))
     }
 
     @Test fun providerAttributionAndDeniedMcpCallsAreCapturedWithoutTokens() {
@@ -35,7 +36,7 @@ class McpAuditsContractTest {
         assertTrue(store.contains("[unauthenticated request; payload withheld]"))
         assertTrue(store.contains("lastDeniedAtMs"))
         assertTrue(oauth.contains("fun clientForToken(c: Context, token: String)"))
-        val section = server.substringAfter("val result = LocalMcpProtocol.execute(request, auditReader,")
+        val section = server.substringAfter("val result = LocalMcpProtocol.execute(request,")
             .substringBefore("} catch (_: Exception)")
         assertTrue(section.contains("McpAuditStore.record"))
         assertTrue(section.contains("responseBody"))
@@ -64,23 +65,15 @@ class McpAuditsContractTest {
         assertFalse(ui.contains("onValueChange = { BridgeClient.saveClientToken(context, it) }"))
     }
 
-    @Test fun agentAuditAccessIsOffByDefaultAndLocalSettingsOnly() {
-        val access = source(root + "core/McpAgentAuditAccess.kt")
+    @Test fun remoteAuditToolIsUnavailableAndLocalJournalRemains() {
         val protocol = source(root + "core/LocalMcpProtocol.kt")
         val server = source(root + "core/LocalMcpServer.kt")
         val ui = source(root + "LoggerUi.kt")
-        val navigation = source(root + "LoggerNavigation.kt")
-        assertTrue(access.contains("getBoolean(READ_HISTORY, false)"))
-        assertTrue(access.contains("fun setEnabled(context: Context, allowed: Boolean)"))
-        assertTrue(ui.contains("SettingsRow(\"Agent permissions\""))
-        assertTrue(ui.contains("Page.MCP_AGENT_ACCESS -> AgentPermissionsPage"))
-        assertTrue(ui.contains("Switch(checked = enabled"))
-        assertTrue(navigation.contains("MCP_AGENT_ACCESS(\"Agent permissions\")"))
-        assertTrue(protocol.contains("toolList(auditReader != null)"))
-        assertTrue(protocol.contains("val reader = auditReader ?: throw IllegalArgumentException"))
-        assertTrue(server.contains("McpAgentAuditAccess.enabled(context)"))
-        assertTrue(server.contains("McpAuditStore.readForAgent(context)"))
-        assertTrue(server.contains("[MCP audit-history response omitted; read operation recorded]"))
+        assertFalse(protocol.contains("get_mcp_audits"))
+        assertFalse(server.contains("McpAuditStore.readForAgent(context)"))
+        assertFalse(ui.contains("AgentPermissionsPage("))
+        assertTrue(server.contains("McpAuditStore.record(context, agent"))
+        assertTrue(ui.contains("McpAuditsScreen("))
     }
 
     @Test fun screenOffersAgentToolStatusTimeFiltersAndUserExport() {
