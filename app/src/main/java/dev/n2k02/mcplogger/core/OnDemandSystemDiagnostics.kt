@@ -58,6 +58,43 @@ internal object OnDemandSystemDiagnostics {
     suspend fun thermal(): JSONObject =
         snapshot("dumpsys thermalservice | head -c 65536", ::parseThermal)
 
+    /**
+     * Service discovery is a capability hint, not proof of dumpsys permissions.
+     * Shell access and OEM service exposure are separately checked by each tool.
+     */
+    suspend fun capabilities(): JSONObject =
+        snapshot("dumpsys -l | head -c 32768", ::parseCapabilities)
+
+    internal fun parseCapabilities(output: String): JSONObject {
+        val services = output.lineSequence().map { it.trim().lowercase() }
+            .filter { it.matches(Regex("[a-z0-9_.-]{2,90}")) }
+            .toSet()
+        val supported = JSONObject()
+        for ((name, service) in listOf(
+            "activity_services" to "activity",
+            "audio_state" to "audio",
+            "jobscheduler" to "jobscheduler",
+            "thermal" to "thermalservice",
+            "battery" to "battery",
+            "power" to "power",
+            "surfaceflinger" to "surfaceflinger"
+        )) {
+            supported.put(name, when {
+                outputUnavailable(output) -> "unavailable"
+                service in services -> "service_listed_readability_unverified"
+                else -> "not_listed"
+            })
+        }
+        return JSONObject().put("status",
+            if (outputUnavailable(output)) "unavailable" else "ok")
+            .put("services", supported)
+            .put("adb_uid", 2000)
+            .put("source", "dumpsys -l")
+            .put("notes", "Service listing does not verify access to individual dumpsys output. " +
+                "No privileged bypass, live sampling or app-private data access is implied.")
+    }
+
+
     private fun containsPackage(line: String, pkg: String): Boolean {
         var start = line.indexOf(pkg)
         while (start >= 0) {
@@ -117,6 +154,10 @@ internal object OnDemandSystemDiagnostics {
             .put("recording_mentions", record.coerceAtMost(500))
             .put("playback_mentions", playback.coerceAtMost(500))
             .put("status", if (outputUnavailable(output)) "unavailable" else "partial_snapshot")
+            .put("interpretation", "historical_or_current_mentions_only")
+            .put("focus_state", "unknown")
+            .put("recording_state", "unknown")
+            .put("playback_state", "unknown")
             .put("source", "dumpsys audio")
             .put("notes", "Counts package-associated audio dump mentions, not active " +
                 "stream certainty. No microphone data, audio content, device IDs, " +
@@ -148,6 +189,9 @@ internal object OnDemandSystemDiagnostics {
             .put("pending_hints", pending.coerceAtMost(2000))
             .put("running_hints", running.coerceAtMost(2000))
             .put("restriction_hints", restricted.coerceAtMost(2000))
+            .put("quota_state", "unknown")
+            .put("restriction_state", "unknown")
+            .put("evidence_coverage", "package-associated job blocks only")
             .put("status", if (outputUnavailable(output)) "unavailable" else "partial_snapshot")
             .put("source", "dumpsys jobscheduler")
             .put("notes", "Counts only lines explicitly naming this package. " +
