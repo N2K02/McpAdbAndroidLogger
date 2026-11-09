@@ -65,10 +65,14 @@ internal object OnDemandSystemDiagnostics {
         var records = 0
         var foregroundHints = 0
         var runningHints = 0
+        var currentServiceMatches = false
         for (line in output.lineSequence().take(1600)) {
             val text = line.trim()
-            if (!containsPackage(text, pkg)) continue
-            if (serviceRecord.containsMatchIn(text) || text.startsWith("Service ")) records++
+            if (serviceRecord.containsMatchIn(text)) {
+                currentServiceMatches = containsPackage(text, pkg)
+                if (currentServiceMatches) records++
+            }
+            if (!currentServiceMatches) continue
             if (text.contains("isForeground=true", true) ||
                 text.contains("foreground=true", true) ||
                 text.contains("fgRequired=true", true)) foregroundHints++
@@ -112,13 +116,19 @@ internal object OnDemandSystemDiagnostics {
         var pending = 0
         var running = 0
         var restricted = 0
+        var currentJobMatches = false
         for (line in output.lineSequence().take(3500)) {
-            if (!containsPackage(line, pkg)) continue
-            val lower = line.lowercase()
-            if ("jobstatus{" in lower || "job #" in lower) jobs++
+            val text = line.trim()
+            val lower = text.lowercase()
+            if ("jobstatus{" in lower || lower.startsWith("job #")) {
+                currentJobMatches = containsPackage(text, pkg)
+                if (currentJobMatches) jobs++
+            }
+            if (!currentJobMatches) continue
             if ("pending" in lower || "waiting" in lower) pending++
             if ("running" in lower || "active" in lower) running++
-            if ("restricted" in lower || "quota" in lower || "constraint" in lower) restricted++
+            if ("restricted" in lower || "quota" in lower ||
+                "constraint" in lower) restricted++
         }
         return JSONObject().put("package_name", pkg)
             .put("job_record_matches", jobs.coerceAtMost(2000))
