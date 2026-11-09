@@ -117,7 +117,9 @@ internal object AppRuntimeDiagnostics {
         }
         return JSONObject().put("package_name", pkg)
             .put("process_status", if (pidCount > 0) "running" else "not_visible_or_stopped")
-            .put("process_count", pidCount.coerceAtMost(30))
+            .put("process_count", pidCount)
+            .put("returned_process_count", rows.length())
+            .put("processes_truncated", pidCount > rows.length())
             .put("processes", rows)
             .put("total_pss_kib", totalPss ?: JSONObject.NULL)
             .put("memory_status", if (totalPss == null) "unavailable" else "ok")
