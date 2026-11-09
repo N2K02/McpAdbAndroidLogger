@@ -278,7 +278,7 @@ class SurfaceActivityDiagnosticsTest {
             """{"jsonrpc":"2.0","method":"tools/list","id":1}"""),
             performanceReader = reader)!!
             .getJSONObject("result").getJSONArray("tools")
-        assertEquals(21, tools.length())
+        assertEquals(25, tools.length())
         assertEquals(0, called)
         for (name in names) {
             val schema = (0 until tools.length()).map { tools.getJSONObject(it) }
