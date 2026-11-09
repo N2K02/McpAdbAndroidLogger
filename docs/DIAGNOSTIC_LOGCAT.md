@@ -35,6 +35,15 @@ recorded locally for troubleshooting.
 - `get_app_jobs`: exact-app JobScheduler activity and restriction hints.
 - `get_thermal_state`: available Android thermal severity and temperatures.
   These four commands return only sanitized counts/measurements, no raw dumps.
+- `get_crash_triage`: group recent crash/ANR events by bounded, sanitized
+  signatures. Optional package filter uses verified app UID and explicitly
+  reports `insufficient_evidence` or `package_uid_unavailable` rather than
+  claiming the app is crash-free. No raw stack traces are transmitted.
+- `get_device_capabilities`: on-demand `dumpsys -l` service-discovery map.
+  An advertised service may still reject privileged dumps. No root bypass.
+- Audio and JobScheduler tools now include structured signal/restriction hints,
+  while their current-state or quota verdict remains `unknown` without direct
+  reliable platform evidence.
 - `get_diagnostic_correlation`: sequential Logcat, CPU, memory and battery
   observations with a capture window and explicit non-causality caveat.
 - Existing CPU, frame timing, battery, PSI memory, wakelock, screen-off,
@@ -81,11 +90,14 @@ Sample app diagnosis:
 
 ## Recommended next tools
 
-1. App-specific running foreground-service types and exact start/stop state, where the platform exposes them.
-2. Better parser coverage for audio-focus/playback/recording across OEM builds.
-3. Per-app JobScheduler quota explanations instead of only text hints.
-4. Automated crash triage with timestamped log context, deduplicated signatures
-   and an explicit "insufficient evidence" state.
+1. OEM-specific adapters for reliable *current* audio recording/focus state,
+   with an explicit unknown fallback when Android hides the information.
+2. Version-aware JobScheduler quota decisions and stopped-app restrictions,
+   only when the corresponding system-service output can be attributed.
+3. More complete crash signature correlation using additional verified
+   platform event sources, without exposing another package's private data.
+4. Per-device diagnostic capability probes that verify read permissions,
+   not merely service presence, while remaining bounded and read-only.
 
 Avoid remotely exposing arbitrary `adb shell`, `am` actions, writes to
 system settings, permission grants, full bugreports, content providers, or
