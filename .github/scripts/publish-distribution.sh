@@ -35,6 +35,10 @@ if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
 fi
 
 # Website repo is metadata-only. Signed APK belongs to N2K02/McpAdbAndroidLogger Releases.
+# Fail closed unless the source repository already contains the signed APK.
+# This never creates a release on the website.
+gh release view "$SOURCE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null || { echo "::error::Missing source release $SOURCE_TAG" >&2; exit 1; }
+gh api "repos/$GITHUB_REPOSITORY/releases/tags/$SOURCE_TAG" --jq '.assets[].name' | grep -Fxq "$APK" || { echo "::error::Missing source release asset $APK" >&2; exit 1; }
 SHA=$(sha256sum "$APK" | cut -d' ' -f1)
 SIZE=$(stat -c '%s' "$APK")
 APK_URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$SOURCE_TAG/$APK"
