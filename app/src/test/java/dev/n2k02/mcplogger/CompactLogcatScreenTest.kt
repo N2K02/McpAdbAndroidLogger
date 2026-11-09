@@ -76,6 +76,18 @@ class CompactLogcatScreenTest {
         assertTrue(screen.contains("LogMonitorService.clear()"))
     }
 
+    @Test fun logsToolbarKeepsIdleStatusAndSearchButtonSeparated() {
+        val screen = code("LogcatScreen.kt")
+        val toolbar = screen.substringAfter(
+            "Text(filtered.size.toString() + \" shown · \" + logs.size + \" buffered\"")
+            .substringBefore("Box {\n                            IconButton(onClick = { actionMenu = true })")
+        assertTrue(toolbar.contains("horizontalArrangement = Arrangement.spacedBy(8.dp)") ||
+            screen.contains("horizontalArrangement = Arrangement.spacedBy(8.dp)) {\n                        Text(filtered.size"))
+        assertTrue(toolbar.contains("overflow = TextOverflow.Ellipsis"))
+        assertTrue(toolbar.contains("\"● Idle\""))
+        assertTrue(toolbar.contains("Text(\"Search\")"))
+    }
+
     @Test fun homeDailyCardCountsOnlyManualSearches() {
         val home = code("HomeDashboard.kt")
         val state = code("core/MonitorState.kt")
