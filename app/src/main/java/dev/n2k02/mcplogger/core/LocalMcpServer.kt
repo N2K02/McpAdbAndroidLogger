@@ -328,6 +328,7 @@ object LocalMcpServer {
                                 "get_app_audio_state" -> OnDemandSystemDiagnostics.audio(pkg)
                                 "get_app_jobs" -> OnDemandSystemDiagnostics.jobs(pkg)
                                 "get_thermal_state" -> OnDemandSystemDiagnostics.thermal()
+                                "get_device_capabilities" -> OnDemandSystemDiagnostics.capabilities()
                                 "get_cpu_usage" -> PerformanceDiagnostics.cpu(
                                     pkg, arguments.optInt("limit", 20))
                                 "get_frame_timing" -> PerformanceDiagnostics.frames(pkg, budget)
