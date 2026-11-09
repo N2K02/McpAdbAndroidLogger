@@ -8,7 +8,7 @@ internal object LocalMcpProtocol {
     const val VERSION = "2025-11-25"
     // Readable through the original get_device_status tool even when an MCP client
     // still has an old tools/list cache. Never starts a shell diagnostic.
-    const val CATALOG_REVISION = "2026-11-09-advanced-triage-9"
+    const val CATALOG_REVISION = "2026-11-09-advanced-triage-10"
     private val names = listOf("get_device_status", "list_installed_apps", "get_live_logs",
         "search_logs", "get_crashes", "get_anrs", "get_cpu_usage",
         "get_frame_timing", "get_performance_snapshot",
@@ -51,13 +51,20 @@ internal object LocalMcpProtocol {
                     val name = params.optString("name")
                     MonitorState.beginMcpTool(name)
                     val body = try {
-                        readTool(name, params.optJSONObject("arguments") ?: JSONObject(),
+                        val output = readTool(name, params.optJSONObject("arguments") ?: JSONObject(),
                             auditReader, logsReader, appsReader, performanceReader, captureReader)
+                        toolResult(output, false)
+                    } catch (e: IllegalArgumentException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // Avoid transport-level outages and never leak shell stderr.
+                        toolResult(JSONObject().put("status", "unavailable")
+                            .put("reason", "diagnostic_failed")
+                            .put("retryable", true), true)
                     } finally {
                         MonitorState.endMcpTool(name)
                     }
-                    JSONObject().put("content", JSONArray().put(JSONObject().put("type", "text")
-                        .put("text", body.toString()))).put("isError", false)
+                    body
                 }
                 else -> return error(id, -32601, "Method not found")
             }
@@ -68,6 +75,10 @@ internal object LocalMcpProtocol {
             error(id, -32603, "Internal error")
         }
     }
+
+    internal fun toolResult(body: Any, failed: Boolean): JSONObject =
+        JSONObject().put("content", JSONArray().put(JSONObject().put("type", "text")
+            .put("text", body.toString()))).put("isError", failed)
 
     private fun toolList(): JSONArray {
         val toolNames = names
