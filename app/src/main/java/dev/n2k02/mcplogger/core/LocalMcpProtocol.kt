@@ -56,11 +56,18 @@ internal object LocalMcpProtocol {
                         toolResult(output, false)
                     } catch (e: IllegalArgumentException) {
                         throw e
-                    } catch (_: Exception) {
-                        // Avoid transport-level outages and never leak shell stderr.
+                    } catch (e: Exception) {
+                        // Only stable error codes; never expose shell stderr or commands.
+                        val reason = when {
+                            e is IllegalStateException && e.message == "diagnostic_busy" ->
+                                "diagnostic_busy"
+                            e is java.util.concurrent.TimeoutException ||
+                                e.javaClass.simpleName == "TimeoutCancellationException" ->
+                                "diagnostic_timeout"
+                            else -> "diagnostic_failed"
+                        }
                         toolResult(JSONObject().put("status", "unavailable")
-                            .put("reason", "diagnostic_failed")
-                            .put("retryable", true), true)
+                            .put("reason", reason).put("retryable", true), true)
                     } finally {
                         MonitorState.endMcpTool(name)
                     }
