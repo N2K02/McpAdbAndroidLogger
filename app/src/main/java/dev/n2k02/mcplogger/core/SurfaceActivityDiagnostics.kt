@@ -138,6 +138,15 @@ internal object SurfaceActivityDiagnostics {
                 .put("perfetto_trace_bytes", traceResult?.traceBytes ?: JSONObject.NULL)
                 .put("perfetto_compositor_sched_cpu_ms", traceResult?.cpuMs ?: JSONObject.NULL)
                 .put("sampling_seconds_requested", seconds)
+                .put("diagnostic_coverage", when {
+                    !usePerfetto -> "timestats_only"
+                    traceStatus == "ok" -> "timestats_and_perfetto"
+                    traceStatus == "trace_has_no_events" -> "timestats_only_trace_sources_empty"
+                    traceStatus == "partial" -> "timestats_with_partial_perfetto"
+                    else -> "timestats_perfetto_unavailable"
+                })
+                .put("frame_timeline_supported", traceResult?.frameStatus == "ok")
+                .put("scheduler_events_supported", traceResult?.schedStatus == "ok")
                 .put("taken_at", System.currentTimeMillis())
                 .put("notes", "Explicit bounded capture. SurfaceFlinger CPU is shared across " +
                     "all layers; ranked packages are rendering contributors, NOT per-app " +
