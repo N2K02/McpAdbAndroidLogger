@@ -8,7 +8,7 @@ internal object LocalMcpProtocol {
     const val VERSION = "2025-11-25"
     // Readable through the original get_device_status tool even when an MCP client
     // still has an old tools/list cache. Never starts a shell diagnostic.
-    const val CATALOG_REVISION = "2026-11-09-diagnostic-coverage-8"
+    const val CATALOG_REVISION = "2026-11-09-advanced-triage-9"
     private val names = listOf("get_device_status", "list_installed_apps", "get_live_logs",
         "search_logs", "get_crashes", "get_anrs", "get_cpu_usage",
         "get_frame_timing", "get_performance_snapshot",
@@ -17,7 +17,8 @@ internal object LocalMcpProtocol {
         "get_surfaceflinger_layers", "get_surfaceflinger_activity",
         "get_surfaceflinger_perfetto", "list_logcat_profiles",
         "get_diagnostic_correlation", "get_app_runtime", "get_app_ops",
-        "get_app_services", "get_app_audio_state", "get_app_jobs", "get_thermal_state")
+        "get_app_services", "get_app_audio_state", "get_app_jobs", "get_thermal_state",
+        "get_crash_triage", "get_device_capabilities")
 
     internal fun builtInToolNames(): List<String> = names.toList()
 
@@ -95,7 +96,9 @@ internal object LocalMcpProtocol {
             "Inspect exact-app running service and foreground-service hints on demand",
             "Summarize app audio-focus, recording and playback hints without raw audio data",
             "Inspect exact-app JobScheduler activity and restriction hints on demand",
-            "Read thermal status and available CPU, GPU, skin and battery temperature summaries"
+            "Read thermal status and available CPU, GPU, skin and battery temperature summaries",
+            "Group recent Logcat crash and ANR signatures without raw traces or false UID attribution",
+            "Discover supported Android diagnostic services and explain privilege limitations"
         )
         return JSONArray().apply {
             toolNames.forEachIndexed { index, name ->
@@ -142,6 +145,12 @@ internal object LocalMcpProtocol {
                     fields.put("package_name", JSONObject().put("type", "string"))
                     fields.put("profile", JSONObject().put("type", "string"))
                     fields.put("limit", JSONObject().put("type", "integer"))
+                }
+                if (name == "get_crash_triage") {
+                    fields.put("package_name", JSONObject().put("type", "string")
+                        .put("description", "Optional exact package from verified UID map"))
+                    fields.put("limit", JSONObject().put("type", "integer")
+                        .put("description", "1-50 grouped signatures"))
                 }
                 if (name == "search_logs") fields.put("query", JSONObject().put("type", "string"))
                 if (name in setOf("get_live_logs", "search_logs", "get_crashes", "get_anrs")) {
@@ -240,6 +249,18 @@ internal object LocalMcpProtocol {
             }
             "get_thermal_state" -> performanceReader?.invoke(name, JSONObject())
                 ?: throw IllegalStateException("Thermal diagnostics unavailable")
+            "get_device_capabilities" -> performanceReader?.invoke(name, JSONObject())
+                ?: throw IllegalStateException("Capability diagnostics unavailable")
+            "get_crash_triage" -> {
+                val pkg = args.optString("package_name", "")
+                require(pkg.isBlank() || PerformanceDiagnostics.validPackage(pkg))
+                val options = DiagnosticLogcat.parse(JSONObject().put("buffers",
+                    JSONArray(listOf("main", "system", "crash", "events"))))
+                val events = captureReader?.invoke(options) ?: logsReader?.invoke()
+                    ?: throw IllegalStateException("Crash capture unavailable")
+                CrashTriageDiagnostics.summarize(events, pkg, MonitorState.packageUids.value,
+                    args.optInt("limit", 20).coerceIn(1, 50))
+            }
             "get_app_ops" -> {
                 val pkg = AppRuntimeDiagnostics.validate(args.optString("package_name", ""))
                 performanceReader?.invoke("get_app_ops", JSONObject()
