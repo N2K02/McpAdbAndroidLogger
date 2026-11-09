@@ -366,11 +366,14 @@ internal fun LogcatScreen(modifier: Modifier = Modifier) {
             LogcatTab.LOGS -> {
                 // A single full-size layout root is required for each pager page.
                 Column(Modifier.fillMaxSize()) {
-                    Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().padding(
+                            start = 8.dp, end = 8.dp, top = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(filtered.size.toString() + " shown · " + logs.size + " buffered",
                             style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1, modifier = Modifier.weight(1f))
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f))
                         Text(if (active) "● Reading" else "● Idle",
                             style = MaterialTheme.typography.labelSmall,
                             color = if (active) MaterialTheme.colorScheme.primary
