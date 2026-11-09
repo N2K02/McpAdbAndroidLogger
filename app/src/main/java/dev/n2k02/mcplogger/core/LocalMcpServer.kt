@@ -324,6 +324,10 @@ object LocalMcpServer {
                             when (name) {
                                 "get_app_runtime" -> AppRuntimeDiagnostics.inspect(pkg)
                                 "get_app_ops" -> AppOpsDiagnostics.inspect(pkg)
+                                "get_app_services" -> OnDemandSystemDiagnostics.services(pkg)
+                                "get_app_audio_state" -> OnDemandSystemDiagnostics.audio(pkg)
+                                "get_app_jobs" -> OnDemandSystemDiagnostics.jobs(pkg)
+                                "get_thermal_state" -> OnDemandSystemDiagnostics.thermal()
                                 "get_cpu_usage" -> PerformanceDiagnostics.cpu(
                                     pkg, arguments.optInt("limit", 20))
                                 "get_frame_timing" -> PerformanceDiagnostics.frames(pkg, budget)
