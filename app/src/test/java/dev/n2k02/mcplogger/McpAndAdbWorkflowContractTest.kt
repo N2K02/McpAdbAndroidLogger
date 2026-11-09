@@ -28,7 +28,7 @@ class McpAndAdbWorkflowContractTest {
             .substringAfter("private fun AdbPage(").substringBefore("private fun BridgePage(")
         val home = source("app/src/main/java/dev/n2k02/mcplogger/HomeDashboard.kt")
         val setup = source("app/src/main/java/dev/n2k02/mcplogger/AdbHomeSetupCard.kt")
-        assertTrue(home.contains("HomeStatusCard(Icons.Rounded.SettingsInputAntenna"))
+        assertTrue(home.contains("HomeConnectionTile(\"ADB\""))
         assertFalse(home.contains("AdbHomeSetupCard()"))
         assertTrue(setup.contains("SharedAdbHostAdapter.core(context)"))
         assertTrue(setup.contains("AdbHomeSetupPage(adb, accessibilityEnabled"))
