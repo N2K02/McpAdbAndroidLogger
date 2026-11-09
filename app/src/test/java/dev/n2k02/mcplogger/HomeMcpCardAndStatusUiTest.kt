@@ -20,6 +20,21 @@ class HomeMcpCardAndStatusUiTest {
         assertFalse(home.contains("HomeTab.CONNECTION"))
     }
 
+    @Test fun homeConnectionAndActivityLayoutIsCompactAndSeparatesManualFromMcp() {
+        val home = code("HomeDashboard.kt")
+        assertTrue(home.contains("Connection status"))
+        assertTrue(home.contains("HomeConnectionTile(\"ADB\""))
+        assertTrue(home.contains("HomeConnectionTile(\"MCP\""))
+        assertTrue(home.contains("HomeInlineMetric(\"Captured today\""))
+        assertTrue(home.contains("HomeInlineMetric(\"MCP Logcat reads\""))
+        assertTrue(home.contains("Button(onClick = onLogs"))
+        assertTrue(home.contains("Text(\"Manual Logs\""))
+        assertTrue(home.contains("onClick = { LogMonitorService.resetHomeStatistics() }"))
+        assertFalse(home.contains("HomeStatusCard(Icons.Rounded.Terminal"))
+        assertFalse(home.contains("HomeStatusCard(Icons.Rounded.Cloud"))
+        assertFalse(home.contains("Text(\"ADB: \""))
+    }
+
     @Test fun tunnelToneMapsStatuses() {
         assertEquals(Tone.GOOD, tunnelTone("Public MCP connected"))
         assertEquals(Tone.BUSY, tunnelTone("Tunnel is reconnecting"))
