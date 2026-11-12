@@ -38,10 +38,10 @@ android {
     }
 }
 dependencies {
-    implementation("dev.n2k02:theme:0.1.5")
+    implementation("dev.n2k02:theme:0.1.14")
     implementation("dev.n2k02:updater:0.1.32")
     implementation("dev.n2k02:adb-core:0.1.7")
-    implementation("androidx.compose.material3:material3:1.5.0-beta02")
+    implementation("androidx.compose.material3:material3:1.5.0-rc01")
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
     implementation("androidx.activity:activity-compose:1.11.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
@@ -50,7 +50,7 @@ dependencies {
     implementation("com.github.MuntashirAkon:libadb-android:3.1.1")
     implementation("org.bouncycastle:bcprov-jdk15to18:1.86")
     implementation("org.bouncycastle:bcpkix-jdk15to18:1.86")
-    implementation("org.conscrypt:conscrypt-android:2.8.0")
+    implementation("org.conscrypt:conscrypt-android:2.9.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20260814")
 }
