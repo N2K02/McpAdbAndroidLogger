@@ -29,6 +29,28 @@ class VrecCaptureHealthTest {
         assertEquals("released", OnDemandSystemDiagnostics.serialized { "released" })
     }
 
+    @Test fun freshHelperEvidenceDoesNotDependOnDumpsys() = kotlinx.coroutines.runBlocking {
+        val commands = mutableListOf<String>()
+        val result = OnDemandSystemDiagnostics.collectAudio("com.vrec.app", { command ->
+            commands.add(command)
+            if (!command.startsWith("head -c 1025 /data/local/tmp/vrec-capture.health")) error("dumpsys must not run")
+            live
+        }, { 15000 })
+        assertEquals(1, commands.size)
+        assertEquals("fresh_snapshot", result.getJSONObject("vrec_capture").getString("status"))
+        assertEquals("partial_snapshot", result.getString("status"))
+    }
+    @Test fun ordinaryAppsNeverReadHelperAndOlderVrecFallsBack() = kotlinx.coroutines.runBlocking {
+        val commands = mutableListOf<String>()
+        OnDemandSystemDiagnostics.collectAudio("com.whatsapp", { command -> commands.add(command); "" }, { 15000 })
+        assertEquals(listOf("dumpsys audio | head -c 131072"), commands)
+        commands.clear()
+        val result = OnDemandSystemDiagnostics.collectAudio("com.vrec.app", { command -> commands.add(command); "" }, { 15000 })
+        assertEquals(2, commands.size)
+        assertEquals("unavailable_or_helper_not_updated", result.getJSONObject("vrec_capture").getString("status"))
+        assertEquals("unknown", result.getString("recording_state"))
+    }
+
     @Test fun freshMicAndPcmEvidenceAreAvailableWithoutLogcat() {
         val health = VrecCaptureHealth.parse(live, 15000)
         assertEquals("fresh_snapshot", health.getString("status"))

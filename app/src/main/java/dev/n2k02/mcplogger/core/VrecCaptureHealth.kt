@@ -28,6 +28,7 @@ internal object VrecCaptureHealth {
         val result = JSONObject().put("status", "fresh_snapshot")
             .put("sampled_at", at).put("age_ms", age)
             .put("recording_state", if (active) "active_at_sample" else "stopped_at_sample")
+            .put("pcm_scope", "session_cumulative")
             .put("mic_state", state).put("mic_source", source).put("pcm_verdict", verdict)
             .put("source", "VRec shell helper live health v1")
             .put("notes", "A fresh helper sample, not proof both participants are audible. No audio or caller data.")

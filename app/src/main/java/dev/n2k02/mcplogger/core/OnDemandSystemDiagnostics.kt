@@ -50,18 +50,30 @@ internal object OnDemandSystemDiagnostics {
         val name = AppRuntimeDiagnostics.validate(pkg)
         check(AdbCoordinator.verified.value) { "ADB shell UID 2000 not verified" }
         return serialized {
-            val dump = AdbTransport.exec("dumpsys audio | head -c 131072", timeoutMs = TIMEOUT_MS)
-            val result = parseAudio(name, dump.getOrDefault(""))
-            if (name == "com.vrec.app") {
-                // A fixed metadata-only file written by the shell helper; never
-                // read recording files or accept a caller-supplied path.
-                val health = AdbTransport.exec(
-                    "head -c 1025 /data/local/tmp/vrec-capture.health 2>/dev/null", timeoutMs = 4000)
-                result.put("vrec_capture", VrecCaptureHealth.parse(
-                    health.getOrDefault(""), System.currentTimeMillis()))
-            }
-            result.put("taken_at", System.currentTimeMillis())
+            collectAudio(name, { command ->
+                AdbTransport.exec(command, timeoutMs = if (command.startsWith("head ")) 4000 else TIMEOUT_MS)
+                    .getOrDefault("")
+            }, System::currentTimeMillis)
         }
+    }
+
+    internal suspend fun collectAudio(name: String, read: suspend (String) -> String,
+        now: () -> Long): JSONObject {
+        AppRuntimeDiagnostics.validate(name)
+        val helper = if (name == "com.vrec.app") {
+            // Only a fixed metadata file. The helper runs under shell UID 2000,
+            // so package-associated dumpsys mentions cannot describe its capture.
+            VrecCaptureHealth.parse(read(
+                "head -c 1025 /data/local/tmp/vrec-capture.health 2>/dev/null"), now())
+        } else null
+        val fresh = helper?.optString("status") == "fresh_snapshot"
+        // Fresh helper evidence avoids an unreliable/slow dumpsys dependency.
+        val dump = if (fresh) "" else read("dumpsys audio | head -c 131072")
+        val result = parseAudio(name, dump)
+        if (helper != null) result.put("vrec_capture", helper)
+        if (fresh) result.put("status", "partial_snapshot")
+            .put("source", "VRec shell helper live health; app audio focus unknown")
+        return result.put("taken_at", now())
     }
 
     suspend fun jobs(pkg: String): JSONObject {
