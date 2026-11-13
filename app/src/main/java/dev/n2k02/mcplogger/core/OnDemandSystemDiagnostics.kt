@@ -3,6 +3,7 @@ package dev.n2k02.mcplogger.core
 import dev.n2k02.mcplogger.adb.AdbCoordinator
 import dev.n2k02.mcplogger.adb.AdbTransport
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -13,6 +14,7 @@ import org.json.JSONObject
  */
 internal object OnDemandSystemDiagnostics {
     private val lock = Mutex()
+    internal suspend fun <T> serialized(block: suspend () -> T): T = lock.withLock { block() }
     private const val TIMEOUT_MS = 9_000L
     private val serviceRecord = Regex("""ServiceRecord\{[^\n]{0,220}""")
     private val thermalStatus = Regex("""(?i)(?:Thermal Status|mStatus|status)\s*[:=]\s*(\d{1,2})""")
@@ -31,11 +33,10 @@ internal object OnDemandSystemDiagnostics {
 
     private suspend fun snapshot(command: String, parser: (String) -> JSONObject): JSONObject {
         check(AdbCoordinator.verified.value) { "ADB shell UID 2000 not verified" }
-        check(lock.tryLock()) { "Another system diagnostic is in progress" }
-        try {
+        return serialized {
             val result = AdbTransport.exec(command, timeoutMs = TIMEOUT_MS).getOrThrow()
-            return parser(result).put("taken_at", System.currentTimeMillis())
-        } finally { lock.unlock() }
+            parser(result).put("taken_at", System.currentTimeMillis())
+        }
     }
 
     suspend fun services(pkg: String): JSONObject {
@@ -47,7 +48,20 @@ internal object OnDemandSystemDiagnostics {
 
     suspend fun audio(pkg: String): JSONObject {
         val name = AppRuntimeDiagnostics.validate(pkg)
-        return snapshot("dumpsys audio | head -c 131072") { parseAudio(name, it) }
+        check(AdbCoordinator.verified.value) { "ADB shell UID 2000 not verified" }
+        return serialized {
+            val dump = AdbTransport.exec("dumpsys audio | head -c 131072", timeoutMs = TIMEOUT_MS)
+            val result = parseAudio(name, dump.getOrDefault(""))
+            if (name == "com.vrec.app") {
+                // A fixed metadata-only file written by the shell helper; never
+                // read recording files or accept a caller-supplied path.
+                val health = AdbTransport.exec(
+                    "head -c 1025 /data/local/tmp/vrec-capture.health 2>/dev/null", timeoutMs = 4000)
+                result.put("vrec_capture", VrecCaptureHealth.parse(
+                    health.getOrDefault(""), System.currentTimeMillis()))
+            }
+            result.put("taken_at", System.currentTimeMillis())
+        }
     }
 
     suspend fun jobs(pkg: String): JSONObject {
