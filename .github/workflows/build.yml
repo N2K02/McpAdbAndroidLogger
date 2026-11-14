@@ -248,23 +248,3 @@ jobs:
           else
             gh release create "$tag" "$APP-$VERSION.apk" --target "$target"               --title "$title" --notes-file release-notes.md "${extra[@]}"
           fi
-
-      - name: Check distribution configuration
-        id: distribution
-        env:
-          DIST_TOKEN: ${{ secrets.ANDROID_DISTRIBUTION_TOKEN }}
-        run: |
-          if [ -n "$DIST_TOKEN" ]; then
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::ANDROID_DISTRIBUTION_TOKEN not set: signed APK remains available from the source release"
-          fi
-
-      - name: Publish public update channel
-        if: steps.distribution.outputs.enabled == 'true'
-        env:
-          ANDROID_DISTRIBUTION_TOKEN: ${{ secrets.ANDROID_DISTRIBUTION_TOKEN }}
-          GH_TOKEN: ${{ secrets.ANDROID_DISTRIBUTION_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: bash .github/scripts/publish-distribution.sh
