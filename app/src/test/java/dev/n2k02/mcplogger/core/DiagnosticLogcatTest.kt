@@ -8,6 +8,18 @@ class DiagnosticLogcatTest {
     private fun event(id: Long, tag: String, level: String, pid: String = "123") =
         LogEvent(id, 1_700_000_000_000, "2000", pid, level, tag, "message", "")
 
+    @Test fun bareTagsAndExplicitPrioritiesAreBothSafe() {
+        val options = DiagnosticLogcat.parse(JSONObject("""{"tags":["scrcpy","AudioRecord:W"]}"""))
+        assertEquals(listOf("scrcpy" to "V", "AudioRecord" to "W"), options.tags)
+        assertTrue(DiagnosticLogcat.captureCommand(options).contains("scrcpy:V"))
+        for (tag in listOf("scrcpy;id", "scrcpy:", "scrcpy:V:W", "*", "scrcpy V")) {
+            assertThrows(IllegalArgumentException::class.java) {
+                DiagnosticLogcat.parse(JSONObject().put("tags", org.json.JSONArray(listOf(tag))))
+            }
+        }
+        assertTrue(DiagnosticLogcat.parse(JSONObject("""{"profile":"vrec"}""")).tags.contains("scrcpy" to "I"))
+    }
+
     @Test fun audioProfileMatchesPriorityAndTag() {
         val options = DiagnosticLogcat.parse(JSONObject("""{"profile":"audio"}"""))
         val events = listOf(event(1, "AudioFlinger", "D"),

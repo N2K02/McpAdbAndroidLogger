@@ -8,7 +8,7 @@ internal object LocalMcpProtocol {
     const val VERSION = "2025-11-25"
     // Readable through the original get_device_status tool even when an MCP client
     // still has an old tools/list cache. Never starts a shell diagnostic.
-    const val CATALOG_REVISION = "2026-11-09-advanced-triage-10"
+    const val CATALOG_REVISION = "2026-11-13-vrec-live-health-11"
     private val names = listOf("get_device_status", "list_installed_apps", "get_live_logs",
         "search_logs", "get_crashes", "get_anrs", "get_cpu_usage",
         "get_frame_timing", "get_performance_snapshot",
@@ -137,7 +137,8 @@ internal object LocalMcpProtocol {
                 if (name in setOf("get_live_logs", "search_logs", "get_crashes", "get_anrs")) {
                     fields.put("profile", JSONObject().put("type", "string"))
                     fields.put("tags", JSONObject().put("type", "array")
-                        .put("items", JSONObject().put("type", "string")))
+                        .put("items", JSONObject().put("type", "string"))
+                        .put("description", "Exact tag names or TAG:PRIORITY filters; bare tags default to V."))
                     fields.put("buffers", JSONObject().put("type", "array")
                         .put("items", JSONObject().put("type", "string")))
                     fields.put("format", JSONObject().put("type", "string")

@@ -3,7 +3,6 @@ package dev.n2k02.mcplogger
 import android.app.Activity
 import android.content.Context
 import android.os.Build
-import dev.n2k02.updater.PublishedUpdateSource
 import dev.n2k02.updater.UpdateConfig
 import dev.n2k02.updater.UpdateInstallGuard
 import dev.n2k02.updater.UpdaterController
@@ -37,7 +36,6 @@ object LiveUpdater {
             installedVersionCode = versionCode(),
             experimentalEnabled = experimentalEnabled.value
         ),
-        publishedSource = PublishedUpdateSource("https://n2k02.github.io/mcpadbandroidlogger/updates"),
         offerPreferences = prefs()
     )
     val controller: UpdaterController get() = requireNotNull(instance)
