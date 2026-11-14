@@ -39,7 +39,7 @@ android {
 }
 dependencies {
     implementation("dev.n2k02:theme:0.1.14")
-    implementation("dev.n2k02:updater:0.1.34")
+    implementation("dev.n2k02:updater:0.1.35")
     implementation("dev.n2k02:adb-core:0.1.7")
     implementation("androidx.compose.material3:material3:1.5.0-rc01")
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
@@ -59,7 +59,7 @@ val verifySharedLibraries = tasks.register("verifySharedLibraries") {
         val found = configurations.getByName("implementation").dependencies
             .filter { it.group == "dev.n2k02" }
             .associate { it.name to it.version }
-        check(found["theme"] == "0.1.14" && found["updater"] == "0.1.34") {
+        check(found["theme"] == "0.1.14" && found["updater"] == "0.1.35") {
             "Shared N2K02 theme and updater must be pinned to approved versions"
         }
     }
