@@ -79,6 +79,7 @@ jobs:
           echo "VERSION_SUFFIX=$suffix" >> "$GITHUB_ENV"
           {
             echo "## $APP $version"
+            echo "Version code: $((100000 + GITHUB_RUN_NUMBER))"
             echo
             echo "### What's new"
             git log -20 --no-merges --pretty='- %s'
