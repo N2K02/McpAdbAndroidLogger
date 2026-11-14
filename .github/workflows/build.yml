@@ -77,13 +77,14 @@ jobs:
             version="$((number / 10)).$((number % 10))"
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
-          echo "VERSION_CODE=$((100000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+          VERSION_CODE=$(python3 .github/scripts/version_code.py "$GITHUB_REPOSITORY" "$GITHUB_RUN_NUMBER")
+          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
           suffix=""
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then suffix="-experimental.$GITHUB_RUN_NUMBER"; fi
           echo "VERSION_SUFFIX=$suffix" >> "$GITHUB_ENV"
           {
             echo "## $APP $version"
-            echo "Version code: $((100000 + GITHUB_RUN_NUMBER))"
+            echo "Version code: $VERSION_CODE"
             echo
             echo "### What's new"
             git log -20 --no-merges --pretty='- %s'
