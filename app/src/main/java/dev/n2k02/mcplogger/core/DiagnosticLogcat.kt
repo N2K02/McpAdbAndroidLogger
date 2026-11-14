@@ -17,6 +17,7 @@ internal object DiagnosticLogcat {
             "AudioPolicyManager:W", "AudioTrack:W", "AudioRecord:W", "AudioService:D",
             "StHal:I", "BTAudioSessionAidl:D", "AudioPolicyService:W",
             "AAudio:W"),
+        "vrec" to listOf("scrcpy:I", "VRec:I", "AudioRecord:W", "AudioFlinger:W"),
         "crashes" to listOf("AndroidRuntime:E", "ActivityManager:E", "libc:F", "DEBUG:E"),
         "performance" to listOf("ActivityManager:I", "Choreographer:W",
             "OpenGLRenderer:W", "HWUI:W", "lmkd:W"),
@@ -88,9 +89,10 @@ internal object DiagnosticLogcat {
         require(tags.size <= 48)
         val parsed = tags.map { value ->
             val parts = value.split(":")
-            require(parts.size == 2 && tagName.matches(parts[0]) &&
-                parts[1].uppercase() in priorities && parts[0] != "*")
-            parts[0] to parts[1].uppercase()
+            require(parts.size in 1..2 && tagName.matches(parts[0]) && parts[0] != "*")
+            val priority = if (parts.size == 1) "V" else parts[1].uppercase()
+            require(priority in priorities)
+            parts[0] to priority
         }.distinctBy { it.first }
         val buffers = mutableListOf<String>()
         if (args.has("buffers")) {
