@@ -246,7 +246,7 @@ internal object LocalMcpProtocol {
                     "get_performance_snapshot", "get_decoder_surface_profile")
                 val pkg = if (performance) args.optString("package_name", "") else ""
                 if (performance) {
-                    require((pkg.isBlank() && name != "get_frame_timing") ||
+                    require((pkg.isBlank() && name !in setOf("get_frame_timing", "get_decoder_surface_profile")) ||
                         PerformanceDiagnostics.validPackage(pkg))
                 }
                 val budget = args.optDouble("frame_budget_ms", 16.67)
