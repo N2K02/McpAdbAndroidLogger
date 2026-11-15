@@ -13,7 +13,14 @@ import org.json.JSONObject
 internal object DecoderSurfaceDiagnostics {
     private const val TIMEOUT_MS = 12_000L
     private val row = Regex("""^\s*(\d+)\s+(\d+(?:\.\d+)?)%?\s+(\S+)\s+(\S+)\s*$""")
-    private val logLine = Regex("""^\s*(?:[VDIWEF]/([^:( ]{1,80})\s*\(\s*\d+\):\s*(.*)|(?:\d\d-\d\d\s+\d\d:\d\d:\d\d(?:\.\d+)?\s+)?\d+\s+\d+\s+[VDIWEF]\s+([^: ]{1,80}):\s*(.*))$""")
+    // Brief and threadtime formats both preserve the emitting PID. This is a
+    // correlation *hint* (PIDs can be recycled in historical Logcat).
+    private val briefLine = Regex("""^\\s*[VDIWEF]/([^:( ]{1,80})\\s*\\(\\s*(\\d+)\\):\\s*(.*)$""")
+    private val threadtimeLine = Regex("""^\\s*\\d\\d-\\d\\d\\s+\\d\\d:\\d\\d:\\d\\d(?:\\.\\d+)?\\s+(\\d+)\\s+\\d+\\s+[VDIWEF]\\s+([^: ]{1,80}):\\s*(.*)$""")
+    private val epochLine = Regex("""^\\s*\\d+(?:\\.\\d+)?\\s+\\d+\\s+(\\d+)\\s+\\d+\\s+[VDIWEF]\\s+([^: ]{1,80}):\\s*(.*)$""")
+    private fun isChromiumRenderer(suffix: String): Boolean =
+        suffix.split(':').any { it.startsWith("sandboxed_process", true) ||
+            it.startsWith("renderer", true) }
     private val keywords = listOf(
         "decoder_created" to Regex("""(?i)\b(?:create|configure|allocate|instantiate|start)\w*\b.{0,90}\b(?:decoder|codec)\b|\b(?:decoder|codec)\b.{0,90}\b(?:created|configured|allocated|started)\b"""),
         "decoder_released" to Regex("""(?i)\b(?:release|stop|destroy|flush)\w*\b.{0,90}\b(?:decoder|codec)\b|\b(?:decoder|codec)\b.{0,90}\b(?:released|stopped|destroyed|flushed)\b"""),
@@ -35,7 +42,7 @@ internal object DecoderSurfaceDiagnostics {
             timeoutMs = TIMEOUT_MS).getOrThrow()
         // Bounded read of the existing circular buffer; no global logcat clearing.
         val logs = AdbTransport.exec(
-            "logcat -d -t 700 -v brief *:V | tail -c 131072",
+            "logcat -d -t 700 -v threadtime *:V | tail -c 131072",
             timeoutMs = TIMEOUT_MS).getOrDefault("")
         return parse(packageName, cpu, logs)
             .put("window_start_ms", start)
@@ -51,6 +58,7 @@ internal object DecoderSurfaceDiagnostics {
         var mainCpu = 0.0
         var rendererCpu = 0.0
         var otherCpu = 0.0
+        val attributablePids = mutableSetOf<Int>()
         for (line in cpuOutput.lineSequence().take(260)) {
             val match = row.matchEntire(line) ?: continue
             val pid = match.groupValues[1].toIntOrNull() ?: continue
@@ -58,11 +66,11 @@ internal object DecoderSurfaceDiagnostics {
                 ?.takeIf { it.isFinite() && it in 0.0..10000.0 } ?: continue
             val process = match.groupValues[4]
             if (process != packageName && !process.startsWith(packageName + ":")) continue
+            attributablePids.add(pid)
             val item = JSONObject().put("pid", pid).put("cpu_percent", cpu)
             when {
                 process == packageName -> { main.put(item); mainCpu += cpu }
-                process.substringAfter(':').startsWith("sandboxed_process", true) ||
-                    process.substringAfter(':').startsWith("renderer", true) -> {
+                isChromiumRenderer(process.substringAfter(':')) -> {
                     renderers.put(item); rendererCpu += cpu
                 }
                 else -> { other.put(item); otherCpu += cpu }
@@ -71,16 +79,32 @@ internal object DecoderSurfaceDiagnostics {
         val counts = JSONObject()
         keywords.forEach { (name, _) -> counts.put(name, 0) }
         var matchedLines = 0
-        // A system component's codec messages may describe unrelated processes.
-        // Only explicit exact-package messages are safely attributable.
+        var explicitlyAttributed = 0
+        var pidCorrelated = 0
+        var unlinkedCodecLines = 0
+        // Do not attribute unrelated system-UID MediaCodec messages to the app.
+        // An emitting PID from 'top' gives a bounded historical hint, not proof.
         val packageToken = Regex("(?<![A-Za-z0-9_.])" +
             Regex.escape(packageName) + "(?![A-Za-z0-9_.])")
         for (line in logOutput.lineSequence().take(1500)) {
-            if (!packageToken.containsMatchIn(line)) continue
-            val parsed = logLine.matchEntire(line) ?: continue
-            val tag = parsed.groupValues[1].ifBlank { parsed.groupValues[3] }
+            val brief = briefLine.matchEntire(line)
+            val thread = if (brief == null) threadtimeLine.matchEntire(line) else null
+            val epoch = if (brief == null && thread == null) epochLine.matchEntire(line) else null
+            val pid = (brief?.groupValues?.get(2) ?: thread?.groupValues?.get(1)
+                ?: epoch?.groupValues?.get(1))?.toIntOrNull()
+            val tag = brief?.groupValues?.get(1) ?: thread?.groupValues?.get(2)
+                ?: epoch?.groupValues?.get(2) ?: continue
             if (tag !in permittedTags && !tag.startsWith("cr_")) continue
-            val message = parsed.groupValues[2].ifBlank { parsed.groupValues[4] }.take(600)
+            val message = (brief?.groupValues?.get(3) ?: thread?.groupValues?.get(3)
+                ?: epoch?.groupValues?.get(3) ?: "").take(600)
+            val explicit = packageToken.containsMatchIn(message) || packageToken.containsMatchIn(line)
+            val byPid = pid != null && pid in attributablePids
+            if (!explicit && !byPid) {
+                if (tag in setOf("MediaCodec", "ACodec", "CCodec", "Codec2Client")) {
+                    unlinkedCodecLines++
+                }
+                continue
+            }
             var observed = false
             keywords.forEach { (name, regex) ->
                 if (regex.containsMatchIn(message)) {
@@ -88,7 +112,10 @@ internal object DecoderSurfaceDiagnostics {
                     observed = true
                 }
             }
-            if (observed) matchedLines++
+            if (observed) {
+                matchedLines++
+                if (explicit) explicitlyAttributed++ else pidCorrelated++
+            }
         }
         fun group(rows: JSONArray, cpu: Double): JSONObject = JSONObject()
             .put("processes", rows)
@@ -102,15 +129,19 @@ internal object DecoderSurfaceDiagnostics {
             .put("other_app_process_cpu", group(other, otherCpu))
             .put("lifecycle_event_counts", counts)
             .put("attributed_lifecycle_log_lines", matchedLines)
+            .put("explicit_package_lifecycle_lines", explicitlyAttributed)
+            .put("pid_correlated_lifecycle_lines", pidCorrelated)
+            .put("unattributed_codec_log_lines", unlinkedCodecLines)
             .put("decoder_state", "unknown")
             .put("surface_state", "unknown")
             .put("hardware_decoder_confirmed", false)
             .put("notes", "CPU is a single top sample, not a sustained average; percentages " +
                 "may exceed 100 on multicore hardware. Only main and explicitly identifiable " +
-                "package:sandboxed_process* or package:renderer* processes are attributed. " +
-                "WebView/Chromium renderer names may differ and may be unobservable. " +
-                "Only package-explicit selected-tag logcat messages are counted; missing events " +
-                "mean unknown, not that no lifecycle change occurred. The two reads are " +
+                "package:*:sandboxed_process* or package:*:renderer* processes are attributed. " +
+                "Selected-tag lifecycle hints require an exact package reference or an " +
+                "emitting PID observed in top; historical PID reuse remains possible. " +
+                "Unattributed system codec lines are counted separately, never assigned " +
+                "to this app. Missing events mean unknown. The two reads are " +
                 "sequential, not simultaneous. Decoder hardware selection cannot be proven " +
                 "from these signals.")
     }
