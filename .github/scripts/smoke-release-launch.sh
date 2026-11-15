@@ -4,7 +4,7 @@
 set -euo pipefail
 : "${APP:?APP required}"
 : "${VERSION:?VERSION required}"
-APK="$APP-$VERSION.apk"
+APK="${APK_NAME:-$APP-$VERSION}.apk"
 test -s "$APK"
 PACKAGE="dev.n2k02.mcplogger"
 ACTIVITY="$PACKAGE/.MainActivity"
