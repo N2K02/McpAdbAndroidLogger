@@ -93,6 +93,23 @@ jobs:
             echo "Install the signed APK from this release. Android will verify its signer."
           } > release-notes.md
 
+
+      - name: Use next-stable experimental naming
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/experimental_naming.py --self-test
+          python3 .github/scripts/experimental_naming.py "$GITHUB_REPOSITORY" "$APP" "$GITHUB_RUN_NUMBER" "$PR_NUMBER"
+      - name: Label experimental release notes
+        if: github.event_name == 'pull_request'
+        run: |
+          if [ -f release-notes.md ]; then
+            sed -i "1s|^## .*|## $EXPERIMENTAL_TITLE|" release-notes.md
+            printf '\nExperimental sequence: %s\n' "$EXPERIMENTAL_NUMBER" >> release-notes.md
+          fi
       - name: Verify and bundle Cloudflare Quick Tunnel for Android ARM64
         run: bash .github/scripts/prepare-cloudflared.sh
 
@@ -174,9 +191,9 @@ jobs:
           "$BT/apksigner" sign \
             --ks "$KEYSTORE" --ks-pass env:SIGNING_STORE_PASS \
             --ks-key-alias "$ALIAS" --key-pass env:SIGNING_KEY_PASS \
-            --out "$APP-$VERSION.apk" app/build/outputs/apk/release/app-release-unsigned.apk
-          "$BT/apksigner" verify --print-certs "$APP-$VERSION.apk" | grep -E "Signer.*(DN|SHA-256 digest)"
-          test -s "$APP-$VERSION.apk"
+            --out "${APK_NAME:-$APP-$VERSION}.apk" app/build/outputs/apk/release/app-release-unsigned.apk
+          "$BT/apksigner" verify --print-certs "${APK_NAME:-$APP-$VERSION}.apk" | grep -E "Signer.*(DN|SHA-256 digest)"
+          test -s "${APK_NAME:-$APP-$VERSION}.apk"
       - name: Enable emulator virtualization
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -223,7 +240,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: ${{ env.APP }}-${{ env.VERSION }}
-          path: ${{ env.APP }}-${{ env.VERSION }}.apk
+          path: ${{ env.APK_NAME || format('{0}-{1}', env.APP, env.VERSION) }}.apk
           if-no-files-found: error
 
       - name: Publish stable or PR experimental release
@@ -235,7 +252,7 @@ jobs:
           set -euo pipefail
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             tag="experimental-pr-$PR_NUMBER-run-$GITHUB_RUN_NUMBER"
-            title="$APP experimental · PR #$PR_NUMBER · run $GITHUB_RUN_NUMBER"
+            title="$EXPERIMENTAL_TITLE"
             target="$PR_HEAD_SHA"
             extra=(--prerelease --latest=false)
           else
@@ -246,11 +263,11 @@ jobs:
           fi
           if gh release view "$tag" >/dev/null 2>&1; then
             if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-              gh release upload "$tag" "$APP-$VERSION.apk" --clobber
+              gh release upload "$tag" "${APK_NAME:-$APP-$VERSION}.apk" --clobber
             else
               echo "::error::Stable release tag already exists"
               exit 1
             fi
           else
-            gh release create "$tag" "$APP-$VERSION.apk" --target "$target"               --title "$title" --notes-file release-notes.md "${extra[@]}"
+            gh release create "$tag" "${APK_NAME:-$APP-$VERSION}.apk" --target "$target"               --title "$title" --notes-file release-notes.md "${extra[@]}"
           fi
