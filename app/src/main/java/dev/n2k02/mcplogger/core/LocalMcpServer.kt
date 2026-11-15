@@ -343,6 +343,7 @@ object LocalMcpServer {
                                     pkg, arguments.optInt("limit", 20))
                                 "get_frame_timing" -> PerformanceDiagnostics.frames(pkg, budget)
                                 "get_performance_snapshot" -> PerformanceDiagnostics.summary(pkg, budget)
+                                "get_decoder_surface_profile" -> DecoderSurfaceDiagnostics.capture(pkg)
                                 "get_battery_diagnostics" -> DeviceDiagnostics.battery()
                                 "get_memory_pressure" -> DeviceDiagnostics.memory()
                                 "get_wakelock_usage" -> DeviceDiagnostics.wakelocks(arguments.optInt("limit", 20))
