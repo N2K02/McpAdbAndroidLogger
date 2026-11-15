@@ -13,7 +13,7 @@ import org.json.JSONObject
 internal object DecoderSurfaceDiagnostics {
     private const val TIMEOUT_MS = 12_000L
     private val row = Regex("""^\s*(\d+)\s+(\d+(?:\.\d+)?)%?\s+(\S+)\s+(\S+)\s*$""")
-    private val logLine = Regex("""^\s*(?:\d\d-\d\d\s+\d\d:\d\d:\d\d(?:\.\d+)?\s+)?(?:\d+\s+){1,2}[VDIWEF]\s+([^: ]{1,80}):\s*(.*)$""")
+    private val logLine = Regex("""^\s*(?:[VDIWEF]/([^:( ]{1,80})\s*\(\s*\d+\):\s*(.*)|(?:\d\d-\d\d\s+\d\d:\d\d:\d\d(?:\.\d+)?\s+)?\d+\s+\d+\s+[VDIWEF]\s+([^: ]{1,80}):\s*(.*))$""")
     private val keywords = listOf(
         "decoder_created" to Regex("""(?i)\b(?:create|configure|allocate|instantiate|start)\w*\b.{0,90}\b(?:decoder|codec)\b|\b(?:decoder|codec)\b.{0,90}\b(?:created|configured|allocated|started)\b"""),
         "decoder_released" to Regex("""(?i)\b(?:release|stop|destroy|flush)\w*\b.{0,90}\b(?:decoder|codec)\b|\b(?:decoder|codec)\b.{0,90}\b(?:released|stopped|destroyed|flushed)\b"""),
@@ -57,7 +57,7 @@ internal object DecoderSurfaceDiagnostics {
             val cpu = match.groupValues[2].toDoubleOrNull()
                 ?.takeIf { it.isFinite() && it in 0.0..10000.0 } ?: continue
             val process = match.groupValues[4]
-            if (process != packageName && !process.startsWith("$"+"packageName:")) continue
+            if (process != packageName && !process.startsWith(packageName + ":")) continue
             val item = JSONObject().put("pid", pid).put("cpu_percent", cpu)
             when {
                 process == packageName -> { main.put(item); mainCpu += cpu }
@@ -78,9 +78,9 @@ internal object DecoderSurfaceDiagnostics {
         for (line in logOutput.lineSequence().take(1500)) {
             if (!packageToken.containsMatchIn(line)) continue
             val parsed = logLine.matchEntire(line) ?: continue
-            val tag = parsed.groupValues[1]
+            val tag = parsed.groupValues[1].ifBlank { parsed.groupValues[3] }
             if (tag !in permittedTags && !tag.startsWith("cr_")) continue
-            val message = parsed.groupValues[2].take(600)
+            val message = parsed.groupValues[2].ifBlank { parsed.groupValues[4] }.take(600)
             var observed = false
             keywords.forEach { (name, regex) ->
                 if (regex.containsMatchIn(message)) {
