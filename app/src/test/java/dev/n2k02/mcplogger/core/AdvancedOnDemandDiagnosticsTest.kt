@@ -83,7 +83,7 @@ class AdvancedOnDemandDiagnosticsTest {
         val catalog = LocalMcpProtocol.execute(JSONObject(
             """{"jsonrpc":"2.0","method":"tools/list","id":1}"""))!!
             .getJSONObject("result").getJSONArray("tools")
-        assertEquals(27, catalog.length())
+        assertEquals(28, catalog.length())
         val names = (0 until catalog.length()).map {
             catalog.getJSONObject(it).getString("name")
         }
