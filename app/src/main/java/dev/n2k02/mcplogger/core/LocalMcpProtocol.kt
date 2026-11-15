@@ -8,10 +8,10 @@ internal object LocalMcpProtocol {
     const val VERSION = "2025-11-25"
     // Readable through the original get_device_status tool even when an MCP client
     // still has an old tools/list cache. Never starts a shell diagnostic.
-    const val CATALOG_REVISION = "2026-11-13-vrec-live-health-11"
+    const val CATALOG_REVISION = "2026-11-15-decoder-surface-cpu-1"
     private val names = listOf("get_device_status", "list_installed_apps", "get_live_logs",
         "search_logs", "get_crashes", "get_anrs", "get_cpu_usage",
-        "get_frame_timing", "get_performance_snapshot",
+        "get_frame_timing", "get_performance_snapshot", "get_decoder_surface_profile",
         "get_battery_diagnostics", "get_memory_pressure", "get_wakelock_usage",
         "get_screen_off_baseline", "get_screen_off_report",
         "get_surfaceflinger_layers", "get_surfaceflinger_activity",
@@ -99,6 +99,7 @@ internal object LocalMcpProtocol {
             "Read one bounded top CPU process snapshot; optional exact package_name filter",
             "Read recent UI frame timing and GPU completion latency (not GPU utilization) for one app",
             "Read CPU plus optional app UI frame timing in a bounded on-demand request",
+            "Read decoder/surface lifecycle hints plus separate main-app and Chromium renderer CPU snapshots",
             "Read battery temperature, charge state and estimated per-UID energy since charge on demand",
             "Read RAM, swap and kernel PSI memory stall metrics in a bounded on-demand snapshot",
             "Read currently held partial wakelocks plus per-UID partial hold times since charge",
@@ -178,10 +179,10 @@ internal object LocalMcpProtocol {
                             "e.g. com.example.app. Matches the verified UID, not mentions in log text. " +
                             "Unknown or unavailable packages return no logs; omit for all packages."))
                 }
-                if (name in setOf("get_cpu_usage", "get_frame_timing", "get_performance_snapshot")) {
+                if (name in setOf("get_cpu_usage", "get_frame_timing", "get_performance_snapshot", "get_decoder_surface_profile")) {
                     fields.put("package_name", JSONObject().put("type", "string")
                         .put("description", "Exact Android package, e.g. com.vrec.app. Required for frame timing."))
-                    if (name != "get_cpu_usage") {
+                    if (name in setOf("get_frame_timing", "get_performance_snapshot")) {
                         fields.put("frame_budget_ms", JSONObject().put("type", "number")
                             .put("description", "Frame budget 5-50 ms; 16.67 is 60 Hz and 8.33 is 120 Hz."))
                     }
@@ -189,7 +190,7 @@ internal object LocalMcpProtocol {
                 val schema = JSONObject().put("type", "object").put("properties", fields)
                     .put("additionalProperties", false)
                 if (name == "search_logs") schema.put("required", JSONArray().put("query"))
-                if (name in setOf("get_frame_timing", "get_app_runtime", "get_app_ops",
+                if (name in setOf("get_frame_timing", "get_decoder_surface_profile", "get_app_runtime", "get_app_ops",
                         "get_app_services", "get_app_audio_state", "get_app_jobs"))
                     schema.put("required", JSONArray().put("package_name"))
                 put(JSONObject().put("name", name).put("description", descriptions[index])
@@ -236,20 +237,20 @@ internal object LocalMcpProtocol {
                     "UID 2000 verified"))
             "list_logcat_profiles" -> DiagnosticLogcat.catalog()
             "list_installed_apps" -> JSONArray((appsReader?.invoke() ?: MonitorState.packages.value).take(limit))
-            "get_cpu_usage", "get_frame_timing", "get_performance_snapshot",
+            "get_cpu_usage", "get_frame_timing", "get_performance_snapshot", "get_decoder_surface_profile",
             "get_battery_diagnostics", "get_memory_pressure", "get_wakelock_usage",
             "get_screen_off_baseline", "get_screen_off_report",
             "get_surfaceflinger_layers", "get_surfaceflinger_activity",
             "get_surfaceflinger_perfetto" -> {
                 val performance = name in setOf("get_cpu_usage", "get_frame_timing",
-                    "get_performance_snapshot")
+                    "get_performance_snapshot", "get_decoder_surface_profile")
                 val pkg = if (performance) args.optString("package_name", "") else ""
                 if (performance) {
-                    require((pkg.isBlank() && name != "get_frame_timing") ||
+                    require((pkg.isBlank() && name !in setOf("get_frame_timing", "get_decoder_surface_profile")) ||
                         PerformanceDiagnostics.validPackage(pkg))
                 }
                 val budget = args.optDouble("frame_budget_ms", 16.67)
-                if (performance && name != "get_cpu_usage")
+                if (name in setOf("get_frame_timing", "get_performance_snapshot"))
                     require(budget.isFinite() && budget in 5.0..50.0)
                 val duration = args.optInt("duration_seconds", 5)
                 if (name in setOf("get_surfaceflinger_activity", "get_surfaceflinger_perfetto"))

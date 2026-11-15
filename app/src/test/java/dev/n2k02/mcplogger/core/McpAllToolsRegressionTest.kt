@@ -5,7 +5,7 @@ import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 
-/** All 27 public MCP tools must remain invocable and return valid JSON-RPC. */
+/** All 28 public MCP tools must remain invocable and return valid JSON-RPC. */
 class McpAllToolsRegressionTest {
     private val app = "dev.n2k02.mcplogger"
     private val appTools = setOf("get_app_runtime", "get_app_ops",
@@ -13,7 +13,7 @@ class McpAllToolsRegressionTest {
     private val logTools = setOf("get_live_logs", "search_logs", "get_crashes",
         "get_anrs", "get_crash_triage", "get_diagnostic_correlation")
     private val performanceTools = setOf("get_cpu_usage", "get_frame_timing",
-        "get_performance_snapshot", "get_battery_diagnostics",
+        "get_performance_snapshot", "get_decoder_surface_profile", "get_battery_diagnostics",
         "get_memory_pressure", "get_wakelock_usage", "get_screen_off_baseline",
         "get_screen_off_report", "get_surfaceflinger_layers",
         "get_surfaceflinger_activity", "get_surfaceflinger_perfetto",
@@ -23,7 +23,7 @@ class McpAllToolsRegressionTest {
 
     private fun request(tool: String): JSONObject {
         val args = JSONObject()
-        if (tool in appTools || tool == "get_frame_timing")
+        if (tool in appTools || tool == "get_frame_timing" || tool == "get_decoder_surface_profile")
             args.put("package_name", app)
         if (tool == "search_logs") args.put("query", "AndroidRuntime")
         if (tool == "get_surfaceflinger_activity" ||
@@ -35,8 +35,8 @@ class McpAllToolsRegressionTest {
 
     @Test fun allAdvertisedToolsHaveDispatchCoverage() {
         val catalog = LocalMcpProtocol.builtInToolNames()
-        assertEquals(27, catalog.size)
-        assertEquals(27, catalog.distinct().size)
+        assertEquals(28, catalog.size)
+        assertEquals(28, catalog.distinct().size)
         catalog.forEach { tool ->
             val result = LocalMcpProtocol.execute(request(tool),
                 logsReader = { emptyList() },
