@@ -15,9 +15,9 @@ internal object DecoderSurfaceDiagnostics {
     private val row = Regex("""^\s*(\d+)\s+(\d+(?:\.\d+)?)%?\s+(\S+)\s+(\S+)\s*$""")
     // Brief and threadtime formats both preserve the emitting PID. This is a
     // correlation *hint* (PIDs can be recycled in historical Logcat).
-    private val briefLine = Regex("""^\\s*[VDIWEF]/([^:( ]{1,80})\\s*\\(\\s*(\\d+)\\):\\s*(.*)$""")
-    private val threadtimeLine = Regex("""^\\s*\\d\\d-\\d\\d\\s+\\d\\d:\\d\\d:\\d\\d(?:\\.\\d+)?\\s+(\\d+)\\s+\\d+\\s+[VDIWEF]\\s+([^: ]{1,80}):\\s*(.*)$""")
-    private val epochLine = Regex("""^\\s*\\d+(?:\\.\\d+)?\\s+\\d+\\s+(\\d+)\\s+\\d+\\s+[VDIWEF]\\s+([^: ]{1,80}):\\s*(.*)$""")
+    private val briefLine = Regex("""^\s*[VDIWEF]/([^:( ]{1,80})\s*\(\s*(\d+)\):\s*(.*)$""")
+    private val threadtimeLine = Regex("""^\s*\d\d-\d\d\s+\d\d:\d\d:\d\d(?:\.\d+)?\s+(\d+)\s+\d+\s+[VDIWEF]\s+([^: ]{1,80}):\s*(.*)$""")
+    private val epochLine = Regex("""^\s*\d+(?:\.\d+)?\s+\d+\s+(\d+)\s+\d+\s+[VDIWEF]\s+([^: ]{1,80}):\s*(.*)$""")
     private fun isChromiumRenderer(suffix: String): Boolean =
         suffix.split(':').any { it.startsWith("sandboxed_process", true) ||
             it.startsWith("renderer", true) }
