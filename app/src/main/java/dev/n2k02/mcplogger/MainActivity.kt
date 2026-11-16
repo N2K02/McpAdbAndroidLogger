@@ -32,7 +32,8 @@ class MainActivity : ComponentActivity() {
 
     private val shizukuListener = Shizuku.OnRequestPermissionResultListener { code, grant ->
         if (code == ShizukuAvailability.PERMISSION_REQUEST &&
-            grant == PackageManager.PERMISSION_GRANTED) {
+            grant == PackageManager.PERMISSION_GRANTED &&
+            !AdbRecoverySettings.manuallyQuit(this)) {
             ShizukuReadBackend.bindIfAuthorized(this)
         }
     }
