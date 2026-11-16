@@ -184,6 +184,7 @@ object AdbCoordinator {
     suspend fun quit() {
         stopDiscovery()
         SharedAdbHostAdapter.shutdown()
+        AdbConnectionTelemetry.clear() // Quit retires the diagnostic window with the transport.
         synchronized(bindingLock) {
             observer?.cancel()
             observer = null
