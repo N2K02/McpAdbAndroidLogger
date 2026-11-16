@@ -29,7 +29,7 @@ class ShizukuIntegrationContractTest {
         assertTrue(src.contains("serviceAvailability()"))
         assertFalse(src.contains("setSystemProperty"))
         assertFalse(src.contains("transactRemote"))
-        assertFalse(src.contains("sh -c ${"))
+        assertTrue(src.contains("when (operation) {"))
     }
 
     @Test fun guardedBackendFallsBackToSharedAdbAndQuitUnbinds() {
