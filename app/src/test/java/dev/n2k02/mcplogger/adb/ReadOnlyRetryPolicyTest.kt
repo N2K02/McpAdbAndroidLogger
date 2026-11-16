@@ -29,6 +29,7 @@ class ReadOnlyRetryPolicyTest {
 
     @Test fun retriesOnlyDisconnectedTransportNotPermissionsOrTimeouts() {
         assertTrue(ReadOnlyRetryPolicy.isRecoverable(IOException("socket closed")))
+        assertFalse(ReadOnlyRetryPolicy.isRecoverable(java.net.SocketTimeoutException("socket read timed out")))
         assertTrue(ReadOnlyRetryPolicy.isRecoverable(IllegalStateException("ADB transport disconnected")))
         assertFalse(ReadOnlyRetryPolicy.isRecoverable(SecurityException("UID 2000 unavailable")))
         assertFalse(ReadOnlyRetryPolicy.isRecoverable(
