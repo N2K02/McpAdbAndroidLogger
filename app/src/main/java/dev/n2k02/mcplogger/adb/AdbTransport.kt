@@ -184,6 +184,7 @@ object AdbTransport {
             var succeeded = false
             var recovered = false
             var failureCategory: String? = null
+            var recoveryOutcome = "not_attempted"
             return try {
                 val result = try {
                     core.execVerified(command, timeoutMs)
@@ -191,11 +192,20 @@ object AdbTransport {
                     // A single replay is safe only for fixed read-only diagnostics
                     // after an actual transport failure. Never replay privileged
                     // writes, cancellation, timed-out tasks or authorization errors.
-                    if (!ReadOnlyRetryPolicy.canReplay(command) ||
-                        !ReadOnlyRetryPolicy.isRecoverable(failure) ||
-                        !core.retry(auto = true)) throw failure
+                    if (!ReadOnlyRetryPolicy.canReplay(command)) {
+                        recoveryOutcome = "not_replayable"
+                        throw failure
+                    }
+                    if (!ReadOnlyRetryPolicy.isRecoverable(failure)) {
+                        recoveryOutcome = "not_disconnected"
+                        throw failure
+                    }
+                    recoveryOutcome = "reconnect_failed"
+                    if (!core.retry(auto = true)) throw failure
+                    recoveryOutcome = "replay_failed"
                     val replay = core.execVerified(command, timeoutMs)
                     recovered = true
+                    recoveryOutcome = "recovered"
                     replay
                 }
                 succeeded = true
@@ -209,7 +219,7 @@ object AdbTransport {
             } finally {
                 AdbConnectionTelemetry.record(AdbConnectionTelemetry.Stage.SHELL,
                     System.nanoTime() - started, succeeded, failureCategory, recovered,
-                    AdbConnectionTelemetry.family(command))
+                    AdbConnectionTelemetry.family(command), recoveryOutcome)
             }
         }
         return withContext(Dispatchers.IO) {
