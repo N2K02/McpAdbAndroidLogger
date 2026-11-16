@@ -94,6 +94,35 @@ class DecoderSurfaceDiagnosticsTest {
         assertFalse(result.getBoolean("hardware_decoder_confirmed"))
     }
 
+    @Test fun historicalSurfaceChurnIsOnlyAConservativeHint() {
+        val logs = """
+            I/MediaCodec( 123): dev.example.player decoder configured
+            E/MediaCodec( 123): dev.example.player decoder error
+            I/SurfaceView( 123): dev.example.player surfaceDestroyed
+            I/SurfaceView( 123): dev.example.player setOutputSurface
+            I/SurfaceView( 123): dev.example.player surfaceCreated
+        """.trimIndent()
+        val result = DecoderSurfaceDiagnostics.parse(pkg, "", logs)
+        val hints = result.getJSONObject("playback_reliability_hints")
+        assertEquals(1, hints.getInt("decoder_error_events"))
+        assertEquals(2, hints.getInt("surface_churn_event_hint"))
+        assertEquals("explicit_package_and_optional_pid", hints.getString("attribution"))
+        assertTrue(result.isNull("decoder_fps"))
+        assertTrue(result.isNull("dropped_frames"))
+        assertTrue(result.isNull("socket_to_surface_p95_ms"))
+        assertTrue(result.isNull("audio_video_sync_offset_ms"))
+        assertEquals("unknown", result.getString("decoder_state"))
+    }
+
+    @Test fun missingCodecLogsDoNotImplyHealthyPlayback() {
+        val result = DecoderSurfaceDiagnostics.parse(pkg, "", "")
+        val hints = result.getJSONObject("playback_reliability_hints")
+        assertEquals("not_observed", hints.getString("attribution"))
+        assertEquals(0, hints.getInt("decoder_error_events"))
+        assertTrue(hints.getString("interpretation").contains("not live codec state"))
+        assertTrue(result.isNull("dropped_frames"))
+    }
+
     @Test fun rejectsInvalidPackageName() {
         try {
             DecoderSurfaceDiagnostics.parse("dev.example; rm -rf /", "", "")
