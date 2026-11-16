@@ -23,7 +23,8 @@ class AdbConnectionTelemetryClassificationTest {
     @Test fun reportsOnlyFixedFailureCategoriesAndRecoveryCounts() {
         AdbConnectionTelemetry.clear()
         AdbConnectionTelemetry.record(AdbConnectionTelemetry.Stage.SHELL, 4_000_000, false,
-            "disconnected", operationFamily = "surfaceflinger")
+            "disconnected", operationFamily = "surfaceflinger",
+            recoveryOutcome = "reconnect_failed")
         AdbConnectionTelemetry.record(AdbConnectionTelemetry.Stage.SHELL, 5_000_000, true,
             recovered = true)
         val report = AdbConnectionTelemetry.snapshot(true)
@@ -32,6 +33,7 @@ class AdbConnectionTelemetryClassificationTest {
         assertEquals(1, shell.getInt("recovered_calls"))
         assertEquals(1, shell.getJSONObject("failure_categories").getInt("disconnected"))
         assertEquals(1, shell.getJSONObject("failure_families").getInt("surfaceflinger"))
+        assertEquals(1, shell.getJSONObject("recovery_outcomes").getInt("reconnect_failed"))
         assertEquals("memory", AdbConnectionTelemetry.family("cat /proc/meminfo"))
         assertEquals("perfetto", AdbConnectionTelemetry.family("printf 'cfg' | perfetto -c -"))
         assertEquals("other", AdbConnectionTelemetry.family("secret token from another app"))
