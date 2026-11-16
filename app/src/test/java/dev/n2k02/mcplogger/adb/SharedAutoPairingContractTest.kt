@@ -14,7 +14,7 @@ class SharedAutoPairingContractTest {
     @Test fun onlySharedReaderHandlesSystemDialogAndPairingCodes() {
         val reader = source("adb/PairingAccessibilityService.kt")
         assertTrue(reader.contains("SharedAdbPairingAccessibilityService()"))
-        assertTrue(reader.contains("SharedAdbHostAdapter.core(applicationContext)"))
+        assertTrue(reader.contains("ShizukuHostAdapter.core(applicationContext)"))
         assertTrue(reader.contains("notifyPairingPortDiscovered()"))
         assertFalse(reader.contains("rootInActiveWindow"))
         assertFalse(reader.contains("extractCode("))

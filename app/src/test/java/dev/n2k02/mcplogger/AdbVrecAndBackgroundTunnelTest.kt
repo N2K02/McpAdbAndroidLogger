@@ -14,12 +14,12 @@ class AdbVrecAndBackgroundTunnelTest {
         val s = read(src + "LoggerUi.kt")
             .substringAfter("private fun AdbPage(").substringBefore("private fun BridgePage(")
         assertTrue(s.contains("AdbConnectionSettingsPage("))
-        assertTrue(s.contains("SharedAdbHostAdapter.core(context)"))
+        assertTrue(s.contains("ShizukuHostAdapter.core(context)"))
         assertTrue(s.contains("PairingAccessibilityService.enabled(context)"))
         assertTrue(s.contains("Settings.ACTION_ACCESSIBILITY_SETTINGS"))
         assertFalse(s.contains("Pairing & recovery"))
         assertFalse(s.contains("Connection & security"))
-        val adapter = read(src + "adb/SharedAdbHostAdapter.kt")
+        val adapter = read(src + "adb/ShizukuHostAdapter.kt")
         assertTrue(adapter.contains("onRestoreAfterRestartChanged(enabled: Boolean)"))
         assertTrue(adapter.contains("if (enabled) \"grant\" else \"revoke\""))
         assertTrue(adapter.contains("adb.execVerified("))
@@ -63,7 +63,7 @@ class AdbVrecAndBackgroundTunnelTest {
         assertTrue(service.contains("LocalMcpServer.stop()"))
         val pairing = read(src + "adb/PairingAccessibilityService.kt")
         assertTrue(pairing.contains("SharedAdbPairingAccessibilityService()"))
-        assertTrue(pairing.contains("SharedAdbHostAdapter.core(applicationContext)"))
+        assertTrue(pairing.contains("ShizukuHostAdapter.core(applicationContext)"))
     }
 
     @Test fun tunnelSupervisionDoesNotDependOnUiVisibility() {
