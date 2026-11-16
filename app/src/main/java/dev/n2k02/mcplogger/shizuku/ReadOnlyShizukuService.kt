@@ -14,6 +14,7 @@ class ReadOnlyShizukuService : IReadOnlyDiagnostics.Stub() {
 
     override fun read(operation: Int): String {
         check(remoteUid() == 2000 || remoteUid() == 0) { "Unsupported Shizuku UID" }
+        if (operation == 4) return serviceAvailability()
         val command = when (operation) {
             1 -> "dumpsys thermalservice | head -c 65536"
             2 -> "dumpsys -l | head -c 32768"
@@ -48,6 +49,33 @@ class ReadOnlyShizukuService : IReadOnlyDiagnostics.Stub() {
             if (process.isAlive) process.destroyForcibly()
             reader.interrupt()
         }
+    }
+
+    /**
+     * Hidden ServiceManager.checkService, in the isolated authorized process,
+     * used only to discover existence. No Binder transactions or bypass.
+     * A listed service does not imply DUMP permission or usable interfaces.
+     */
+    private fun serviceAvailability(): String {
+        val names = listOf("activity", "audio", "jobscheduler",
+            "thermalservice", "SurfaceFlinger")
+        val probe = runCatching {
+            val manager = Class.forName("android.os.ServiceManager")
+            val check = manager.getMethod("checkService", String::class.java)
+            names.associateWith { name ->
+                runCatching { check.invoke(null, name) != null }.getOrDefault(false)
+            }
+        }.getOrNull()
+        val result = org.json.JSONObject()
+            .put("status", if (probe == null) "unavailable" else "ok")
+            .put("source", "authorized_shizuku_user_service_hidden_api_checkService")
+            .put("readability", "not_verified")
+        if (probe != null) {
+            val services = org.json.JSONObject()
+            probe.forEach { (name, exists) -> services.put(name, exists) }
+            result.put("services", services)
+        }
+        return result.toString()
     }
 
     override fun destroy() {
