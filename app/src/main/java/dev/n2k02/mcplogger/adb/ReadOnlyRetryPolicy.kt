@@ -34,7 +34,7 @@ internal object ReadOnlyRetryPolicy {
 
     /** Do not replay application errors, authorization failures or timeouts. */
     fun isRecoverable(failure: Exception): Boolean =
-        failure is IOException || (
+        (failure is IOException && failure !is java.net.SocketTimeoutException) || (
             failure is IllegalStateException &&
                 (failure.message?.contains("ADB is not connected", true) == true ||
                  failure.message?.contains("ADB transport disconnected", true) == true ||
