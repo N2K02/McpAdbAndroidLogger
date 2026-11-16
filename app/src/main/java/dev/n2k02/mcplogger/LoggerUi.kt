@@ -75,7 +75,6 @@ fun LoggerApp(onQuit: () -> Unit) {
                             when (page) {
                                 Page.HOME -> Icons.Rounded.Home
                                 Page.SETTINGS -> Icons.Rounded.Settings
-                                Page.ADB -> Icons.Rounded.SettingsInputAntenna
                                 Page.SHIZUKU -> Icons.Rounded.SettingsInputAntenna
                                 Page.BRIDGE -> Icons.Rounded.Cloud
                                 Page.MCP_AUDITS -> Icons.Rounded.ManageSearch
@@ -132,7 +131,7 @@ fun LoggerApp(onQuit: () -> Unit) {
         when (page) {
             Page.HOME -> HomePage(Modifier.padding(padding),
                 onLogs = { navigateTo(Page.LOGS) },
-                onAdb = { navigateTo(Page.ADB) }, onMcp = { navigateTo(Page.BRIDGE) })
+                onAdb = { navigateTo(Page.SHIZUKU) }, onMcp = { navigateTo(Page.BRIDGE) })
             Page.SETTINGS -> Column(Modifier.padding(padding).verticalScroll(rememberScrollState())) {
                 SettingsRow("ADB", "LocalADB server and permission status",
                     Icons.Rounded.SettingsInputAntenna) { navigateTo(Page.SHIZUKU) }
@@ -148,7 +147,6 @@ fun LoggerApp(onQuit: () -> Unit) {
             Page.SHIZUKU -> Column(Modifier.padding(padding).verticalScroll(rememberScrollState())) {
                 ShizukuSettingsPage()
             }
-            Page.ADB -> AdbPage(Modifier.padding(padding))
             Page.BRIDGE -> BridgePage(Modifier.padding(padding))
             Page.MCP_AUDITS -> McpAuditsScreen(Modifier.padding(padding))
             Page.LOGS -> LogsPage(Modifier.padding(padding))
@@ -178,11 +176,6 @@ private fun SettingsRow(title: String, subtitle: String,
 private fun HomePage(modifier: Modifier, onLogs: () -> Unit,
     onAdb: () -> Unit, onMcp: () -> Unit) {
     HomeDashboard(modifier, onLogs, onAdb, onMcp)
-}
-
-@Composable
-private fun AdbPage(modifier: Modifier) {
-    ShizukuSettingsPage(modifier)
 }
 
 @Composable
