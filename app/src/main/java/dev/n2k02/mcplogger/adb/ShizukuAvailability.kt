@@ -44,5 +44,15 @@ internal object ShizukuAvailability {
             .put("reason", "Only fixed thermal, service discovery and JobScheduler reads " +
                 "use an authorized UserService; other operations stay on ADB")
             .put("hidden_api_bypass", false)
+            .put("binder_received", s.connected)
+            .put("user_service_bound",
+                dev.n2k02.mcplogger.shizuku.ShizukuReadBackend.isReady())
+            .put("connection_diagnostic", when {
+                !s.connected -> "shizuku_binder_unavailable"
+                !s.authorized -> "permission_not_granted"
+                !s.usable -> "unsupported_server_uid"
+                dev.n2k02.mcplogger.shizuku.ShizukuReadBackend.isReady() -> "ready"
+                else -> "user_service_not_bound"
+            })
     }
 }
