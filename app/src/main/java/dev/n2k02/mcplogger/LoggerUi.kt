@@ -259,7 +259,9 @@ private fun ShizukuPage(modifier: Modifier) {
                 HorizontalDivider()
                 Text("Server: " + if (state.connected) "Connected" else "Not detected")
                 Text("Permission: " + if (state.authorized) "Granted" else "Not granted")
-                Text("Service: " + if (bound) "Ready" else "Not connected")
+                Text("Service: " + if (bound) "Ready" else
+                    dev.n2k02.mcplogger.shizuku.ShizukuReadBackend.diagnosticStatus()
+                        .replace('_', ' '))
                 Text("Backend: " + if (enabled && bound) "Shizuku with ADB fallback"
                     else "ADB")
                 Text("Enabled by default; disabling affects only this app.")
