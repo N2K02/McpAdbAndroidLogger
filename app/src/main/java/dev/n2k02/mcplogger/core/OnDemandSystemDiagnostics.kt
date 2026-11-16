@@ -55,10 +55,18 @@ internal object OnDemandSystemDiagnostics {
         val name = AppRuntimeDiagnostics.validate(pkg)
         check(AdbCoordinator.verified.value) { "ADB shell UID 2000 not verified" }
         return serialized {
-            collectAudio(name, { command ->
-                AdbTransport.exec(command, timeoutMs = if (command.startsWith("head ")) 4000 else TIMEOUT_MS)
-                    .getOrDefault("")
+            // dumpsys audio repeatedly closed the shared persistent ADB shell
+            // on the physical device. Isolate this fixed, bounded read in the
+            // already-authorized Shizuku UserService when it is available.
+            val privileged = dev.n2k02.mcplogger.shizuku.ShizukuReadBackend
+                .read(dev.n2k02.mcplogger.shizuku.ShizukuReadBackend.AUDIO)
+                ?.takeUnless(::outputUnavailable)
+            val result = collectAudio(name, { command ->
+                if (command.startsWith("dumpsys audio") && privileged != null) privileged
+                else AdbTransport.exec(command, timeoutMs =
+                    if (command.startsWith("head ")) 4000 else TIMEOUT_MS).getOrDefault("")
             }, System::currentTimeMillis)
+            result.put("execution_backend", if (privileged != null) "shizuku" else "adb")
         }
     }
 
