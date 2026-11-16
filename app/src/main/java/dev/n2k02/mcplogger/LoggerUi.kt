@@ -262,6 +262,8 @@ private fun ShizukuPage(modifier: Modifier) {
                 Text("Service: " + if (bound) "Ready" else "Not connected")
                 Text("Backend: " + if (enabled && bound) "Shizuku with ADB fallback"
                     else "ADB")
+                Text("Enabled by default; disabling affects only this app.")
+                OutlinedButton(onClick = { refresh++ }) { Text("Refresh status") }
                 if (state.serverUid != null)
                     Text("Server UID: ${state.serverUid}")
                 if (enabled && state.connected && !state.authorized) {
