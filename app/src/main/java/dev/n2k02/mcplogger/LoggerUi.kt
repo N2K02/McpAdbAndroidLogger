@@ -283,7 +283,7 @@ private fun ShizukuPage(modifier: Modifier) {
                 }
                 Text("Shizuku must be installed, running and explicitly authorized. " +
                     "Enabling this option does not grant Android privileges. " +
-                    "Only thermal, service discovery and JobScheduler reads use Shizuku; " +
+                    "Only thermal, audio, service discovery and JobScheduler reads use Shizuku; " +
                     "all other diagnostics use the shared ADB core.",
                     style = MaterialTheme.typography.bodySmall)
             }
