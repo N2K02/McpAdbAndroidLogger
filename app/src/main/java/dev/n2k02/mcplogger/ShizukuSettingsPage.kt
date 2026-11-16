@@ -1,6 +1,7 @@
 package dev.n2k02.mcplogger
 
 import android.content.Intent
+import android.net.Uri
 import android.content.pm.PackageManager
 import android.os.Process
 import androidx.compose.foundation.layout.*
@@ -91,6 +92,16 @@ fun ShizukuSettingsPage(modifier: Modifier = Modifier) {
                     Button(onClick = {
                         runCatching { Shizuku.requestPermission(2902) }
                     }, modifier = Modifier.fillMaxWidth()) { Text("Grant ADB access") }
+                }
+                if (!allowed) {
+                    OutlinedButton(
+                        onClick = {
+                            runCatching {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/N2K02/LocalAdb/releases")))
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Get LocalADB · GitHub Releases") }
                 }
                 OutlinedButton(onClick = { revision++ }, modifier = Modifier.fillMaxWidth()) {
                     Text("Refresh connection status")
