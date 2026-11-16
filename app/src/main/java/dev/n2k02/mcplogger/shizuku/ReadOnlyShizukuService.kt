@@ -19,6 +19,7 @@ class ReadOnlyShizukuService : IReadOnlyDiagnostics.Stub() {
             1 -> "dumpsys thermalservice | head -c 65536"
             2 -> "dumpsys -l | head -c 32768"
             3 -> "dumpsys jobscheduler | head -c 196608"
+            5 -> "dumpsys audio | head -c 131072"
             else -> throw IllegalArgumentException("Unknown diagnostic operation")
         }
         return boundedRead(command)
