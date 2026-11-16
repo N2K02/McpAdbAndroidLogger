@@ -15,8 +15,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
-import java.net.InetSocketAddress
-import java.net.Socket
 
 /** Public status adapter for existing MCP UI and services. The shared library
  * owns pairing, discovery, verification, transport switching and watchdogs. */
@@ -58,7 +56,6 @@ object AdbCoordinator {
     }
 
     private fun publish(state: ShizukuState) {
-        val oldPairingPort = pairingPort
         pairingPort = state.pairingPort
         connectPort = state.connectionPort
         verified.value = state.connected
@@ -67,20 +64,15 @@ object AdbCoordinator {
         if (state.phase == dev.n2k02.mcplogger.shizuku.ShizukuPhase.STOPPED) {
             synchronized(this) { serviceOwner = false }
         }
-        tcpPortOpen.value = state.connected &&
-            state.transport == ShizukuTransportMode.LOCAL_TCP_5555
+        tcpPortOpen.value = false
         discoveryState.value = AdbDiscoveryState(
             pairingPort = state.pairingPort,
             connectPort = state.connectionPort,
             status = state.message,
         )
         MonitorState.adb.value = if (state.connected) {
-            "UID 2000 verified • " +
-                if (state.transport == ShizukuTransportMode.LOCAL_TCP_5555) "TCP/5555"
-                else "Wireless debugging TLS"
+            "UID 2000 verified • Shizuku"
         } else state.message
-        if (state.pairingPort != null && state.pairingPort != oldPairingPort)
-            PairingAccessibilityService.onPairingPortDiscovered()
     }
 
     /** The MCP service owns shared recovery independently from Activity visibility.
@@ -112,9 +104,7 @@ object AdbCoordinator {
                 manualRetryRequired.value = false
             }
             val shared = core(app)
-            var connected = shared.retry(auto = !userInitiated)
-            if (!connected && preferred != null && preferred in 1..65535)
-                connected = shared.connectTls(preferred)
+            val connected = shared.retry(auto = !userInitiated)
             check(connected && shared.state.value.connected) {
                 shared.state.value.message
             }
@@ -168,12 +158,7 @@ object AdbCoordinator {
         }
     }
 
-    fun isTcpListening(): Boolean = runCatching {
-        Socket().use {
-            it.connect(InetSocketAddress("127.0.0.1", 5555), 500)
-        }
-        true
-    }.getOrDefault(false)
+    fun isTcpListening(): Boolean = false // Shizuku never opens TCP/5555
 
     suspend fun quit() {
         stopDiscovery()

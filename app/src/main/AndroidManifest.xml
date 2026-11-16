@@ -1,5 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
     <!-- Launcher visibility is sufficient to resolve app names/icons in the Logcat
          app picker without asking for broad QUERY_ALL_PACKAGES permission. -->
     <queries>
@@ -22,22 +23,18 @@
         android:label="MCP ADB Logger" android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:allowBackup="false" android:usesCleartextTraffic="false"
         android:extractNativeLibs="true" android:supportsRtl="true">
+        <provider android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:enabled="true" android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+        <meta-data android:name="moe.shizuku.client.V3_SUPPORT" android:value="true" />
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-        <service android:name=".adb.PairingAccessibilityService"
-            android:label="MCP Logger pairing helper"
-            android:exported="true"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService"/>
-            </intent-filter>
-            <meta-data android:name="android.accessibilityservice"
-                android:resource="@xml/pairing_accessibility"/>
-        </service>
         <service android:name=".core.LogMonitorService" android:exported="false"
             android:foregroundServiceType="connectedDevice"/>
         <receiver android:name=".core.BootReceiver" android:exported="false">
