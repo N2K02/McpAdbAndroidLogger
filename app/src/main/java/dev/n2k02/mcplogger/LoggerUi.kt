@@ -134,10 +134,8 @@ fun LoggerApp(onQuit: () -> Unit) {
                 onLogs = { navigateTo(Page.LOGS) },
                 onAdb = { navigateTo(Page.ADB) }, onMcp = { navigateTo(Page.BRIDGE) })
             Page.SETTINGS -> Column(Modifier.padding(padding).verticalScroll(rememberScrollState())) {
-                SettingsRow("Shizuku", "LocalADB server and permission status",
+                SettingsRow("ADB", "LocalADB server and permission status",
                     Icons.Rounded.SettingsInputAntenna) { navigateTo(Page.SHIZUKU) }
-                SettingsRow("ADB connection", "Pair, authorize and recover shell UID 2000",
-                    Icons.Rounded.SettingsInputAntenna) { navigateTo(Page.ADB) }
                 SettingsRow("MCP connection", "Local MCP server and secure public tunnel",
                     Icons.Rounded.Cloud) { navigateTo(Page.BRIDGE) }
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
