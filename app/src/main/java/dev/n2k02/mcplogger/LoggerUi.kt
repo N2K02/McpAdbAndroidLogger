@@ -133,7 +133,7 @@ fun LoggerApp(onQuit: () -> Unit) {
                 onLogs = { navigateTo(Page.LOGS) },
                 onAdb = { navigateTo(Page.SHIZUKU) }, onMcp = { navigateTo(Page.BRIDGE) })
             Page.SETTINGS -> Column(Modifier.padding(padding).verticalScroll(rememberScrollState())) {
-                SettingsRow("Shizuku", "LocalADB server and permission status",
+                SettingsRow("ADB", "LocalADB server and permission status",
                     Icons.Rounded.SettingsInputAntenna) { navigateTo(Page.SHIZUKU) }
                 SettingsRow("MCP connection", "Local MCP server and secure public tunnel",
                     Icons.Rounded.Cloud) { navigateTo(Page.BRIDGE) }
