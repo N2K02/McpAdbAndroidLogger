@@ -4,19 +4,15 @@ import android.content.Context
 import dev.n2k02.adb.core.AdbCore
 import dev.n2k02.adb.core.AdbCoreRegistry
 import dev.n2k02.adb.core.AdbHostHooks
-import dev.n2k02.adb.core.AdbIdentity as CoreIdentity
-import dev.n2k02.adb.core.AdbIdentitySource
 import dev.n2k02.adb.core.AdbOption
 import dev.n2k02.adb.core.AdbPreferenceStore
-import dev.n2k02.adb.core.LibAdbWire
-import dev.n2k02.adb.core.LocalAdbDiscovery
 
 /** Migration factory; preserve existing ADB authorization and user options.
- * Instantiate ONLY after shutting down the legacy ADB coordinator. */
+ * Instantiate ONLY after shutting down the older direct ADB coordinator. */
 internal object SharedAdbHostAdapter {
     @Volatile private var active: AdbCore? = null
 
-    /** Exactly one live libadb transport. Other app components share this core. */
+    /** Exactly one Shizuku user-service connection. Other app components share this core. */
     fun core(context: Context): AdbCore =
         active ?: synchronized(this) {
             active ?: create(context).also {
@@ -38,10 +34,6 @@ internal object SharedAdbHostAdapter {
 
     fun create(context: Context): AdbCore {
         val app = context.applicationContext
-        val identity = AdbIdentitySource { ctx ->
-            val existing = AdbIdentity.getOrCreate(ctx)
-            CoreIdentity(existing.privateKey, existing.certificate)
-        }
         lateinit var adb: AdbCore
         val hooks = object : AdbHostHooks {
             override suspend fun onRestoreAfterRestartChanged(enabled: Boolean) {
@@ -57,8 +49,7 @@ internal object SharedAdbHostAdapter {
                 }
             }
         }
-        adb = AdbCore(LibAdbWire(app, identity, "McpAdbAndroidLogger"),
-            Choices(app), LocalAdbDiscovery(app), hooks)
+        adb = AdbCore(app, Choices(app), hooks)
         return adb
     }
 
