@@ -21,6 +21,7 @@ internal object ShizukuReadBackend {
     const val CAPABILITIES = 2
     const val JOBS = 3
     const val HIDDEN_SERVICE_PROBE = 4
+    const val AUDIO = 5
 
     @Volatile private var remote: IReadOnlyDiagnostics? = null
     @Volatile private var enabledForProcess: Boolean = true
@@ -89,7 +90,7 @@ internal object ShizukuReadBackend {
     }
 
     suspend fun read(operation: Int): String? = withContext(Dispatchers.IO) {
-        if (operation !in THERMAL..HIDDEN_SERVICE_PROBE || !isReady()) return@withContext null
+        if (operation !in THERMAL..AUDIO || !isReady()) return@withContext null
         runCatching {
             val service = remote ?: return@runCatching null
             check(service.remoteUid() in setOf(0, 2000))
