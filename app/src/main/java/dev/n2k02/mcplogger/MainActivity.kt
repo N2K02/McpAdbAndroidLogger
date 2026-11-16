@@ -1,6 +1,10 @@
 package dev.n2k02.mcplogger
 
 import android.os.Bundle
+import android.content.pm.PackageManager
+import rikka.shizuku.Shizuku
+import dev.n2k02.mcplogger.adb.ShizukuAvailability
+import dev.n2k02.mcplogger.shizuku.ShizukuReadBackend
 import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -17,8 +21,16 @@ import dev.n2k02.theme.N2K02Theme
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private val shizukuListener = Shizuku.OnRequestPermissionResultListener { code, grant ->
+        if (code == ShizukuAvailability.PERMISSION_REQUEST &&
+            grant == PackageManager.PERMISSION_GRANTED) {
+            ShizukuReadBackend.bindIfAuthorized(this)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        runCatching { Shizuku.addRequestPermissionResultListener(shizukuListener) }
         enableEdgeToEdge()
         LiveUpdater.init(this)
         BridgeClient.initialize(this)
@@ -57,10 +69,12 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         LiveUpdater.onResume(this)
+        ShizukuReadBackend.bindIfAuthorized(this)
     }
     override fun onDestroy() {
         // Never stop ADB recovery/discovery or MCP tunnel when the UI is destroyed;
         // their lifecycle belongs to the foreground service and explicit Quit.
+        runCatching { Shizuku.removeRequestPermissionResultListener(shizukuListener) }
         super.onDestroy()
     }
 }
