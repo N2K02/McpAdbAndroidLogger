@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.ServiceConnection
 import android.os.IBinder
+import android.os.SystemClock
 import dev.n2k02.mcplogger.adb.ShizukuAvailability
 import dev.n2k02.mcplogger.adb.ShizukuPreferences
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +26,17 @@ internal object ShizukuReadBackend {
     @Volatile private var enabledForProcess: Boolean = true
     @Volatile private var connection: ServiceConnection? = null
     private var args: Shizuku.UserServiceArgs? = null
+    @Volatile private var bindingStartedAtMs: Long = 0L
+    @Volatile private var bindingStatus: String = "not_requested"
+
+    /** Small fixed statuses only: never export Binder/exception details. */
+    fun diagnosticStatus(): String = when {
+        isReady() -> "ready"
+        !enabledForProcess -> "disabled"
+        bindingStatus == "binding" &&
+            SystemClock.elapsedRealtime() - bindingStartedAtMs > 15_000L -> "binding_timeout"
+        else -> bindingStatus
+    }
 
     fun isReady(): Boolean = enabledForProcess && ShizukuAvailability.state().usable &&
         remote?.asBinder()?.pingBinder() == true
@@ -33,31 +45,45 @@ internal object ShizukuReadBackend {
         enabledForProcess = ShizukuPreferences.enabled(context)
         if (!enabledForProcess || !ShizukuAvailability.state().usable) return false
         if (isReady()) return true
-        if (connection != null) return false
+        if (connection != null) {
+            // Shizuku may drop the delivery callback; the old request must not
+            // block explicit Reconnect forever. Rebind after a bounded deadline.
+            if (diagnosticStatus() != "binding_timeout") return false
+            shutdown()
+        }
         val request = Shizuku.UserServiceArgs(
             ComponentName(context.applicationContext, ReadOnlyShizukuService::class.java))
             .daemon(false).processNameSuffix("readonly").tag("mcp-readonly-v1").version(1)
         val callback = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
                 // Ignore callbacks delivered after Quit/unbind or generation change.
-                if (connection === this) remote = IReadOnlyDiagnostics.Stub.asInterface(binder)
+                if (connection === this) {
+                    remote = if (binder?.pingBinder() == true)
+                        IReadOnlyDiagnostics.Stub.asInterface(binder) else null
+                    bindingStatus = if (remote != null) "service_connected"
+                        else "dead_service_binder"
+                }
             }
             override fun onServiceDisconnected(name: ComponentName?) {
                 if (connection === this) {
                     remote = null
                     connection = null
                     args = null
+                    bindingStatus = "service_disconnected"
                 }
             }
         }
         return try {
             args = request
             connection = callback
+            bindingStatus = "binding"
+            bindingStartedAtMs = SystemClock.elapsedRealtime()
             Shizuku.bindUserService(request, callback)
             true
         } catch (_: Exception) {
             connection = null
             args = null
+            bindingStatus = "bind_request_failed"
             false
         }
     }
@@ -76,6 +102,7 @@ internal object ShizukuReadBackend {
         remote = null
         connection = null
         args = null
+        bindingStatus = "server_disconnected"
     }
 
     /** Applies the opt-out immediately; a re-enable binds only when authorized. */
@@ -93,6 +120,8 @@ internal object ShizukuReadBackend {
         val callback = connection
         args = null
         connection = null
+        bindingStatus = "not_requested"
+        bindingStartedAtMs = 0L
         if (request != null && callback != null) {
             runCatching { Shizuku.unbindUserService(request, callback, true) }
         }
