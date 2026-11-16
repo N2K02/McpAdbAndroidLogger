@@ -184,33 +184,7 @@ private fun HomePage(modifier: Modifier, onLogs: () -> Unit,
 
 @Composable
 private fun AdbPage(modifier: Modifier) {
-    val context = LocalContext.current
-    val adb = remember(context.applicationContext) {
-        dev.n2k02.mcplogger.adb.SharedAdbHostAdapter.core(context)
-    }
-    // Keep the MCP pairing helper: the library's generic Accessibility service
-    // is not a substitute for this app's already-declared Android service.
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    var resumeTick by remember { mutableIntStateOf(0) }
-    DisposableEffect(lifecycleOwner) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) resumeTick++
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-    val accessibilityEnabled = remember(resumeTick) {
-        dev.n2k02.mcplogger.adb.PairingAccessibilityService.enabled(context)
-    }
-    Column(modifier.verticalScroll(rememberScrollState())) {
-        dev.n2k02.adb.core.AdbConnectionSettingsPage(
-            adb = adb,
-            accessibilityEnabled = accessibilityEnabled,
-            onOpenAccessibility = {
-                runCatching { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
-            },
-        )
-    }
+    ShizukuSettingsPage(modifier)
 }
 
 @Composable
