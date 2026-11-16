@@ -23,7 +23,7 @@ internal object ShizukuAvailability {
         State(true, granted, uid)
     }.getOrDefault(State(false, false, null))
 
-    /** Explicit only: invoked by the user tapping a button in ADB Settings. */
+    /** Explicit only: invoked by the user tapping Authorize in Shizuku Settings. */
     fun requestPermission(): Boolean {
         val current = state()
         if (!current.connected || current.authorized) return false
@@ -47,12 +47,14 @@ internal object ShizukuAvailability {
             .put("binder_received", s.connected)
             .put("user_service_bound",
                 dev.n2k02.mcplogger.shizuku.ShizukuReadBackend.isReady())
+            .put("user_service_lifecycle",
+                dev.n2k02.mcplogger.shizuku.ShizukuReadBackend.diagnosticStatus())
             .put("connection_diagnostic", when {
                 !s.connected -> "shizuku_binder_unavailable"
                 !s.authorized -> "permission_not_granted"
                 !s.usable -> "unsupported_server_uid"
                 dev.n2k02.mcplogger.shizuku.ShizukuReadBackend.isReady() -> "ready"
-                else -> "user_service_not_bound"
+                else -> dev.n2k02.mcplogger.shizuku.ShizukuReadBackend.diagnosticStatus()
             })
     }
 }
