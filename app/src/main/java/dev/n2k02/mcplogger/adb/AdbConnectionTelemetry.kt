@@ -13,7 +13,7 @@ internal object AdbConnectionTelemetry {
     enum class Stage { CONNECT, SHELL }
     data class Sample(val stage: Stage, val durationMs: Long, val success: Boolean,
                       val failureCategory: String?, val recovered: Boolean,
-                      val operationFamily: String)
+                      val operationFamily: String, val recoveryOutcome: String)
     private const val CAPACITY = 60
     private val history = ArrayDeque<Sample>()
 
@@ -55,14 +55,17 @@ internal object AdbConnectionTelemetry {
 
     @Synchronized fun record(stage: Stage, elapsedNs: Long, success: Boolean,
                              failureCategory: String? = null, recovered: Boolean = false,
-                             operationFamily: String = "other") {
+                             operationFamily: String = "other", recoveryOutcome: String = "not_attempted") {
         if (history.size == CAPACITY) history.removeFirst()
         history.addLast(Sample(stage, (elapsedNs / 1_000_000L).coerceAtLeast(0),
             success, if (success) null else failureCategory ?: "other", recovered,
             operationFamily.takeIf { it in setOf("surfaceflinger", "perfetto",
                 "jobscheduler", "thermal", "battery", "power", "frames",
                 "memory", "activity", "audio", "package_lookup",
-                "logcat", "cpu", "bounded_file", "other") } ?: "other"))
+                "logcat", "cpu", "bounded_file", "other") } ?: "other",
+            recoveryOutcome.takeIf { it in setOf("not_attempted", "not_replayable",
+                "not_disconnected", "reconnect_failed", "replay_failed", "recovered") }
+                ?: "not_attempted"))
     }
 
     @Synchronized fun clear() { history.clear() }
@@ -88,6 +91,10 @@ internal object AdbConnectionTelemetry {
                     .put("failure_families", JSONObject().apply {
                         entries.filter { !it.success }.groupBy { it.operationFamily }
                             .forEach { (family, failures) -> put(family, failures.size) }
+                    })
+                    .put("recovery_outcomes", JSONObject().apply {
+                        entries.groupBy { it.recoveryOutcome }
+                            .forEach { (outcome, attempts) -> put(outcome, attempts.size) }
                     })
                     .put("p50_ms", p(50)).put("p95_ms", p(95)))
             }
