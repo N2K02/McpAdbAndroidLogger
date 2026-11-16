@@ -41,7 +41,7 @@ internal object ShizukuAvailability {
             .put("eligible_shell_or_root", s.usable)
             .put("execution_backend", if (dev.n2k02.mcplogger.shizuku.ShizukuReadBackend.isReady())
                 "shizuku_fixed_reads_with_adb_fallback" else "adb")
-            .put("reason", "Only fixed thermal, service discovery and JobScheduler reads " +
+            .put("reason", "Only fixed thermal, audio, service discovery and JobScheduler reads " +
                 "use an authorized UserService; other operations stay on ADB")
             .put("hidden_api_bypass", false)
             .put("binder_received", s.connected)
