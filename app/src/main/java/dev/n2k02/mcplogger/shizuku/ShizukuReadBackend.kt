@@ -21,7 +21,7 @@ internal object ShizukuReadBackend {
     const val HIDDEN_SERVICE_PROBE = 4
 
     @Volatile private var remote: IReadOnlyDiagnostics? = null
-    private var connection: ServiceConnection? = null
+    @Volatile private var connection: ServiceConnection? = null
     private var args: Shizuku.UserServiceArgs? = null
 
     fun isReady(): Boolean = ShizukuAvailability.state().usable &&
@@ -36,10 +36,11 @@ internal object ShizukuReadBackend {
             .daemon(false).processNameSuffix("readonly").tag("mcp-readonly-v1").version(1)
         val callback = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-                remote = IReadOnlyDiagnostics.Stub.asInterface(binder)
+                // Ignore callbacks delivered after Quit/unbind or generation change.
+                if (connection === this) remote = IReadOnlyDiagnostics.Stub.asInterface(binder)
             }
             override fun onServiceDisconnected(name: ComponentName?) {
-                remote = null
+                if (connection === this) remote = null
             }
         }
         return try {
