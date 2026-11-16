@@ -110,3 +110,36 @@ receive the Binder and check `get_device_capabilities.shizuku`. Test
 `get_thermal_state`, `get_app_jobs` and `get_device_capabilities`
 for `execution_backend=shizuku`. Deny/revoke permission, kill/restart
 Shizuku and verify an automatic ADB fallback and recovery. Test Quit.
+
+## 2026-11-16 on-device full-tool reliability review
+
+All 29 MCP tools returned structured responses and authorized Shizuku fixed reads
+worked. During the bulk run, the **60-call rolling shell window** recorded five
+failed calls and no successful replay, while the bounded diagnostic scheduler
+reported zero request failures. This does **not** prove five ADB daemon
+disconnects: the old telemetry classified all `IOException` instances as
+`disconnected`, including persistent shell stream EOF.
+
+This follow-up:
+- Separates `stream_closed`, `stream_io`, `disconnected`, `timeout`,
+  `authorization`, `cancelled` and `other` categories. Only known
+  connection-state errors indicate a confirmed transport disconnection.
+- Adds bounded `failure_families` and `recovery_outcomes` counters to
+  `get_adb_transport_profile` without collecting command strings, app package
+  names, exception messages or shell output.
+- Enables a single recovery/replay for additional fixed **read-only**
+  application snapshots (`ps`, validated dumpsys package, UID state and the
+  exact known memory/PSI query). Arbitrary compound shell commands,
+  Side-effecting SurfaceFlinger TimeStats control, permissions, timeout
+  failures, and explicit Quit still cannot replay.
+- Preserves existing ADB UID-2000 verification before every privileged command,
+  single shared transport, Shizuku default-on preference and ADB fallback.
+- Does not interpret a successful tool response as proof every optional metric
+  was available; `partial_snapshot`, `unavailable` and Perfetto
+  `trace_has_no_events` remain explicit and expected where unsupported.
+
+**Validation required on the new APK:** run all 29 tools, inspect the
+`failure_families`, `recovery_outcomes` and `failure_categories` counters.
+If failures continue, identify the reported safe family and corresponding
+operation before changing low-level ADB transport; the original five failures
+cannot be retrospectively attributed because their commands were not logged.
