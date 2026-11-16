@@ -8,6 +8,7 @@
             <category android:name="android.intent.category.LAUNCHER"/>
         </intent>
     </queries>
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23"/>
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
@@ -22,6 +23,16 @@
         android:label="MCP ADB Logger" android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:allowBackup="false" android:usesCleartextTraffic="false"
         android:extractNativeLibs="true" android:supportsRtl="true">
+        <!-- Required to receive the Binder from the Shizuku server. A dangerous
+             shell-only provider permission prevents third-party app access. -->
+        <provider android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:multiprocess="false"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+        <meta-data android:name="moe.shizuku.client.V3_SUPPORT"
+            android:value="true" />
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>

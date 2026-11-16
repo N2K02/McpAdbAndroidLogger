@@ -180,12 +180,46 @@ object AdbTransport {
         // The only runtime transport after cutover is the shared library.
         // Every shell command receives a fresh UID 2000 check under its mutex.
         SharedAdbHostAdapter.current()?.let { core ->
+            val started = System.nanoTime()
+            var succeeded = false
+            var recovered = false
+            var failureCategory: String? = null
+            var recoveryOutcome = "not_attempted"
             return try {
-                Result.success(core.execVerified(command, timeoutMs))
+                val result = try {
+                    core.execVerified(command, timeoutMs)
+                } catch (failure: Exception) {
+                    // A single replay is safe only for fixed read-only diagnostics
+                    // after an actual transport failure. Never replay privileged
+                    // writes, cancellation, timed-out tasks or authorization errors.
+                    if (!ReadOnlyRetryPolicy.canReplay(command)) {
+                        recoveryOutcome = "not_replayable"
+                        throw failure
+                    }
+                    if (!ReadOnlyRetryPolicy.isRecoverable(failure)) {
+                        recoveryOutcome = "not_disconnected"
+                        throw failure
+                    }
+                    recoveryOutcome = "reconnect_failed"
+                    if (!core.retry(auto = true)) throw failure
+                    recoveryOutcome = "replay_failed"
+                    val replay = core.execVerified(command, timeoutMs)
+                    recovered = true
+                    recoveryOutcome = "recovered"
+                    replay
+                }
+                succeeded = true
+                Result.success(result)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                failureCategory = AdbConnectionTelemetry.classify(cancelled)
                 throw cancelled
             } catch (failure: Exception) {
+                failureCategory = AdbConnectionTelemetry.classify(failure)
                 Result.failure(failure)
+            } finally {
+                AdbConnectionTelemetry.record(AdbConnectionTelemetry.Stage.SHELL,
+                    System.nanoTime() - started, succeeded, failureCategory, recovered,
+                    AdbConnectionTelemetry.family(command), recoveryOutcome)
             }
         }
         return withContext(Dispatchers.IO) {

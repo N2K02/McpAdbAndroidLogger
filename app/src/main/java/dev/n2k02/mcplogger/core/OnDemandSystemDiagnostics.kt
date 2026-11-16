@@ -31,29 +31,42 @@ internal object OnDemandSystemDiagnostics {
             lower.startsWith("unknown command")
     }
 
-    private suspend fun snapshot(command: String, parser: (String) -> JSONObject): JSONObject {
+    private suspend fun snapshot(command: String, parser: (String) -> JSONObject,
+                                 shizukuOperation: Int? = null): JSONObject {
         check(AdbCoordinator.verified.value) { "ADB shell UID 2000 not verified" }
         return serialized {
-            val result = AdbTransport.exec(command, timeoutMs = TIMEOUT_MS).getOrThrow()
+            val alternative = shizukuOperation?.let {
+                dev.n2k02.mcplogger.shizuku.ShizukuReadBackend.read(it)
+            }?.takeUnless(::outputUnavailable)
+            val result = alternative ?: AdbTransport.exec(command, timeoutMs = TIMEOUT_MS).getOrThrow()
             parser(result).put("taken_at", System.currentTimeMillis())
+                .put("execution_backend", if (alternative != null) "shizuku" else "adb")
         }
     }
 
     suspend fun services(pkg: String): JSONObject {
         val name = AppRuntimeDiagnostics.validate(pkg)
-        return snapshot("dumpsys activity services $name | head -c 65536") {
+        return snapshot("dumpsys activity services $name | head -c 65536", {
             parseServices(name, it)
-        }
+        })
     }
 
     suspend fun audio(pkg: String): JSONObject {
         val name = AppRuntimeDiagnostics.validate(pkg)
         check(AdbCoordinator.verified.value) { "ADB shell UID 2000 not verified" }
         return serialized {
-            collectAudio(name, { command ->
-                AdbTransport.exec(command, timeoutMs = if (command.startsWith("head ")) 4000 else TIMEOUT_MS)
-                    .getOrDefault("")
+            // dumpsys audio repeatedly closed the shared persistent ADB shell
+            // on the physical device. Isolate this fixed, bounded read in the
+            // already-authorized Shizuku UserService when it is available.
+            val privileged = dev.n2k02.mcplogger.shizuku.ShizukuReadBackend
+                .read(dev.n2k02.mcplogger.shizuku.ShizukuReadBackend.AUDIO)
+                ?.takeUnless(::outputUnavailable)
+            val result = collectAudio(name, { command ->
+                if (command.startsWith("dumpsys audio") && privileged != null) privileged
+                else AdbTransport.exec(command, timeoutMs =
+                    if (command.startsWith("head ")) 4000 else TIMEOUT_MS).getOrDefault("")
             }, System::currentTimeMillis)
+            result.put("execution_backend", if (privileged != null) "shizuku" else "adb")
         }
     }
 
@@ -78,18 +91,21 @@ internal object OnDemandSystemDiagnostics {
 
     suspend fun jobs(pkg: String): JSONObject {
         val name = AppRuntimeDiagnostics.validate(pkg)
-        return snapshot("dumpsys jobscheduler | head -c 196608") { parseJobs(name, it) }
+        return snapshot("dumpsys jobscheduler | head -c 196608", { parseJobs(name, it) },
+            dev.n2k02.mcplogger.shizuku.ShizukuReadBackend.JOBS)
     }
 
     suspend fun thermal(): JSONObject =
-        snapshot("dumpsys thermalservice | head -c 65536", ::parseThermal)
+        snapshot("dumpsys thermalservice | head -c 65536", ::parseThermal,
+            dev.n2k02.mcplogger.shizuku.ShizukuReadBackend.THERMAL)
 
     /**
      * Service discovery is a capability hint, not proof of dumpsys permissions.
      * Shell access and OEM service exposure are separately checked by each tool.
      */
     suspend fun capabilities(): JSONObject =
-        snapshot("dumpsys -l | head -c 32768", ::parseCapabilities)
+        snapshot("dumpsys -l | head -c 32768", ::parseCapabilities,
+            dev.n2k02.mcplogger.shizuku.ShizukuReadBackend.CAPABILITIES)
 
     internal fun parseCapabilities(output: String): JSONObject {
         val services = output.lineSequence().map { it.trim().lowercase() }
