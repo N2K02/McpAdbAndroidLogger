@@ -23,9 +23,11 @@ internal object AdbConnectionTelemetry {
             failure.javaClass.simpleName.contains("Timeout", true) -> "timeout"
         failure is kotlinx.coroutines.CancellationException -> "cancelled"
         failure is SecurityException -> "authorization"
-        failure is java.io.IOException ||
-            failure.message?.contains("stream closed", true) == true ||
+        failure.message?.contains("ADB transport disconnected", true) == true ||
             failure.message?.contains("ADB is not connected", true) == true -> "disconnected"
+        failure.message?.contains("stream closed", true) == true ||
+            failure.message?.contains("shell closing", true) == true -> "stream_closed"
+        failure is java.io.IOException -> "stream_io"
         else -> "other"
     }
 
@@ -79,7 +81,8 @@ internal object AdbConnectionTelemetry {
                 fun p(percent: Int) = sorted[((sorted.size * percent + 99) / 100 - 1)
                     .coerceIn(0, sorted.lastIndex)]
                 val categories = JSONObject()
-                listOf("disconnected", "timeout", "authorization", "cancelled", "other")
+                listOf("disconnected", "stream_closed", "stream_io", "timeout",
+                    "authorization", "cancelled", "other")
                     .forEach { kind ->
                         categories.put(kind, entries.count { !it.success && it.failureCategory == kind })
                     }
@@ -105,6 +108,8 @@ internal object AdbConnectionTelemetry {
             .put("scope", "MCP app connection calls and shell calls; not individual TLS handshakes")
             .put("window_max_samples", CAPACITY)
             .put("stages", stages)
-            .put("note", "Includes lock contention and failures; does not measure device-wide ADB or video latency")
+            .put("note", "A shell stream I/O error does not prove the underlying ADB " +
+                "transport disconnected. Includes lock contention and failures; " +
+                "does not measure device-wide ADB or video latency")
     }
 }
