@@ -10,10 +10,17 @@ internal object ReadOnlyRetryPolicy {
         "dumpsys activity", "dumpsys SurfaceFlinger --list",
         "dumpsys SurfaceFlinger --timestats -dump", "dumpsys gfxinfo",
         "dumpsys meminfo", "dumpsys -l", "top ", "cat /proc/",
-        "logcat -d", "pm list packages", "pidof ", "head -c "
+        "logcat -d", "pm list packages", "pidof ", "head -c ",
+        "dumpsys package ", "ps -A -o PID,UID,NAME",
+        "cmd activity get-uid-state "
     )
     private val disallowed = listOf("-clear", "-enable", "-disable",
         "--reset", "settings put", "pm grant", "pm revoke", "tcpip:", "usb:")
+    // This exact fixed two-read probe is authored by DeviceDiagnostics.
+    // Its shell punctuation must not open replay of arbitrary chained input.
+    private const val MEMORY_SNAPSHOT =
+        "cat /proc/meminfo; echo __MCP_PSI__; cat /proc/pressure/memory 2>&1"
+
     // Compound shell commands are excluded even if prefixed by a safe read.
     // Only simple formatting pipes to approved read-only tools may replay.
     private fun simpleRead(command: String): Boolean {
@@ -28,9 +35,11 @@ internal object ReadOnlyRetryPolicy {
     }
 
     fun canReplay(command: String): Boolean =
-        commands.any { command.startsWith(it) } &&
-            disallowed.none { command.contains(it, ignoreCase = true) } &&
-            simpleRead(command)
+        command == MEMORY_SNAPSHOT || (
+            commands.any { command.startsWith(it) } &&
+                disallowed.none { command.contains(it, ignoreCase = true) } &&
+                simpleRead(command)
+        )
 
     /** Do not replay application errors, authorization failures or timeouts. */
     fun isRecoverable(failure: Exception): Boolean =
