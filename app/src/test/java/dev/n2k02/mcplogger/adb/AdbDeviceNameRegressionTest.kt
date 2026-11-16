@@ -13,7 +13,7 @@ class AdbDeviceNameRegressionTest {
 
     @Test fun sharedLibraryPinIncludesFixedDeviceNameCallback() {
         val build = root().resolve("app/build.gradle.kts").readText()
-        assertTrue(build.contains("dev.n2k02:adb-core:0.1.7"))
+        assertTrue(build.contains("dev.n2k02:adb-core:0.1.8"))
         assertFalse(build.contains("dev.n2k02:adb-core:0.1.4"))
         assertTrue(Class.forName("dev.n2k02.adb.core.LibAdbWire").name.endsWith("LibAdbWire"))
     }
