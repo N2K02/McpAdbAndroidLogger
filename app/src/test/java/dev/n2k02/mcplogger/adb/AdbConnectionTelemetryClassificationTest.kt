@@ -10,8 +10,12 @@ class AdbConnectionTelemetryClassificationTest {
     @Test fun classifiesErrorsWithoutExposingPrivateMessages() {
         assertEquals("authorization",
             AdbConnectionTelemetry.classify(SecurityException("secret uid token")))
-        assertEquals("disconnected",
+        assertEquals("stream_io",
             AdbConnectionTelemetry.classify(IOException("private socket address")))
+        assertEquals("stream_closed",
+            AdbConnectionTelemetry.classify(IOException("ADB stream closed before end marker")))
+        assertEquals("disconnected",
+            AdbConnectionTelemetry.classify(IllegalStateException("ADB transport disconnected")))
         assertEquals("timeout",
             AdbConnectionTelemetry.classify(TimeoutException("secret timeout")))
         assertEquals("cancelled",
@@ -39,6 +43,7 @@ class AdbConnectionTelemetryClassificationTest {
         assertEquals("other", AdbConnectionTelemetry.family("secret token from another app"))
         assertFalse(report.toString().contains("secret token"))
         assertFalse(report.toString().contains("private socket address"))
+        assertEquals(0, shell.getJSONObject("failure_categories").getInt("stream_io"))
         AdbConnectionTelemetry.clear()
     }
 }
