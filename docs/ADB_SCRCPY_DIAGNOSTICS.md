@@ -80,3 +80,33 @@ invented.
 - Concurrent MCP calls, a dead/disconnected ADB stream, deliberate Quit
   during a queued diagnostic, and a baseline-dependent report.
 - Verify the new dependency/provider manifests on API 26 through Android 17.
+
+## Investigation 2026-11-16: Shizuku disconnected despite grant
+
+Root cause found in the manifest: the app declared
+`moe.shizuku.manager.permission.API_V23` but **omitted**
+`rikka.shizuku.ShizukuProvider`. Shizuku cannot deliver its server Binder
+to a normal app without this protected provider. The provider is now
+explicitly declared with the official `${applicationId}.shizuku`
+authority, `INTERACT_ACROSS_USERS_FULL` access protection and V3 support
+metadata. A sticky Binder-received listener binds the UserService once
+Shizuku delivers a Binder asynchronously; a Binder-dead listener discards
+stale bindings so a Shizuku restart can recover.
+
+The existing `get_device_capabilities` tool now reports
+`binder_received`, `user_service_bound` and a fixed safe
+`connection_diagnostic` enum to distinguish no Binder, missing permission
+and service binding failures. Shizuku remains opt-in with ADB fallback.
+
+Historical intermittent ADB shell failures lacked error categorization.
+`get_adb_transport_profile` now reports fixed failure categories
+(`disconnected`, `timeout`, `authorization`, `cancelled`, `other`)
+and `recovered_calls`. It does **not** expose exception messages,
+credentials or commands. Recovery replays only vetted simple read-only
+operations after a disconnected transport, not compound shell scripts.
+
+Validation: install the **new** experimental APK; open ADB Settings to
+receive the Binder and check `get_device_capabilities.shizuku`. Test
+`get_thermal_state`, `get_app_jobs` and `get_device_capabilities`
+for `execution_backend=shizuku`. Deny/revoke permission, kill/restart
+Shizuku and verify an automatic ADB fallback and recovery. Test Quit.
