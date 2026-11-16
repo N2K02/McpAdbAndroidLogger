@@ -9,7 +9,11 @@ class ReadOnlyRetryPolicyTest {
         val accepted = listOf("dumpsys battery", "dumpsys jobscheduler | head -c 196608",
             "dumpsys SurfaceFlinger --list | head -c 100",
             "top -b -n 1 -m 200 -o PID,%CPU,RES,NAME -s 2",
-            "pm list packages | head -n 2500")
+            "pm list packages | head -n 2500",
+            "ps -A -o PID,UID,NAME | head -n 1500",
+            "dumpsys package dev.n2k02.mcplogger | head -c 131072",
+            "cmd activity get-uid-state 10123",
+            "cat /proc/meminfo; echo __MCP_PSI__; cat /proc/pressure/memory 2>&1")
         accepted.forEach { assertTrue(it, ReadOnlyRetryPolicy.canReplay(it)) }
     }
 
@@ -19,7 +23,7 @@ class ReadOnlyRetryPolicyTest {
             "dumpsys SurfaceFlinger --timestats -disable",
             "dumpsys battery --reset",
             "dumpsys power; settings put global adb_enabled 0",
-            "cat /proc/meminfo; echo __MCP_PSI__; cat /proc/pressure/memory 2>&1",
+            "cat /proc/meminfo; echo __MCP_PSI__; cat /proc/version 2>&1",
             "dumpsys battery && settings put global adb_enabled 0",
             "dumpsys battery | sh",
             "logcat -c", "tcpip:5555",
