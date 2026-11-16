@@ -338,6 +338,10 @@ object LocalMcpServer {
                                 "get_device_capabilities" -> OnDemandSystemDiagnostics.capabilities()
                                     .put("shizuku",
                                         dev.n2k02.mcplogger.adb.ShizukuAvailability.snapshot())
+                                    .put("shizuku_service_probe",
+                                        dev.n2k02.mcplogger.shizuku.ShizukuReadBackend.read(
+                                            dev.n2k02.mcplogger.shizuku.ShizukuReadBackend.HIDDEN_SERVICE_PROBE
+                                        )?.let { org.json.JSONObject(it) } ?: org.json.JSONObject.NULL)
                                 "get_cpu_usage" -> PerformanceDiagnostics.cpu(
                                     pkg, arguments.optInt("limit", 20))
                                 "get_frame_timing" -> PerformanceDiagnostics.frames(pkg, budget)
