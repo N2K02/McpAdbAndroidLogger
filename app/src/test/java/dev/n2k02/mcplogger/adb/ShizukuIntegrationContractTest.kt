@@ -32,6 +32,21 @@ class ShizukuIntegrationContractTest {
         assertTrue(src.contains("when (operation) {"))
     }
 
+    @Test fun boundedAudioUsesIsolatedShizukuAndRetainsAdbFallback() {
+        val backend = source("shizuku/ShizukuReadBackend.kt")
+        val service = source("shizuku/ReadOnlyShizukuService.kt")
+        val audio = source("core/OnDemandSystemDiagnostics.kt")
+        assertTrue(backend.contains("const val AUDIO = 5"))
+        assertTrue(backend.contains("operation !in THERMAL..AUDIO"))
+        assertTrue(service.contains("5 -> \"dumpsys audio | head -c 131072\""))
+        assertTrue(audio.contains("ShizukuReadBackend.AUDIO"))
+        assertTrue(audio.contains("privileged != null"))
+        assertTrue(audio.contains("AdbTransport.exec(command"))
+        assertTrue(audio.contains("execution_backend"))
+        // The existing parser intentionally returns hints, not audio content.
+        assertTrue(audio.contains("historical_or_current_mentions_only"))
+    }
+
     @Test fun manifestDeclaresProtectedBinderReceiverAndV3Support() {
         val root = listOf(File("app"), File("../app")).first { it.isDirectory }
         val manifest = root.resolve("src/main/AndroidManifest.xml").readText()
