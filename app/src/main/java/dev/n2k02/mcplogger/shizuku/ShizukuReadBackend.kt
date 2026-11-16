@@ -40,7 +40,11 @@ internal object ShizukuReadBackend {
                 if (connection === this) remote = IReadOnlyDiagnostics.Stub.asInterface(binder)
             }
             override fun onServiceDisconnected(name: ComponentName?) {
-                if (connection === this) remote = null
+                if (connection === this) {
+                    remote = null
+                    connection = null
+                    args = null
+                }
             }
         }
         return try {
@@ -62,6 +66,13 @@ internal object ShizukuReadBackend {
             check(service.remoteUid() in setOf(0, 2000))
             service.read(operation).take(196608)
         }.getOrNull()
+    }
+
+    /** Shizuku server died; callbacks from its previous generation are obsolete. */
+    @Synchronized fun onBinderLost() {
+        remote = null
+        connection = null
+        args = null
     }
 
     @Synchronized fun shutdown() {
