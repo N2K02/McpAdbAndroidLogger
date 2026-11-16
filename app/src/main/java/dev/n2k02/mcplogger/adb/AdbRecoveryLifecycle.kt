@@ -1,7 +1,7 @@
 package dev.n2k02.mcplogger.adb
 
 import android.content.Context
-import dev.n2k02.adb.core.AdbOption
+import dev.n2k02.mcplogger.shizuku.ShizukuOption
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -63,13 +63,13 @@ object AdbRecoveryLifecycle {
         AdbRecoverySettings.setWatchdog(app, enabled)
         // Shared ADB Core owns the in-process watchdog. Keep only WorkManager's
         // fifteen-minute process-restart backstop; never launch two watchdogs.
-        SharedAdbHostAdapter.current()?.let { core ->
+        ShizukuHostAdapter.current()?.let { core ->
             healthJob?.cancel()
             healthJob = null
             if (enabled && !quitting && !AdbRecoverySettings.manuallyQuit(app))
                 RecoveryWork.schedule(app)
             else RecoveryWork.cancel(app)
-            scope.launch { core.setOption(AdbOption.WATCHDOG, enabled) }
+            scope.launch { core.setOption(ShizukuOption.WATCHDOG, enabled) }
             return
         }
         healthJob?.cancel()

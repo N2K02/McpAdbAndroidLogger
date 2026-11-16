@@ -1,9 +1,9 @@
 package dev.n2k02.mcplogger.adb
 
 import android.content.Context
-import dev.n2k02.adb.core.AdbCore
-import dev.n2k02.adb.core.AdbState
-import dev.n2k02.adb.core.AdbTransportMode
+import dev.n2k02.mcplogger.shizuku.ShizukuSession
+import dev.n2k02.mcplogger.shizuku.ShizukuState
+import dev.n2k02.mcplogger.shizuku.ShizukuTransportMode
 import dev.n2k02.mcplogger.core.MonitorState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -38,12 +38,12 @@ object AdbCoordinator {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val bindingLock = Any()
-    private var observedCore: AdbCore? = null
+    private var observedCore: ShizukuSession? = null
     private var observer: Job? = null
     private var serviceOwner = false
 
-    private fun core(context: Context): AdbCore {
-        val shared = SharedAdbHostAdapter.core(context.applicationContext)
+    private fun core(context: Context): ShizukuSession {
+        val shared = ShizukuHostAdapter.core(context.applicationContext)
         synchronized(bindingLock) {
             if (observedCore !== shared) {
                 observer?.cancel()
@@ -57,18 +57,18 @@ object AdbCoordinator {
         return shared
     }
 
-    private fun publish(state: AdbState) {
+    private fun publish(state: ShizukuState) {
         val oldPairingPort = pairingPort
         pairingPort = state.pairingPort
         connectPort = state.connectionPort
         verified.value = state.connected
         // Shared manual Stop drops every owner. Clear our mirrored ownership
         // so a subsequent explicit Retry can reacquire background recovery.
-        if (state.phase == dev.n2k02.adb.core.AdbPhase.STOPPED) {
+        if (state.phase == dev.n2k02.mcplogger.shizuku.ShizukuPhase.STOPPED) {
             synchronized(this) { serviceOwner = false }
         }
         tcpPortOpen.value = state.connected &&
-            state.transport == AdbTransportMode.LOCAL_TCP_5555
+            state.transport == ShizukuTransportMode.LOCAL_TCP_5555
         discoveryState.value = AdbDiscoveryState(
             pairingPort = state.pairingPort,
             connectPort = state.connectionPort,
@@ -76,7 +76,7 @@ object AdbCoordinator {
         )
         MonitorState.adb.value = if (state.connected) {
             "UID 2000 verified • " +
-                if (state.transport == AdbTransportMode.LOCAL_TCP_5555) "TCP/5555"
+                if (state.transport == ShizukuTransportMode.LOCAL_TCP_5555) "TCP/5555"
                 else "Wireless debugging TLS"
         } else state.message
         if (state.pairingPort != null && state.pairingPort != oldPairingPort)
@@ -120,7 +120,7 @@ object AdbCoordinator {
             }
             publish(shared.state.value)
             if (userInitiated) {
-                // A previous manual Stop cleared service ownership in AdbCore.
+                // A previous manual Stop cleared service ownership in ShizukuSession.
                 // Retain recovery after leaving Settings, not just during retry.
                 discover(app)
             }
@@ -177,7 +177,7 @@ object AdbCoordinator {
 
     suspend fun quit() {
         stopDiscovery()
-        SharedAdbHostAdapter.shutdown()
+        ShizukuHostAdapter.shutdown()
         synchronized(bindingLock) {
             observer?.cancel()
             observer = null

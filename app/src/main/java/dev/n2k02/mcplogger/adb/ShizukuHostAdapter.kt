@@ -1,41 +1,41 @@
 package dev.n2k02.mcplogger.adb
 
 import android.content.Context
-import dev.n2k02.adb.core.AdbCore
-import dev.n2k02.adb.core.AdbCoreRegistry
-import dev.n2k02.adb.core.AdbHostHooks
-import dev.n2k02.adb.core.AdbOption
-import dev.n2k02.adb.core.AdbPreferenceStore
+import dev.n2k02.mcplogger.shizuku.ShizukuSession
+import dev.n2k02.mcplogger.shizuku.ShizukuSessionRegistry
+import dev.n2k02.mcplogger.shizuku.ShizukuHostHooks
+import dev.n2k02.mcplogger.shizuku.ShizukuOption
+import dev.n2k02.mcplogger.shizuku.ShizukuPreferences
 
 /** Migration factory; preserve existing ADB authorization and user options.
  * Instantiate ONLY after shutting down the older direct ADB coordinator. */
-internal object SharedAdbHostAdapter {
-    @Volatile private var active: AdbCore? = null
+internal object ShizukuHostAdapter {
+    @Volatile private var active: ShizukuSession? = null
 
     /** Exactly one Shizuku user-service connection. Other app components share this core. */
-    fun core(context: Context): AdbCore =
+    fun core(context: Context): ShizukuSession =
         active ?: synchronized(this) {
             active ?: create(context).also {
                 active = it
-                AdbCoreRegistry.install(it)
+                ShizukuSessionRegistry.install(it)
             }
         }
 
-    fun current(): AdbCore? = active
+    fun current(): ShizukuSession? = active
 
     /** Quit must retire the sole transport; never allow legacy fallback. */
     suspend fun shutdown() {
         val previous = synchronized(this) { active.also { active = null } }
         previous?.let {
-            AdbCoreRegistry.uninstall(it)
+            ShizukuSessionRegistry.uninstall(it)
             it.quit()
         }
     }
 
-    fun create(context: Context): AdbCore {
+    fun create(context: Context): ShizukuSession {
         val app = context.applicationContext
-        lateinit var adb: AdbCore
-        val hooks = object : AdbHostHooks {
+        lateinit var adb: ShizukuSession
+        val hooks = object : ShizukuHostHooks {
             override suspend fun onRestoreAfterRestartChanged(enabled: Boolean) {
                 // Opt-in grant and opt-out revoke must both preserve MCP's
                 // permission lifecycle when the shared Settings page changes.
@@ -49,23 +49,23 @@ internal object SharedAdbHostAdapter {
                 }
             }
         }
-        adb = AdbCore(app, Choices(app), hooks)
+        adb = ShizukuSession(app, Choices(app), hooks)
         return adb
     }
 
-    private class Choices(private val app: Context) : AdbPreferenceStore {
+    private class Choices(private val app: Context) : ShizukuPreferences {
         private val legacy = app.getSharedPreferences("mcp_logger", Context.MODE_PRIVATE)
-    override fun enabled(option: AdbOption) = when (option) {
-        AdbOption.AUTO_PAIR -> AdbRecoverySettings.autoPair(app)
-        AdbOption.WATCHDOG -> AdbRecoverySettings.watchdog(app)
-        AdbOption.START_ON_BOOT -> AdbRecoverySettings.startOnBoot(app)
-        AdbOption.RESTORE_AFTER_RESTART -> AdbRecoverySettings.restoreAfterRestart(app)
-        AdbOption.TCP_5555 -> AdbRecoverySettings.tcpMode(app)
+    override fun enabled(option: ShizukuOption) = when (option) {
+        ShizukuOption.AUTO_PAIR -> AdbRecoverySettings.autoPair(app)
+        ShizukuOption.WATCHDOG -> AdbRecoverySettings.watchdog(app)
+        ShizukuOption.START_ON_BOOT -> AdbRecoverySettings.startOnBoot(app)
+        ShizukuOption.RESTORE_AFTER_RESTART -> AdbRecoverySettings.restoreAfterRestart(app)
+        ShizukuOption.TCP_5555 -> AdbRecoverySettings.tcpMode(app)
     }
-    override fun setEnabled(option: AdbOption, enabled: Boolean) {
+    override fun setEnabled(option: ShizukuOption, enabled: Boolean) {
         when (option) {
-            AdbOption.AUTO_PAIR -> AdbRecoverySettings.setAutoPair(app, enabled)
-            AdbOption.WATCHDOG -> {
+            ShizukuOption.AUTO_PAIR -> AdbRecoverySettings.setAutoPair(app, enabled)
+            ShizukuOption.WATCHDOG -> {
                 AdbRecoverySettings.setWatchdog(app, enabled)
                 // Shared settings must also update WorkManager's persistent
                 // 15-minute backstop, not only the in-process core watchdog.
@@ -73,9 +73,9 @@ internal object SharedAdbHostAdapter {
                     RecoveryWork.schedule(app)
                 else RecoveryWork.cancel(app)
             }
-            AdbOption.START_ON_BOOT -> AdbRecoverySettings.setStartOnBoot(app, enabled)
-            AdbOption.RESTORE_AFTER_RESTART -> AdbRecoverySettings.setRestoreAfterRestart(app, enabled)
-            AdbOption.TCP_5555 -> AdbRecoverySettings.setTcpMode(app, enabled)
+            ShizukuOption.START_ON_BOOT -> AdbRecoverySettings.setStartOnBoot(app, enabled)
+            ShizukuOption.RESTORE_AFTER_RESTART -> AdbRecoverySettings.setRestoreAfterRestart(app, enabled)
+            ShizukuOption.TCP_5555 -> AdbRecoverySettings.setTcpMode(app, enabled)
         }
     }
     override fun manuallyStopped() = AdbRecoverySettings.manuallyQuit(app)

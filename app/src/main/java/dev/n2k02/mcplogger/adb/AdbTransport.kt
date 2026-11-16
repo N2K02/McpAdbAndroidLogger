@@ -8,13 +8,13 @@ object AdbTransport {
     const val LOOPBACK = "127.0.0.1"
     const val LEGACY_TCP_PORT = 5555
 
-    val isConnected: Boolean get() = SharedAdbHostAdapter.current()?.state?.value?.connected == true
+    val isConnected: Boolean get() = ShizukuHostAdapter.current()?.state?.value?.connected == true
     val lastKnownConnected: Boolean get() = isConnected
 
     suspend fun connect(context: Context, host: String, port: Int): Result<Unit> =
         checked {
             require(host == LOOPBACK && port == LEGACY_TCP_PORT)
-            check(SharedAdbHostAdapter.core(context).retry(auto = true)) {
+            check(ShizukuHostAdapter.core(context).retry(auto = true)) {
                 "LocalADB Shizuku authorization required"
             }
         }
@@ -24,14 +24,14 @@ object AdbTransport {
 
     suspend fun connectLocalTls(context: Context, port: Int): Result<Unit> =
         checked {
-            check(SharedAdbHostAdapter.core(context).retry(auto = true)) {
+            check(ShizukuHostAdapter.core(context).retry(auto = true)) {
                 "LocalADB Shizuku authorization required"
             }
         }
 
     suspend fun exec(command: String, timeoutMs: Long = 15_000L): Result<String> =
         checked {
-            val core = checkNotNull(SharedAdbHostAdapter.current()) {
+            val core = checkNotNull(ShizukuHostAdapter.current()) {
                 "Shizuku shell is not initialized"
             }
             core.execVerified(command, timeoutMs)
@@ -43,7 +43,7 @@ object AdbTransport {
     suspend fun switchToUsb(): Result<Unit> =
         Result.failure(UnsupportedOperationException("Shizuku does not control ADB TCP modes"))
 
-    suspend fun disconnect() { SharedAdbHostAdapter.current()?.disconnectIdle() }
+    suspend fun disconnect() { ShizukuHostAdapter.current()?.disconnectIdle() }
     suspend fun close() = disconnect()
 
     private suspend inline fun <T> checked(crossinline block: suspend () -> T): Result<T> = try {

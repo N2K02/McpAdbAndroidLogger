@@ -1,4 +1,4 @@
-package dev.n2k02.adb.core
+package dev.n2k02.mcplogger.shizuku
 
 import android.content.ComponentName
 import android.content.Context
@@ -25,24 +25,24 @@ import rikka.shizuku.Shizuku
 
 /** Compatibility interface while clients migrate away from historical ADB UI names.
  * This module contains NO ADB sockets, TLS pairing, mDNS, or TCP/5555 fallback. */
-enum class AdbOption { AUTO_PAIR, WATCHDOG, START_ON_BOOT, RESTORE_AFTER_RESTART, TCP_5555 }
-enum class AdbTransportMode { NONE, WIRELESS_TLS, LOCAL_TCP_5555, SHIZUKU }
-enum class AdbPhase { IDLE, SEARCHING, PAIRING, CONNECTING, VERIFIED, NEEDS_SETUP, STOPPED }
-data class AdbState(
-    val phase: AdbPhase = AdbPhase.IDLE,
+enum class ShizukuOption { AUTO_PAIR, WATCHDOG, START_ON_BOOT, RESTORE_AFTER_RESTART, TCP_5555 }
+enum class ShizukuTransportMode { NONE, WIRELESS_TLS, LOCAL_TCP_5555, SHIZUKU }
+enum class ShizukuPhase { IDLE, SEARCHING, PAIRING, CONNECTING, VERIFIED, NEEDS_SETUP, STOPPED }
+data class ShizukuState(
+    val phase: ShizukuPhase = ShizukuPhase.IDLE,
     val message: String = "Shizuku not connected",
     val verifiedUid: Int? = null,
-    val transport: AdbTransportMode = AdbTransportMode.NONE,
+    val transport: ShizukuTransportMode = ShizukuTransportMode.NONE,
     val pairingPort: Int? = null,
     val connectionPort: Int? = null,
     val scanning: Boolean = false,
     val lastVerifiedAt: Long = 0L,
 ) {
-    val connected: Boolean get() = phase == AdbPhase.VERIFIED && verifiedUid == Process.SHELL_UID
+    val connected: Boolean get() = phase == ShizukuPhase.VERIFIED && verifiedUid == Process.SHELL_UID
 }
-interface AdbPreferenceStore {
-    fun enabled(option: AdbOption): Boolean
-    fun setEnabled(option: AdbOption, enabled: Boolean)
+interface ShizukuPreferences {
+    fun enabled(option: ShizukuOption): Boolean
+    fun setEnabled(option: ShizukuOption, enabled: Boolean)
     fun manuallyStopped(): Boolean
     fun setManuallyStopped(stopped: Boolean)
     fun lastTlsPort(): Int?
@@ -52,14 +52,14 @@ interface AdbPreferenceStore {
     fun wasAuthorized(): Boolean
     fun setAuthorized()
 }
-interface AdbHostHooks {
+interface ShizukuHostHooks {
     suspend fun onVerifiedShell() {}
     suspend fun onRestoreAfterRestartChanged(enabled: Boolean) {}
 }
-object AdbCoreRegistry {
-    @Volatile private var current: AdbCore? = null
-    fun install(core: AdbCore) { current = core }
-    fun uninstall(core: AdbCore) { if (current === core) current = null }
+object ShizukuSessionRegistry {
+    @Volatile private var current: ShizukuSession? = null
+    fun install(core: ShizukuSession) { current = core }
+    fun uninstall(core: ShizukuSession) { if (current === core) current = null }
 }
 
 /** A Shizuku user service is owned by the requesting app, authorized per package.
@@ -147,16 +147,16 @@ private class ShizukuBridge(context: Context) {
 }
 
 /** Shell verification is performed after each bind AND before every command. */
-class AdbCore(
+class ShizukuSession(
     context: Context,
-    val preferences: AdbPreferenceStore,
-    private val hooks: AdbHostHooks = object : AdbHostHooks {},
+    val preferences: ShizukuPreferences,
+    private val hooks: ShizukuHostHooks = object : ShizukuHostHooks {},
 ) {
     private val bridge = ShizukuBridge(context)
     private val lock = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val _state = MutableStateFlow(AdbState(lastVerifiedAt = preferences.lastVerifiedAt()))
-    val state: StateFlow<AdbState> = _state.asStateFlow()
+    private val _state = MutableStateFlow(ShizukuState(lastVerifiedAt = preferences.lastVerifiedAt()))
+    val state: StateFlow<ShizukuState> = _state.asStateFlow()
     @Volatile private var quit = false
     private var pages = 0
     private var services = 0
@@ -165,7 +165,7 @@ class AdbCore(
             scope.launch { retry(auto = true) }
     }
     private val binderDied = Shizuku.OnBinderDeadListener {
-        _state.value = AdbState(phase = AdbPhase.NEEDS_SETUP,
+        _state.value = ShizukuState(phase = ShizukuPhase.NEEDS_SETUP,
             message = "Shizuku server stopped; reconnect in LocalADB")
     }
     private val permissionChanged = Shizuku.OnRequestPermissionResultListener { _, _ ->
@@ -189,23 +189,23 @@ class AdbCore(
     suspend fun retry(auto: Boolean = false): Boolean = lock.withLock {
         if (quit || (auto && preferences.manuallyStopped())) return@withLock false
         if (!auto) preferences.setManuallyStopped(false)
-        _state.value = _state.value.copy(phase = AdbPhase.CONNECTING,
+        _state.value = _state.value.copy(phase = ShizukuPhase.CONNECTING,
             message = "Connecting to LocalADB Shizuku…", verifiedUid = null,
-            transport = AdbTransportMode.NONE)
+            transport = ShizukuTransportMode.NONE)
         if (!bridge.connect()) {
-            _state.value = _state.value.copy(phase = AdbPhase.NEEDS_SETUP,
+            _state.value = _state.value.copy(phase = ShizukuPhase.NEEDS_SETUP,
                 message = "Start LocalADB Shizuku and grant this app access")
             return@withLock false
         }
         val now = System.currentTimeMillis()
-        _state.value = AdbState(phase = AdbPhase.VERIFIED,
+        _state.value = ShizukuState(phase = ShizukuPhase.VERIFIED,
             message = "Shizuku ready • shell UID 2000", verifiedUid = Process.SHELL_UID,
-            transport = AdbTransportMode.SHIZUKU, lastVerifiedAt = now)
+            transport = ShizukuTransportMode.SHIZUKU, lastVerifiedAt = now)
         preferences.setLastVerifiedAt(now)
         preferences.setAuthorized()
         scope.launch {
             runCatching { hooks.onVerifiedShell() }
-            if (preferences.enabled(AdbOption.RESTORE_AFTER_RESTART))
+            if (preferences.enabled(ShizukuOption.RESTORE_AFTER_RESTART))
                 runCatching { hooks.onRestoreAfterRestartChanged(true) }
         }
         true
@@ -216,31 +216,31 @@ class AdbCore(
         check(_state.value.connected) { "Shizuku shell not verified" }
         val uid = runCatching { bridge.execute("id -u", 3_000L).trim() }.getOrNull()
         if (uid != "2000") {
-            _state.value = AdbState(phase = AdbPhase.NEEDS_SETUP,
+            _state.value = ShizukuState(phase = ShizukuPhase.NEEDS_SETUP,
                 message = "Shizuku shell identity failed verification")
             bridge.close()
             throw SecurityException("Shizuku is not shell UID 2000")
         }
         bridge.execute(command, timeoutMs)
     }
-    suspend fun setOption(option: AdbOption, enabled: Boolean) {
-        if (quit || option == AdbOption.AUTO_PAIR || option == AdbOption.TCP_5555) return
+    suspend fun setOption(option: ShizukuOption, enabled: Boolean) {
+        if (quit || option == ShizukuOption.AUTO_PAIR || option == ShizukuOption.TCP_5555) return
         preferences.setEnabled(option, enabled)
-        if (option == AdbOption.RESTORE_AFTER_RESTART && state.value.connected)
+        if (option == ShizukuOption.RESTORE_AFTER_RESTART && state.value.connected)
             hooks.onRestoreAfterRestartChanged(enabled)
     }
     suspend fun disableTcp(): Boolean = false // No device-wide ADB TCP switch.
     suspend fun startAfterBoot(): Boolean =
-        !preferences.manuallyStopped() && preferences.enabled(AdbOption.START_ON_BOOT) &&
+        !preferences.manuallyStopped() && preferences.enabled(ShizukuOption.START_ON_BOOT) &&
             retry(auto = true)
     suspend fun disconnectIdle() = lock.withLock {
         bridge.close()
-        if (!quit) _state.value = AdbState(message = "Shizuku session released")
+        if (!quit) _state.value = ShizukuState(message = "Shizuku session released")
     }
     suspend fun stop() = lock.withLock {
         preferences.setManuallyStopped(true)
         bridge.close()
-        _state.value = AdbState(phase = AdbPhase.STOPPED, message = "Stopped by user")
+        _state.value = ShizukuState(phase = ShizukuPhase.STOPPED, message = "Stopped by user")
     }
     suspend fun quit() {
         quit = true
