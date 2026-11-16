@@ -336,6 +336,8 @@ object LocalMcpServer {
                                 "get_app_jobs" -> OnDemandSystemDiagnostics.jobs(pkg)
                                 "get_thermal_state" -> OnDemandSystemDiagnostics.thermal()
                                 "get_device_capabilities" -> OnDemandSystemDiagnostics.capabilities()
+                                    .put("shizuku",
+                                        dev.n2k02.mcplogger.adb.ShizukuAvailability.snapshot())
                                 "get_cpu_usage" -> PerformanceDiagnostics.cpu(
                                     pkg, arguments.optInt("limit", 20))
                                 "get_frame_timing" -> PerformanceDiagnostics.frames(pkg, budget)
