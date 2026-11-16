@@ -180,12 +180,19 @@ object AdbTransport {
         // The only runtime transport after cutover is the shared library.
         // Every shell command receives a fresh UID 2000 check under its mutex.
         SharedAdbHostAdapter.current()?.let { core ->
+            val started = System.nanoTime()
+            var succeeded = false
             return try {
-                Result.success(core.execVerified(command, timeoutMs))
+                val result = core.execVerified(command, timeoutMs)
+                succeeded = true
+                Result.success(result)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
                 Result.failure(failure)
+            } finally {
+                AdbConnectionTelemetry.record(AdbConnectionTelemetry.Stage.SHELL,
+                    System.nanoTime() - started, succeeded)
             }
         }
         return withContext(Dispatchers.IO) {
