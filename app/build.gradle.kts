@@ -16,7 +16,7 @@ android {
         versionCode = versionNumber
         versionName = appVersion + ((findProperty("appVersionSuffix") as String?) ?: "")
     }
-    buildFeatures { compose = true; buildConfig = true }
+    buildFeatures { compose = true; buildConfig = true; aidl = true }
     packaging {
         jniLibs {
             useLegacyPackaging = true
