@@ -56,13 +56,13 @@ fun ShizukuSettingsPage(modifier: Modifier = Modifier) {
                     Icon(Icons.Rounded.SettingsInputAntenna, null, modifier = Modifier.size(30.dp),
                         tint = MaterialTheme.colorScheme.primary)
                     Column {
-                        Text("LocalADB Shizuku", style = MaterialTheme.typography.titleLarge)
+                        Text("ADB connection", style = MaterialTheme.typography.titleLarge)
                         Text("Secure shell service", style = MaterialTheme.typography.bodySmall)
                     }
                 }
                 StatusBadge(if (ready) "CONNECTED · SHELL READY" else "ACTION REQUIRED", ready)
-                Text(if (ready) "Authorized to use the running Shizuku server."
-                    else "Connect to LocalADB and approve this application's Shizuku access.",
+                Text(if (ready) "Authorized to use the running ADB service."
+                    else "Connect to LocalADB and approve this application's ADB access.",
                     style = MaterialTheme.typography.bodyMedium)
             }
         }
@@ -90,7 +90,7 @@ fun ShizukuSettingsPage(modifier: Modifier = Modifier) {
                 } else if (!allowed) {
                     Button(onClick = {
                         runCatching { Shizuku.requestPermission(2902) }
-                    }, modifier = Modifier.fillMaxWidth()) { Text("Grant Shizuku access") }
+                    }, modifier = Modifier.fillMaxWidth()) { Text("Grant ADB access") }
                 }
                 OutlinedButton(onClick = { revision++ }, modifier = Modifier.fillMaxWidth()) {
                     Text("Refresh connection status")
