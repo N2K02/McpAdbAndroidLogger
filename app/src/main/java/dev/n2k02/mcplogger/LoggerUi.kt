@@ -76,6 +76,7 @@ fun LoggerApp(onQuit: () -> Unit) {
                                 Page.HOME -> Icons.Rounded.Home
                                 Page.SETTINGS -> Icons.Rounded.Settings
                                 Page.ADB -> Icons.Rounded.SettingsInputAntenna
+                                Page.SHIZUKU -> Icons.Rounded.SettingsInputAntenna
                                 Page.BRIDGE -> Icons.Rounded.Cloud
                                 Page.MCP_AUDITS -> Icons.Rounded.ManageSearch
                                 Page.LOGS -> Icons.Rounded.List
@@ -133,6 +134,8 @@ fun LoggerApp(onQuit: () -> Unit) {
                 onLogs = { navigateTo(Page.LOGS) },
                 onAdb = { navigateTo(Page.ADB) }, onMcp = { navigateTo(Page.BRIDGE) })
             Page.SETTINGS -> Column(Modifier.padding(padding).verticalScroll(rememberScrollState())) {
+                SettingsRow("Shizuku", "LocalADB server and permission status",
+                    Icons.Rounded.SettingsInputAntenna) { navigateTo(Page.SHIZUKU) }
                 SettingsRow("ADB connection", "Pair, authorize and recover shell UID 2000",
                     Icons.Rounded.SettingsInputAntenna) { navigateTo(Page.ADB) }
                 SettingsRow("MCP connection", "Local MCP server and secure public tunnel",
@@ -143,6 +146,9 @@ fun LoggerApp(onQuit: () -> Unit) {
                     leadingContent = { Icon(Icons.Rounded.SystemUpdate, null) },
                     trailingContent = { N2K02UpdateBadge(status) },
                     modifier = Modifier.clickable { navigateTo(Page.UPDATES) })
+            }
+            Page.SHIZUKU -> Column(Modifier.padding(padding).verticalScroll(rememberScrollState())) {
+                ShizukuSettingsPage()
             }
             Page.ADB -> AdbPage(Modifier.padding(padding))
             Page.BRIDGE -> BridgePage(Modifier.padding(padding))
