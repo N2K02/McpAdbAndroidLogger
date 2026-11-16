@@ -12,7 +12,8 @@ import java.util.ArrayDeque
 internal object AdbConnectionTelemetry {
     enum class Stage { CONNECT, SHELL }
     data class Sample(val stage: Stage, val durationMs: Long, val success: Boolean,
-                      val failureCategory: String?, val recovered: Boolean)
+                      val failureCategory: String?, val recovered: Boolean,
+                      val operationFamily: String)
     private const val CAPACITY = 60
     private val history = ArrayDeque<Sample>()
 
@@ -28,11 +29,40 @@ internal object AdbConnectionTelemetry {
         else -> "other"
     }
 
+    /**
+     * Fixed diagnostic families, not commands, arguments, package names,
+     * paths or stderr. Allows identifying which class of read breaks ADB.
+     */
+    fun family(command: String): String = when {
+        command.startsWith("dumpsys SurfaceFlinger") -> "surfaceflinger"
+        command.contains("perfetto") -> "perfetto"
+        command.startsWith("dumpsys jobscheduler") -> "jobscheduler"
+        command.startsWith("dumpsys thermalservice") -> "thermal"
+        command.startsWith("dumpsys battery") -> "battery"
+        command.startsWith("dumpsys power") -> "power"
+        command.startsWith("dumpsys gfxinfo") -> "frames"
+        command.startsWith("dumpsys meminfo") ||
+            command.startsWith("cat /proc/") -> "memory"
+        command.startsWith("dumpsys activity") -> "activity"
+        command.startsWith("dumpsys audio") -> "audio"
+        command.startsWith("pm list packages") ||
+            command.startsWith("pidof ") -> "package_lookup"
+        command.startsWith("logcat ") -> "logcat"
+        command.startsWith("top ") -> "cpu"
+        command.startsWith("head ") -> "bounded_file"
+        else -> "other"
+    }
+
     @Synchronized fun record(stage: Stage, elapsedNs: Long, success: Boolean,
-                             failureCategory: String? = null, recovered: Boolean = false) {
+                             failureCategory: String? = null, recovered: Boolean = false,
+                             operationFamily: String = "other") {
         if (history.size == CAPACITY) history.removeFirst()
         history.addLast(Sample(stage, (elapsedNs / 1_000_000L).coerceAtLeast(0),
-            success, if (success) null else failureCategory ?: "other", recovered))
+            success, if (success) null else failureCategory ?: "other", recovered,
+            operationFamily.takeIf { it in setOf("surfaceflinger", "perfetto",
+                "jobscheduler", "thermal", "battery", "power", "frames",
+                "memory", "activity", "audio", "package_lookup",
+                "logcat", "cpu", "bounded_file", "other") } ?: "other"))
     }
 
     @Synchronized fun clear() { history.clear() }
@@ -55,6 +85,10 @@ internal object AdbConnectionTelemetry {
                     .put("failures", entries.count { !it.success })
                     .put("recovered_calls", entries.count { it.recovered })
                     .put("failure_categories", categories)
+                    .put("failure_families", JSONObject().apply {
+                        entries.filter { !it.success }.groupBy { it.operationFamily }
+                            .forEach { (family, failures) -> put(family, failures.size) }
+                    })
                     .put("p50_ms", p(50)).put("p95_ms", p(95)))
             }
         }
