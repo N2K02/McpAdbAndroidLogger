@@ -36,7 +36,7 @@ class ShizukuIntegrationContractTest {
         val root = listOf(File("app"), File("../app")).first { it.isDirectory }
         val manifest = root.resolve("src/main/AndroidManifest.xml").readText()
         assertTrue(manifest.contains("rikka.shizuku.ShizukuProvider"))
-        assertTrue(manifest.contains("android:authorities=\"${applicationId}.shizuku\""))
+        assertTrue(manifest.contains("android:authorities=\"\${applicationId}.shizuku\""))
         assertTrue(manifest.contains("android.permission.INTERACT_ACROSS_USERS_FULL"))
         assertTrue(manifest.contains("moe.shizuku.client.V3_SUPPORT"))
         assertTrue(manifest.contains("moe.shizuku.manager.permission.API_V23"))
