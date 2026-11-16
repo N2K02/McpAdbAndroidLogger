@@ -24,3 +24,6 @@
 # Retain actionable stack traces from minified experimental builds.
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
+
+# Shizuku starts this user service by its class name in the shell process.
+-keep class dev.n2k02.mcplogger.shizuku.ShizukuShellService { public <init>(); *; }
