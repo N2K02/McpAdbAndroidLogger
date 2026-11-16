@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ServiceConnection
 import android.os.IBinder
 import dev.n2k02.mcplogger.adb.ShizukuAvailability
+import dev.n2k02.mcplogger.adb.ShizukuPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import rikka.shizuku.Shizuku
@@ -21,14 +22,16 @@ internal object ShizukuReadBackend {
     const val HIDDEN_SERVICE_PROBE = 4
 
     @Volatile private var remote: IReadOnlyDiagnostics? = null
+    @Volatile private var enabledForProcess: Boolean = true
     @Volatile private var connection: ServiceConnection? = null
     private var args: Shizuku.UserServiceArgs? = null
 
-    fun isReady(): Boolean = ShizukuAvailability.state().usable &&
+    fun isReady(): Boolean = enabledForProcess && ShizukuAvailability.state().usable &&
         remote?.asBinder()?.pingBinder() == true
 
     @Synchronized fun bindIfAuthorized(context: Context): Boolean {
-        if (!ShizukuAvailability.state().usable) return false
+        enabledForProcess = ShizukuPreferences.enabled(context)
+        if (!enabledForProcess || !ShizukuAvailability.state().usable) return false
         if (isReady()) return true
         if (connection != null) return false
         val request = Shizuku.UserServiceArgs(
@@ -73,6 +76,15 @@ internal object ShizukuReadBackend {
         remote = null
         connection = null
         args = null
+    }
+
+    /** Applies the opt-out immediately; a re-enable binds only when authorized. */
+    fun updateEnabled(context: Context, enabled: Boolean) {
+        ShizukuPreferences.setEnabled(context, enabled)
+        if (enabled) bindIfAuthorized(context) else {
+            enabledForProcess = false
+            shutdown()
+        }
     }
 
     @Synchronized fun shutdown() {
