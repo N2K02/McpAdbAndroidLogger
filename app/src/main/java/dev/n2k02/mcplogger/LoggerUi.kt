@@ -197,6 +197,21 @@ private fun AdbPage(modifier: Modifier) {
         dev.n2k02.mcplogger.adb.PairingAccessibilityService.enabled(context)
     }
     Column(modifier.verticalScroll(rememberScrollState())) {
+        val shizuku = remember(resumeTick) {
+            dev.n2k02.mcplogger.adb.ShizukuAvailability.state()
+        }
+        Text("Shizuku (optional)")
+        Text(when {
+            shizuku.usable -> "Authorized shell/root service; ADB remains primary"
+            !shizuku.connected -> "Not running; ADB fallback active"
+            !shizuku.authorized -> "Connected; permission not granted"
+            else -> "Unsupported server identity; ADB fallback active"
+        })
+        if (shizuku.connected && !shizuku.authorized) {
+            OutlinedButton(onClick = {
+                dev.n2k02.mcplogger.adb.ShizukuAvailability.requestPermission()
+            }) { Text("Authorize Shizuku") }
+        }
         dev.n2k02.adb.core.AdbConnectionSettingsPage(
             adb = adb,
             accessibilityEnabled = accessibilityEnabled,
