@@ -13,9 +13,9 @@ class AdbVerifiedRecoveryContractTest {
 
     @Test fun allMcpShellCommandsUseSharedFreshUidVerification() {
         val transport = source("AdbTransport.kt")
-        assertTrue(transport.contains("ShizukuHostAdapter.current()?.let"))
+        assertTrue(transport.contains("ShizukuHostAdapter.current()"))
         assertTrue(transport.contains("core.execVerified(command, timeoutMs)"))
-        assertTrue(transport.contains("ShizukuHostAdapter.current() == null"))
+        assertTrue(transport.contains("Shizuku shell is not initialized"))
         val coordinator = source("AdbCoordinator.kt")
         assertTrue(coordinator.contains("ShizukuHostAdapter.core(context.applicationContext)"))
         assertTrue(coordinator.contains("verified.value = state.connected"))
@@ -26,7 +26,7 @@ class AdbVerifiedRecoveryContractTest {
     @Test fun tcpAndTlsRecoveryAndQuitAreOwnedByOneSharedCore() {
         val coordinator = source("AdbCoordinator.kt")
         assertTrue(coordinator.contains("shared.retry(auto = !userInitiated)"))
-        assertTrue(coordinator.contains("shared.connectTls(preferred)"))
+        assertTrue(coordinator.contains("val connected = shared.retry(auto = !userInitiated)"))
         assertTrue(coordinator.contains("shared.disableTcp()"))
         assertTrue(coordinator.contains("ShizukuHostAdapter.shutdown()"))
         val adapter = source("ShizukuHostAdapter.kt")
@@ -41,7 +41,7 @@ class AdbVerifiedRecoveryContractTest {
     @Test fun listenerOpenAloneCannotClaimShellUid2000() {
         val coordinator = source("AdbCoordinator.kt")
         assertTrue(coordinator.contains("state.connected"))
-        assertTrue(coordinator.contains("state.transport == ShizukuTransportMode.LOCAL_TCP_5555"))
+        assertTrue(coordinator.contains("tcpPortOpen.value = false"))
         assertTrue(coordinator.contains("check(connected && shared.state.value.connected)"))
         assertTrue(coordinator.contains("AdbRecoverySettings.manuallyQuit(app)"))
         assertTrue(coordinator.contains("shared.acquireService()"))

@@ -29,11 +29,11 @@ class AdbRecoveryContractTest {
         assertTrue(coordinator.contains("shared.retry(auto = !userInitiated)"))
         assertFalse(coordinator.contains("AdbTransport.close()"))
         val adapter = code("ShizukuHostAdapter.kt")
-        assertTrue(adapter.contains("AdbIdentity.getOrCreate(ctx)"))
-        assertTrue(adapter.contains("CoreIdentity(existing.privateKey, existing.certificate)"))
+        assertTrue(adapter.contains("ShizukuSession("))
+        assertTrue(adapter.contains("ShizukuSessionRegistry.install(it)"))
         assertTrue(adapter.contains("AdbRecoverySettings.lastVerifiedTlsPort(app)"))
         assertTrue(adapter.contains("AdbRecoverySettings.manuallyQuit(app)"))
-        assertTrue(adapter.contains("LibAdbWire"))
+        assertFalse(adapter.contains("LibAdbWire"))
         val transport = code("AdbTransport.kt")
         assertTrue(transport.contains("The shared ADB core owns this app's only transport"))
         assertTrue(transport.contains("core.execVerified(command, timeoutMs)"))
@@ -54,7 +54,7 @@ class AdbRecoveryContractTest {
     @Test fun connectionStatusIsDerivedOnlyFromSharedVerifiedState() {
         val coordinator = code("AdbCoordinator.kt")
         assertTrue(coordinator.contains("verified.value = state.connected"))
-        assertTrue(coordinator.contains("state.transport == ShizukuTransportMode.LOCAL_TCP_5555"))
+        assertTrue(coordinator.contains("tcpPortOpen.value = false"))
         assertTrue(coordinator.contains("check(connected && shared.state.value.connected)"))
         assertTrue(coordinator.contains("ShizukuHostAdapter.shutdown()"))
     }

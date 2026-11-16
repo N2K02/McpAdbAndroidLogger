@@ -13,17 +13,18 @@ class AdbDeviceNameRegressionTest {
 
     @Test fun sharedLibraryPinIncludesFixedDeviceNameCallback() {
         val build = root().resolve("app/build.gradle.kts").readText()
-        assertTrue(build.contains("dev.n2k02:adb-core:0.1.8"))
+        assertTrue(build.contains("dev.rikka.shizuku:api:13.1.5"))
+        assertFalse(build.contains("dev.n2k02:adb-core:"))
         assertFalse(build.contains("dev.n2k02:adb-core:0.1.4"))
-        assertTrue(Class.forName("dev.n2k02.mcplogger.shizuku.LibAdbWire").name.endsWith("LibAdbWire"))
+        assertTrue(root().resolve("app/src/main/java/dev/n2k02/mcplogger/shizuku/ShizukuSession.kt").isFile)
     }
 
     @Test fun activeSharedAdapterDoesNotOverrideItsOwnDeviceNameGetter() {
         val adapter = root().resolve("app/src/main/java/dev/n2k02/mcplogger/adb/ShizukuHostAdapter.kt").readText()
-        assertTrue(adapter.contains("LibAdbWire"))
+        assertFalse(adapter.contains("LibAdbWire"))
         assertFalse(adapter.contains("override fun getDeviceName()"))
         val legacy = root().resolve("app/src/main/java/dev/n2k02/mcplogger/adb/AdbTransport.kt").readText()
-        assertTrue(legacy.contains("override fun getDeviceName(): String = \"McpAdbAndroidLogger\""))
+        assertTrue(legacy.contains("ShizukuHostAdapter.current()"))
         assertFalse(legacy.contains("override fun getDeviceName(): String = deviceName"))
     }
 }

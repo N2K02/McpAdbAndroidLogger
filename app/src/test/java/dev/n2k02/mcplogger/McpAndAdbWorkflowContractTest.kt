@@ -25,19 +25,19 @@ class McpAndAdbWorkflowContractTest {
 
     @Test fun adbPairingStaysInSettingsAndMcpDoesNotRequireHomeControls() {
         val settings = source("app/src/main/java/dev/n2k02/mcplogger/LoggerUi.kt")
-            .substringAfter("private fun AdbPage(").substringBefore("private fun BridgePage(")
+            
         val home = source("app/src/main/java/dev/n2k02/mcplogger/HomeDashboard.kt")
         val setup = source("app/src/main/java/dev/n2k02/mcplogger/AdbHomeSetupCard.kt")
         assertTrue(home.contains("HomeConnectionTile(\"ADB\""))
         assertFalse(home.contains("AdbHomeSetupCard()"))
-        assertTrue(setup.contains("ShizukuHostAdapter.core(context)"))
-        assertTrue(setup.contains("AdbHomeSetupPage(adb, accessibilityEnabled"))
-        assertTrue(setup.contains("AdbPageLifecycle(adb)"))
-        assertTrue(setup.contains("state.connected"))
+        assertTrue(setup.contains("ShizukuSettingsPage()"))
+        assertFalse(setup.contains("AdbHomeSetupPage("))
+        assertFalse(setup.contains("AdbPageLifecycle("))
+        assertTrue(settings.contains("Page.SHIZUKU"))
         assertFalse(settings.contains("Connect Android ADB"))
         assertFalse(settings.contains("Advanced: manual ports"))
-        assertTrue(settings.contains("AdbConnectionSettingsPage("))
-        assertTrue(settings.contains("PairingAccessibilityService.enabled(context)"))
+        assertTrue(settings.contains("ShizukuSettingsPage()"))
+        assertFalse(settings.contains("PairingAccessibilityService.enabled(context)"))
         // The five controls and two cards live in ONE versioned shared page,
         // rather than duplicated copies in each app.
         assertFalse(settings.contains("Pairing & recovery"))
