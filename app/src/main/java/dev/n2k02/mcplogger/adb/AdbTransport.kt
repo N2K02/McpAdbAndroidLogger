@@ -208,7 +208,8 @@ object AdbTransport {
                 Result.failure(failure)
             } finally {
                 AdbConnectionTelemetry.record(AdbConnectionTelemetry.Stage.SHELL,
-                    System.nanoTime() - started, succeeded, failureCategory, recovered)
+                    System.nanoTime() - started, succeeded, failureCategory, recovered,
+                    AdbConnectionTelemetry.family(command))
             }
         }
         return withContext(Dispatchers.IO) {
