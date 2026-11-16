@@ -37,7 +37,7 @@ internal object OnDemandSystemDiagnostics {
         return serialized {
             val alternative = shizukuOperation?.let {
                 dev.n2k02.mcplogger.shizuku.ShizukuReadBackend.read(it)
-            }
+            }?.takeUnless(::outputUnavailable)
             val result = alternative ?: AdbTransport.exec(command, timeoutMs = TIMEOUT_MS).getOrThrow()
             parser(result).put("taken_at", System.currentTimeMillis())
                 .put("execution_backend", if (alternative != null) "shizuku" else "adb")
