@@ -32,6 +32,27 @@ class ShizukuIntegrationContractTest {
         assertTrue(src.contains("when (operation) {"))
     }
 
+    @Test fun manifestDeclaresProtectedBinderReceiverAndV3Support() {
+        val root = listOf(File("app"), File("../app")).first { it.isDirectory }
+        val manifest = root.resolve("src/main/AndroidManifest.xml").readText()
+        assertTrue(manifest.contains("rikka.shizuku.ShizukuProvider"))
+        assertTrue(manifest.contains("android:authorities=\"${applicationId}.shizuku\""))
+        assertTrue(manifest.contains("android.permission.INTERACT_ACROSS_USERS_FULL"))
+        assertTrue(manifest.contains("moe.shizuku.client.V3_SUPPORT"))
+        assertTrue(manifest.contains("moe.shizuku.manager.permission.API_V23"))
+    }
+
+    @Test fun bindsWhenShizukuDeliversBinderAndResetsAfterDeath() {
+        val app = source("MainActivity.kt")
+        val backend = source("shizuku/ShizukuReadBackend.kt")
+        assertTrue(app.contains("Shizuku.addBinderReceivedListenerSticky"))
+        assertTrue(app.contains("Shizuku.addBinderDeadListener"))
+        assertTrue(app.contains("Shizuku.removeBinderReceivedListener"))
+        assertTrue(app.contains("ShizukuReadBackend.onBinderLost()"))
+        assertTrue(backend.contains("fun onBinderLost()"))
+        assertTrue(backend.contains("connection = null"))
+    }
+
     @Test fun guardedBackendFallsBackToSharedAdbAndQuitUnbinds() {
         val src = source("shizuku/ShizukuReadBackend.kt")
         val diag = source("core/OnDemandSystemDiagnostics.kt")
