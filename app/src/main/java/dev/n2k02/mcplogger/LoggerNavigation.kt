@@ -3,7 +3,7 @@ package dev.n2k02.mcplogger
 /** Main navigation: Home, MCP Audits, Logs, Settings, Quit. */
 internal enum class Page(val title: String) {
     HOME("Home"), MCP_AUDITS("MCP audits"), LOGS("Android Logcat"),
-    SETTINGS("Settings"), SHIZUKU("ADB"), ADB("ADB connection"), BRIDGE("MCP connection"),
+    SETTINGS("Settings"), SHIZUKU("Shizuku"), BRIDGE("MCP connection"),
     UPDATES("About & updates")
 }
 
