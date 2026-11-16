@@ -106,6 +106,8 @@ object AdbCoordinator {
         val app = context.applicationContext
         if (AdbRecoverySettings.manuallyQuit(app) && !userInitiated)
             return Result.failure(IllegalStateException("Stopped by Quit"))
+        val started = System.nanoTime()
+        var succeeded = false
         return try {
             if (userInitiated) {
                 AdbRecoverySettings.setManuallyQuit(app, false)
@@ -124,6 +126,7 @@ object AdbCoordinator {
                 // Retain recovery after leaving Settings, not just during retry.
                 discover(app)
             }
+            succeeded = true
             Result.success(Unit)
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -131,6 +134,9 @@ object AdbCoordinator {
             verified.value = false
             MonitorState.error("ADB connection: " + (failure.message ?: "failed"))
             Result.failure(failure)
+        } finally {
+            AdbConnectionTelemetry.record(AdbConnectionTelemetry.Stage.CONNECT,
+                System.nanoTime() - started, succeeded)
         }
     }
 
