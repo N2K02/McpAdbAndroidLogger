@@ -46,9 +46,9 @@ internal object OnDemandSystemDiagnostics {
 
     suspend fun services(pkg: String): JSONObject {
         val name = AppRuntimeDiagnostics.validate(pkg)
-        return snapshot("dumpsys activity services $name | head -c 65536") {
+        return snapshot("dumpsys activity services $name | head -c 65536", {
             parseServices(name, it)
-        }
+        })
     }
 
     suspend fun audio(pkg: String): JSONObject {
