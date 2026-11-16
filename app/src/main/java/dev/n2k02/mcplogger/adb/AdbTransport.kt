@@ -182,6 +182,8 @@ object AdbTransport {
         SharedAdbHostAdapter.current()?.let { core ->
             val started = System.nanoTime()
             var succeeded = false
+            var recovered = false
+            var failureCategory: String? = null
             return try {
                 val result = try {
                     core.execVerified(command, timeoutMs)
@@ -192,17 +194,21 @@ object AdbTransport {
                     if (!ReadOnlyRetryPolicy.canReplay(command) ||
                         !ReadOnlyRetryPolicy.isRecoverable(failure) ||
                         !core.retry(auto = true)) throw failure
-                    core.execVerified(command, timeoutMs)
+                    val replay = core.execVerified(command, timeoutMs)
+                    recovered = true
+                    replay
                 }
                 succeeded = true
                 Result.success(result)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                failureCategory = AdbConnectionTelemetry.classify(cancelled)
                 throw cancelled
             } catch (failure: Exception) {
+                failureCategory = AdbConnectionTelemetry.classify(failure)
                 Result.failure(failure)
             } finally {
                 AdbConnectionTelemetry.record(AdbConnectionTelemetry.Stage.SHELL,
-                    System.nanoTime() - started, succeeded)
+                    System.nanoTime() - started, succeeded, failureCategory, recovered)
             }
         }
         return withContext(Dispatchers.IO) {
