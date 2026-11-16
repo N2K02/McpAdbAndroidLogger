@@ -143,3 +143,12 @@ This follow-up:
 If failures continue, identify the reported safe family and corresponding
 operation before changing low-level ADB transport; the original five failures
 cannot be retrospectively attributed because their commands were not logged.
+
+## Merge validation: published adb-core 0.1.8
+
+PR #53 also includes a subsequent dependency bump to published
+`dev.n2k02:adb-core:0.1.8` and matching regression assertions. Because
+this changes the tested APK inputs after the Shizuku audio fix, merge
+requires **a green full APK workflow on the current PR head**, not just
+the earlier successful run. Validate signed/minified APK cold launches,
+shared-core compatibility, 29-tool catalog and isolated audio diagnostics.
