@@ -18,10 +18,10 @@ internal object AdbConnectionTelemetry {
 
     /** Failure details are deliberately classified, never retained verbatim. */
     fun classify(failure: Throwable): String = when {
-        failure is kotlinx.coroutines.CancellationException -> "cancelled"
-        failure is SecurityException -> "authorization"
         failure is java.util.concurrent.TimeoutException ||
             failure.javaClass.simpleName.contains("Timeout", true) -> "timeout"
+        failure is kotlinx.coroutines.CancellationException -> "cancelled"
+        failure is SecurityException -> "authorization"
         failure is java.io.IOException ||
             failure.message?.contains("stream closed", true) == true ||
             failure.message?.contains("ADB is not connected", true) == true -> "disconnected"
