@@ -183,7 +183,17 @@ object AdbTransport {
             val started = System.nanoTime()
             var succeeded = false
             return try {
-                val result = core.execVerified(command, timeoutMs)
+                val result = try {
+                    core.execVerified(command, timeoutMs)
+                } catch (failure: Exception) {
+                    // A single replay is safe only for fixed read-only diagnostics
+                    // after an actual transport failure. Never replay privileged
+                    // writes, cancellation, timed-out tasks or authorization errors.
+                    if (!ReadOnlyRetryPolicy.canReplay(command) ||
+                        !ReadOnlyRetryPolicy.isRecoverable(failure) ||
+                        !core.retry(auto = true)) throw failure
+                    core.execVerified(command, timeoutMs)
+                }
                 succeeded = true
                 Result.success(result)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
