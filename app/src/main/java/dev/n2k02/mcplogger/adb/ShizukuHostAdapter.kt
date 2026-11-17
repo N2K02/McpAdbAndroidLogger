@@ -27,8 +27,9 @@ internal object ShizukuHostAdapter {
 
     private class Choices(private val app: Context) : ShizukuPreferences {
         override fun manuallyStopped() = AdbRecoverySettings.manuallyQuit(app)
-        override fun setManuallyStopped(stopped: Boolean) =
+        override fun setManuallyStopped(stopped: Boolean) {
             AdbRecoverySettings.setManuallyQuit(app, stopped)
+        }
         override fun lastVerifiedAt() = AdbRecoverySettings.lastVerifiedAt(app)
         override fun setLastVerifiedAt(timeMs: Long) =
             AdbRecoverySettings.setLastVerifiedAt(app, timeMs)
