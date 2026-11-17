@@ -46,18 +46,11 @@ fun ShizukuSettingsPage(modifier: Modifier = Modifier) {
             Shizuku.removeRequestPermissionResultListener(granted)
         }
     }
-    val state = remember(revision) {
-        val alive = runCatching { Shizuku.pingBinder() }.getOrDefault(false)
-        val allowed = alive && runCatching {
-            Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
-        }.getOrDefault(false)
-        val uid = if (allowed) runCatching { Shizuku.getUid() }.getOrNull() else null
-        Triple(alive, allowed, uid)
-    }
-    val connected = state.first
-    val allowed = state.second
-    val uid = state.third
-    val ready = connected && allowed && uid == Process.SHELL_UID
+    // Home and Settings use the same live Shizuku status probe.
+    val state = remember(revision) { readShizukuAccessStatus() }
+    val connected = state.serverOnline
+    val allowed = state.permissionGranted
+    val ready = state.shellReady
     Column(modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Card(
             shape = RoundedCornerShape(28.dp),
