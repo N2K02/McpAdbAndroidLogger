@@ -35,7 +35,9 @@ class AdbRecoveryContractTest {
         assertTrue(adapter.contains("AdbRecoverySettings.manuallyQuit(app)"))
         assertFalse(adapter.contains("LibAdbWire"))
         val transport = code("AdbTransport.kt")
-        assertTrue(transport.contains("The shared ADB core owns this app's only transport"))
+        assertTrue(transport.contains("Shell commands run exclusively in Shizuku"))
+        assertFalse(transport.contains("AbsAdbConnectionManager"))
+        assertFalse(transport.contains("LibAdbWire"))
         assertTrue(transport.contains("core.execVerified(command, timeoutMs)"))
     }
 
