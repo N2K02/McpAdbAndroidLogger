@@ -1,11 +1,6 @@
 package dev.n2k02.mcplogger.adb
 
 import android.content.Context
-import dev.n2k02.mcplogger.shizuku.ShizukuOption
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
@@ -25,12 +20,11 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.TimeUnit
 
-/** VRec-style lifecycle: one recovery job, 2-minute checks, 15-minute OS backstop. */
+/** Health checks only: never enable wireless debugging, pair or open ADB TCP. */
 object AdbRecoveryLifecycle {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val recoveryMutex = Mutex()
     private var healthJob: Job? = null
-    private var wifi: ConnectivityManager.NetworkCallback? = null
     @Volatile private var quitting = false
     private var failedAttempts = 0
     private var nextAllowedTime = 0L
@@ -41,37 +35,11 @@ object AdbRecoveryLifecycle {
         quitting = false
         AdbCoordinator.discover(app)
         configureWatchdog(app, AdbRecoverySettings.watchdog(app))
-        if (wifi == null) {
-            val manager = app.getSystemService(ConnectivityManager::class.java)
-            if (manager != null) {
-                val callback = object : ConnectivityManager.NetworkCallback() {
-                    override fun onAvailable(network: Network) {
-                        if (!quitting && !AdbRecoverySettings.manuallyQuit(app))
-                            scope.launch { recoverOnce(app, "Wi-Fi available") }
-                    }
-                }
-                val request = NetworkRequest.Builder()
-                    .addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build()
-                if (runCatching { manager.registerNetworkCallback(request, callback) }.isSuccess)
-                    wifi = callback
-            }
-        }
     }
 
     @Synchronized fun configureWatchdog(context: Context, enabled: Boolean) {
         val app = context.applicationContext
         AdbRecoverySettings.setWatchdog(app, enabled)
-        // Shared ADB Core owns the in-process watchdog. Keep only WorkManager's
-        // fifteen-minute process-restart backstop; never launch two watchdogs.
-        ShizukuHostAdapter.current()?.let { core ->
-            healthJob?.cancel()
-            healthJob = null
-            if (enabled && !quitting && !AdbRecoverySettings.manuallyQuit(app))
-                RecoveryWork.schedule(app)
-            else RecoveryWork.cancel(app)
-            scope.launch { core.setOption(ShizukuOption.WATCHDOG, enabled) }
-            return
-        }
         healthJob?.cancel()
         healthJob = null
         if (!enabled || quitting || AdbRecoverySettings.manuallyQuit(app)) {
@@ -83,24 +51,21 @@ object AdbRecoveryLifecycle {
             recoverOnce(app, "app open")
             delay(45_000)
             while (isActive && AdbRecoverySettings.watchdog(app)) {
-                recoverOnce(app, "connection watchdog")
+                recoverOnce(app, "Shizuku watchdog")
                 delay(120_000)
             }
         }
     }
 
-    /** Called after boot, reconnection or by Android's persistent safety net. */
     suspend fun recoverOnce(context: Context, reason: String): Boolean =
         recoveryMutex.withLock {
             val app = context.applicationContext
             if (quitting || !AdbRecoverySettings.backgroundRecoveryAllowed(app))
                 return@withLock false
-            if (AdbCoordinator.manualRetryRequired.value && !AdbCoordinator.isTcpListening())
-                return@withLock false
             val now = android.os.SystemClock.elapsedRealtime()
             if (now < nextAllowedTime) return@withLock false
             try {
-                if (AdbCoordinator.verified.value && AdbTransport.lastKnownConnected) {
+                if (AdbCoordinator.verified.value && AdbTransport.isConnected) {
                     val uid = AdbTransport.exec("id -u", timeoutMs = 6_000).getOrNull()?.trim()
                     if (uid == "2000") {
                         failedAttempts = 0
@@ -109,44 +74,33 @@ object AdbRecoveryLifecycle {
                     }
                     AdbCoordinator.verified.value = false
                 }
-                if (AdbRecoverySettings.restoreWirelessAfterReboot(app))
-                    AdbCoordinator.discover(app)
-                val result = AdbCoordinator.connect(app)
-                if (result.isSuccess) {
+                val success = AdbCoordinator.connect(app).isSuccess
+                if (success) {
                     failedAttempts = 0
                     nextAllowedTime = 0L
-                    return@withLock true
-                }
-                if (!AdbCoordinator.manualRetryRequired.value) {
-                    AdbCoordinator.discover(app)
+                } else {
                     failedAttempts = (failedAttempts + 1).coerceAtMost(6)
-                    val interval = (60_000L shl (failedAttempts - 1)).coerceAtMost(30 * 60_000L)
-                    nextAllowedTime = now + interval
+                    nextAllowedTime = now + (60_000L shl (failedAttempts - 1)).coerceAtMost(30 * 60_000L)
                 }
-                false
+                success
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                MonitorState.error("ADB recovery (" + reason + "): " + error.javaClass.simpleName)
+                MonitorState.error("Shizuku recovery ($reason): " + error.javaClass.simpleName)
                 false
             }
         }
 
     @Synchronized fun shutdown(context: Context) {
-        val app = context.applicationContext
         quitting = true
         healthJob?.cancel()
         healthJob = null
         scope.coroutineContext.cancelChildren()
-        wifi?.let {
-            runCatching { app.getSystemService(ConnectivityManager::class.java)
-                ?.unregisterNetworkCallback(it) }
-        }
-        wifi = null
-        RecoveryWork.cancel(app)
+        RecoveryWork.cancel(context.applicationContext)
     }
 }
 
+/** Periodic verification only; LocalADB owns Shizuku server startup. */
 class AdbWatchdogWorker(context: Context, args: WorkerParameters) :
     CoroutineWorker(context, args) {
     override suspend fun doWork(): Result {
@@ -157,16 +111,13 @@ class AdbWatchdogWorker(context: Context, args: WorkerParameters) :
             AdbRecoveryLifecycle.recoverOnce(app, "OS watchdog")
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: Exception) {
-            // WorkManager will retry on its next periodic invocation.
-        }
+        } catch (_: Exception) { }
         return Result.success()
     }
 }
 
-/** WorkManager's earliest periodic interval is 15 minutes; Android may defer it. */
 internal object RecoveryWork {
-    private const val NAME = "adb-mcp-watchdog"
+    private const val NAME = "mcp-shizuku-watchdog"
     fun schedule(context: Context) {
         runCatching {
             WorkManager.getInstance(context.applicationContext).enqueueUniquePeriodicWork(
