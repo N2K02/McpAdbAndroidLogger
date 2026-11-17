@@ -20,9 +20,9 @@ class AdbVrecAndBackgroundTunnelTest {
         assertFalse(s.contains("Pairing & recovery"))
         assertFalse(s.contains("Connection & security"))
         val adapter = read(src + "adb/ShizukuHostAdapter.kt")
-        assertTrue(adapter.contains("onRestoreAfterRestartChanged(enabled: Boolean)"))
-        assertTrue(adapter.contains("if (enabled) \"grant\" else \"revoke\""))
-        assertTrue(adapter.contains("adb.execVerified("))
+        assertFalse(adapter.contains("onRestoreAfterRestartChanged"))
+        assertFalse(adapter.contains("restoreWirelessAfterReboot"))
+        assertTrue(adapter.contains("ShizukuSession("))
     }
 
     @Test fun foregroundTunnelIsIndependentOfTheUiAndNotTimedDataSync() {
