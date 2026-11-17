@@ -5,7 +5,7 @@ import org.junit.Test
 import java.io.File
 
 class LoggerNavigationTest {
-    private val settingsPages = listOf(Page.ADB, Page.BRIDGE, Page.UPDATES)
+    private val settingsPages = listOf(Page.SHIZUKU, Page.BRIDGE, Page.UPDATES)
 
     @Test fun settingsDetailsBackToSettingsThenHome() {
         for (destination in settingsPages) {
@@ -40,7 +40,7 @@ class LoggerNavigationTest {
     }
 
     @Test fun homeShortcutReturnsHome() {
-        val adb = LoggerNavigation().open(Page.ADB)
+        val adb = LoggerNavigation().open(Page.SHIZUKU)
         assertTrue(adb.homeSelected)
         assertEquals(LoggerNavigation(), adb.back())
     }
@@ -51,7 +51,7 @@ class LoggerNavigationTest {
     }
 
     @Test fun switchingTabsDoesNotInheritParent() {
-        val logs = LoggerNavigation().open(Page.SETTINGS).open(Page.ADB).open(Page.LOGS)
+        val logs = LoggerNavigation().open(Page.SETTINGS).open(Page.SHIZUKU).open(Page.LOGS)
         assertTrue(logs.logsSelected)
         val settings = logs.open(Page.SETTINGS)
         assertEquals(settings, settings.open(Page.BRIDGE).back())
