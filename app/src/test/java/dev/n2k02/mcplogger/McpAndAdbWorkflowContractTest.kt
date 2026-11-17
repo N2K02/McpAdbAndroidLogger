@@ -27,10 +27,11 @@ class McpAndAdbWorkflowContractTest {
         val settings = source("app/src/main/java/dev/n2k02/mcplogger/LoggerUi.kt")
             
         val home = source("app/src/main/java/dev/n2k02/mcplogger/HomeDashboard.kt")
-        val setup = source("app/src/main/java/dev/n2k02/mcplogger/AdbHomeSetupCard.kt")
+        val setup = source("app/src/main/java/dev/n2k02/mcplogger/ShizukuSettingsPage.kt")
         assertTrue(home.contains("HomeConnectionTile(\"ADB\""))
         assertFalse(home.contains("AdbHomeSetupCard()"))
-        assertTrue(setup.contains("ShizukuSettingsPage()"))
+        assertTrue(setup.contains("Shizuku.pingBinder()"))
+        assertTrue(setup.contains("Shizuku.checkSelfPermission()"))
         assertFalse(setup.contains("AdbHomeSetupPage("))
         assertFalse(setup.contains("AdbPageLifecycle("))
         assertTrue(settings.contains("Page.SHIZUKU"))
