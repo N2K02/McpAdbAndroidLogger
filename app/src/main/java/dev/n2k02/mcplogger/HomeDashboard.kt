@@ -57,7 +57,8 @@ internal fun HomeDashboard(
     val today = LogDayPolicy.dayStart(System.currentTimeMillis())
     val currentStats = if (stats.dayStartMs == today) stats else LogCaptureStats(dayStartMs = today)
     val buffered = manualLogs.count { it.epochMillis >= today }
-    val verified = adb.startsWith("UID 2000 verified")
+    val shizukuStatus = rememberShizukuAccessStatus()
+    val verified = shizukuStatus.shellReady
     val mcpActive = inFlight.isNotEmpty()
 
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())
