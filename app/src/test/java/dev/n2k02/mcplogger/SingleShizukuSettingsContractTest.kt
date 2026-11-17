@@ -27,12 +27,21 @@ class SingleShizukuSettingsContractTest {
         assertFalse(File("app/src/main/java/dev/n2k02/mcplogger/AdbHomeSetupCard.kt").exists())
     }
 
-    @Test fun adbPageUsesVerifiedShizukuPermissionAndRechecksWhenReturningFromLocalAdb() {
+    @Test fun adbPageUsesTheSameVerifiedShizukuSourceAsHome() {
         val page = source("app/src/main/java/dev/n2k02/mcplogger/ShizukuSettingsPage.kt")
-        assertTrue(page.contains("Shizuku.pingBinder()"))
-        assertTrue(page.contains("Shizuku.checkSelfPermission()"))
-        assertTrue(page.contains("Shizuku.getUid()"))
-        assertTrue(page.contains("Lifecycle.Event.ON_RESUME"))
+        val home = source("app/src/main/java/dev/n2k02/mcplogger/HomeDashboard.kt")
+        val status = source("app/src/main/java/dev/n2k02/mcplogger/ShizukuAccessStatus.kt")
+        assertTrue(page.contains("readShizukuAccessStatus()"))
+        assertTrue(home.contains("rememberShizukuAccessStatus()"))
+        assertTrue(home.contains("val verified = shizukuStatus.shellReady"))
+        assertFalse(home.contains("adb.startsWith("))
+        assertTrue(status.contains("Shizuku.pingBinder()"))
+        assertTrue(status.contains("Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED"))
+        assertTrue(status.contains("Shizuku.getUid()"))
+        assertTrue(status.contains("shellUid == Process.SHELL_UID"))
+        assertTrue(status.contains("Lifecycle.Event.ON_RESUME"))
+        assertTrue(status.contains("Shizuku.OnBinderDeadListener"))
+        assertTrue(status.contains("Shizuku.OnRequestPermissionResultListener"))
         assertTrue(page.contains("Shizuku.requestPermission(2902)"))
         assertTrue(page.contains("Get LocalADB · GitHub Releases"))
         assertFalse(page.contains("Enter pairing code"))
