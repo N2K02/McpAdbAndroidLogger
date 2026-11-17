@@ -44,10 +44,11 @@ class McpAndAdbWorkflowContractTest {
         assertFalse(settings.contains("Pairing & recovery"))
         assertFalse(settings.contains("Connection & security"))
         val adb = source("app/src/main/java/dev/n2k02/mcplogger/adb/AdbCoordinator.kt")
-        assertTrue(adb.contains("val discoveryState = MutableStateFlow"))
         assertTrue(adb.contains("ShizukuHostAdapter.core(context.applicationContext)"))
-        assertTrue(adb.contains("shared.retry(auto = !userInitiated)"))
+        assertTrue(adb.contains("session.retry(auto = !userInitiated)"))
         val transport = source("app/src/main/java/dev/n2k02/mcplogger/adb/AdbTransport.kt")
-        assertTrue(transport.contains("core.execVerified(command, timeoutMs)"))
+        assertTrue(transport.contains("session.execVerified(command, timeoutMs)"))
+        assertFalse(transport.contains("connectLocalTls("))
+        assertFalse(transport.contains("pairLocal("))
     }
 }
