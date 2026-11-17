@@ -1,63 +1,49 @@
 package dev.n2k02.mcplogger.adb
 
+import java.io.File
 import org.junit.Assert.*
 import org.junit.Test
-import java.io.File
 
 class AdbRecoveryContractTest {
-    private fun code(name: String): String {
-        val path = "app/src/main/java/dev/n2k02/mcplogger/adb/" + name
-        return listOf(File(path), File("../" + path)).first { it.isFile }.readText()
-    }
-    @Test fun rotationDoesNotClearManualQuit() {
-        val activity = listOf(File("app/src/main/java/dev/n2k02/mcplogger/MainActivity.kt"),
-            File("../app/src/main/java/dev/n2k02/mcplogger/MainActivity.kt")).first { it.isFile }.readText()
+    private fun source(file: String) = listOf(
+        File("app/src/main/java/dev/n2k02/mcplogger/$file"),
+        File("../app/src/main/java/dev/n2k02/mcplogger/$file")
+    ).first { it.isFile }.readText()
+
+    @Test fun foregroundRotationDoesNotResetShizukuQuit() {
+        val activity = source("MainActivity.kt")
         assertTrue(activity.contains("if (savedInstanceState == null) AdbRecoverySettings.markForegroundOpened(this)"))
+        val settings = source("adb/AdbRecoverySettings.kt")
+        assertTrue(settings.contains("setManuallyQuit(context, false)"))
+        assertTrue(settings.contains("getBoolean(\"manual_quit\", false)"))
     }
 
-    @Test fun matchingVrecRecoveryCadenceAndQuit() {
-        val s = code("AdbRecoveryLifecycle.kt")
-        assertTrue(s.contains("delay(120_000)"))
-        assertTrue(s.contains("15, TimeUnit.MINUTES"))
-        assertTrue(s.contains("scope.coroutineContext.cancelChildren()"))
-        assertTrue(s.contains("AdbRecoverySettings.backgroundRecoveryAllowed(app)"))
-        assertTrue(s.contains("AdbCoordinator.manualRetryRequired.value"))
-        assertTrue(s.contains("AdbRecoverySettings.restoreWirelessAfterReboot(app)"))
-    }
-    @Test fun sharedTransportReusesSavedAuthorizationAndRetainsPrivateKey() {
-        val coordinator = code("AdbCoordinator.kt")
-        assertTrue(coordinator.contains("shared.retry(auto = !userInitiated)"))
-        assertFalse(coordinator.contains("AdbTransport.close()"))
-        val adapter = code("ShizukuHostAdapter.kt")
-        assertTrue(adapter.contains("ShizukuSession("))
-        assertTrue(adapter.contains("ShizukuSessionRegistry.install(it)"))
-        assertTrue(adapter.contains("AdbRecoverySettings.lastVerifiedTlsPort(app)"))
-        assertTrue(adapter.contains("AdbRecoverySettings.manuallyQuit(app)"))
-        assertFalse(adapter.contains("LibAdbWire"))
-        val transport = code("AdbTransport.kt")
-        assertTrue(transport.contains("Shell commands run exclusively in Shizuku"))
-        assertFalse(transport.contains("AbsAdbConnectionManager"))
-        assertFalse(transport.contains("LibAdbWire"))
-        assertTrue(transport.contains("core.execVerified(command, timeoutMs)"))
+    @Test fun recoveryVerifiesUidAndDoesNotStartWirelessDebugging() {
+        val recovery = source("adb/AdbRecoveryLifecycle.kt")
+        assertTrue(recovery.contains("delay(120_000)"))
+        assertTrue(recovery.contains("15, TimeUnit.MINUTES"))
+        assertTrue(recovery.contains("scope.coroutineContext.cancelChildren()"))
+        assertTrue(recovery.contains("AdbTransport.exec(\"id -u\""))
+        assertFalse(recovery.contains("restoreWirelessAfterReboot"))
+        assertFalse(recovery.contains("NetworkCallback"))
+        assertFalse(recovery.contains("connectTls"))
     }
 
-    @Test fun privateKeyIsNotSharedBetweenLibadbConnections() {
-        val generator = java.security.KeyPairGenerator.getInstance("RSA")
-        generator.initialize(1024)
-        val saved = generator.generateKeyPair().private
-        val first = AdbSessionKey.copyOf(saved)
-        val next = AdbSessionKey.copyOf(saved)
-        assertNotSame(saved, first)
-        assertNotSame(first, next)
-        assertArrayEquals(saved.encoded, first.encoded)
-        assertArrayEquals(saved.encoded, next.encoded)
+    @Test fun noLocalAdbKeyPairOrTlsTransportRemains() {
+        val base = File("app/src/main/java/dev/n2k02/mcplogger/adb")
+            .takeIf { it.isDirectory } ?: File("../app/src/main/java/dev/n2k02/mcplogger/adb")
+        for (name in listOf("AdbIdentity.kt", "AdbSessionKey.kt", "PairingCodeUiPolicy.kt")) {
+            assertFalse(base.resolve(name).exists())
+        }
+        assertTrue(source("adb/AdbTransport.kt").contains("session.execVerified(command, timeoutMs)"))
+        assertFalse(source("adb/AdbCoordinator.kt").contains("disableTcp"))
     }
 
-    @Test fun connectionStatusIsDerivedOnlyFromSharedVerifiedState() {
-        val coordinator = code("AdbCoordinator.kt")
+    @Test fun onlyLiveShizukuStatusIsPublished() {
+        val coordinator = source("adb/AdbCoordinator.kt")
         assertTrue(coordinator.contains("verified.value = state.connected"))
-        assertTrue(coordinator.contains("tcpPortOpen.value = false"))
-        assertTrue(coordinator.contains("check(connected && shared.state.value.connected)"))
         assertTrue(coordinator.contains("ShizukuHostAdapter.shutdown()"))
+        assertFalse(coordinator.contains("tcpPortOpen"))
+        assertFalse(coordinator.contains("pairingPort"))
     }
 }
