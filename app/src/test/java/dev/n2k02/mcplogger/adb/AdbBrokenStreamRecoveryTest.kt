@@ -1,51 +1,48 @@
 package dev.n2k02.mcplogger.adb
 
+import java.io.File
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.io.File
 
-/** Stream EOF must not leave an apparently healthy UID-2000 ADB manager. */
+/** A dead Shizuku binder must never leave a verified shell or use an ADB socket fallback. */
 class AdbBrokenStreamRecoveryTest {
-    private fun transportSource(): String =
-        listOf(File("app/src/main/java/dev/n2k02/mcplogger/adb/AdbTransport.kt"), File("../app/src/main/java/dev/n2k02/mcplogger/adb/AdbTransport.kt"))
-            .first { it.isFile }.readText()
+    private fun read(relative: String): String =
+        listOf(File(relative), File("../$relative")).first { it.isFile }.readText()
 
-    @Test fun streamFailureRetiresWholeManagerBeforeNextCommand() {
-        val src = transportSource()
-        assertTrue(src.contains("synchronized(this@AdbTransport)"))
-        assertTrue(src.contains("if (manager === mgr)"))
-        assertTrue(src.contains("manager = null"))
-        assertTrue(src.contains("lastKnownConnected = false"))
-        assertTrue(src.contains("runCatching { mgr.disconnect() }"))
-        assertTrue(src.contains("throw t") || src.contains("throw failure"))
-        assertTrue(src.contains("private const val SHELL_SERVICE = \"exec:sh\""))
-        assertTrue(src.contains("mutex.withLock"))
+    private val transport = "app/src/main/java/dev/n2k02/mcplogger/adb/AdbTransport.kt"
+    private val session = "app/src/main/java/dev/n2k02/mcplogger/shizuku/ShizukuSession.kt"
+
+    @Test fun deadBinderClearsItsSessionAndDemotesVerifiedStatus() {
+        val source = read(session)
+        assertTrue(source.contains("override fun onServiceDisconnected("))
+        assertTrue(source.contains("binder = null"))
+        assertTrue(source.contains("Shizuku.OnBinderDeadListener"))
+        assertTrue(source.contains("ShizukuPhase.NEEDS_SETUP"))
+        assertTrue(source.contains("binder?.isBinderAlive != true"))
     }
 
-    @Test fun watchdogNeverClosesReaderWhileReadLineIsBlocked() {
-        val src = transportSource()
-        assertTrue(src.contains("@Volatile private var running = false"))
-        assertTrue(src.contains("@Volatile private var closing = false"))
-        assertTrue(src.contains("check(!closing)"))
-        assertTrue(src.contains("if (closing) runCatching { reader.close() }"))
-        assertTrue(src.contains("if (!running) runCatching { reader.close() }"))
-        assertTrue(src.contains("runCatching { if (!stream.isClosed) stream.close() }"))
-        assertTrue(src.contains("runCatching { out.close() }"))
+    @Test fun everyCommandRequiresLivePermissionAndShellUid() {
+        val source = read(session)
+        assertTrue(source.contains("Shizuku.pingBinder()"))
+        assertTrue(source.contains("Shizuku.getUid() == Process.SHELL_UID"))
+        assertTrue(source.contains("Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED"))
+        assertTrue(source.contains("bridge.execute(\"id -u\", 3_000L)"))
+        assertTrue(source.contains("bridge.close()"))
+        assertTrue(source.contains("throw SecurityException("))
     }
 
-    @Test fun expiredWatchdogCannotClearNewVerifiedAdbSession() {
-        val source = transportSource()
-        val watchdog = source.substringAfter(
-            "val watchdog = kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {"
-        ).substringBefore("session = session ?:")
-        assertTrue(watchdog.contains("synchronized(this@AdbTransport)"))
-        val guarded = watchdog.substringAfter("if (manager === mgr) {")
-            .substringBefore("} else if (shell === session)")
-        assertTrue(guarded.contains("manager = null"))
-        assertTrue(guarded.contains("lastKnownConnected = false"))
-        assertTrue(guarded.contains("shell = null"))
-        assertTrue(watchdog.contains("else if (shell === session) shell = null"))
-        assertTrue(!watchdog.contains("if (manager === mgr) manager = null"))
+    @Test fun transportHasNoSocketFallbackAndQuitRemovesListeners() {
+        val wire = read(transport)
+        val source = read(session)
+        assertTrue(wire.contains("core.execVerified(command, timeoutMs)"))
+        assertTrue(wire.contains("ShizukuHostAdapter.current()"))
+        for (obsolete in listOf("AbsAdbConnectionManager", "LibAdbWire", "exec:sh", "Socket(")) {
+            assertFalse(obsolete, wire.contains(obsolete))
+            assertFalse(obsolete, source.contains(obsolete))
+        }
+        assertTrue(source.contains("Shizuku.removeBinderDeadListener(binderDied)"))
+        assertTrue(source.contains("Shizuku.removeBinderReceivedListener(binderReceived)"))
+        assertTrue(source.contains("scope.cancel()"))
     }
-
 }
