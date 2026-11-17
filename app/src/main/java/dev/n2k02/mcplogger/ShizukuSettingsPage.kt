@@ -14,13 +14,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import rikka.shizuku.Shizuku
 
 /** Identical Shizuku connection screen in N2K02 apps; no cached grant is trusted. */
 @Composable
 fun ShizukuSettingsPage(modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var revision by remember { mutableIntStateOf(0) }
+    // LocalADB may be started or authorized while this app is in the background.
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) revision++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     DisposableEffect(Unit) {
         val received = Shizuku.OnBinderReceivedListener { revision++ }
         val dead = Shizuku.OnBinderDeadListener { revision++ }
@@ -84,8 +96,14 @@ fun ShizukuSettingsPage(modifier: Modifier = Modifier) {
                 Text("Manage access", style = MaterialTheme.typography.titleMedium)
                 if (!connected) {
                     Button(onClick = {
-                        context.packageManager.getLaunchIntentForPackage("dev.n2k02.localadb")
-                            ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)?.let(context::startActivity)
+                        val launch = context.packageManager.getLaunchIntentForPackage("dev.n2k02.localadb")
+                        if (launch != null) {
+                            context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        } else {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/N2K02/LocalAdb/releases"))
+                            )
+                        }
                         revision++
                     }, modifier = Modifier.fillMaxWidth()) { Text("Connect via LocalADB") }
                 } else if (!allowed) {
