@@ -23,10 +23,11 @@ class SharedAutoPairingContractTest {
     }
 
     @Test fun settingsUsesShizukuPermissionAndVerifiedShellUid() {
-        val card = source("app/src/main/java/dev/n2k02/mcplogger/AdbHomeSetupCard.kt")
+        val nav = source("app/src/main/java/dev/n2k02/mcplogger/LoggerUi.kt")
         val settings = source("app/src/main/java/dev/n2k02/mcplogger/ShizukuSettingsPage.kt")
         val shell = source("app/src/main/java/dev/n2k02/mcplogger/shizuku/ShizukuSession.kt")
-        assertTrue(card.contains("ShizukuSettingsPage()"))
+        assertTrue(nav.contains("Page.SHIZUKU ->"))
+        assertTrue(nav.contains("SettingsRow(\\"ADB\\""))
         assertTrue(settings.contains("Shizuku.checkSelfPermission()"))
         assertTrue(shell.contains("Shizuku.checkSelfPermission()"))
         assertTrue(shell.contains("Process.SHELL_UID"))
