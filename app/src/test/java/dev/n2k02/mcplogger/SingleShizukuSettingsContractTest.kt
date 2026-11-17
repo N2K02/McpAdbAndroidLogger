@@ -13,8 +13,8 @@ class SingleShizukuSettingsContractTest {
 
     @Test fun onlyOneAdbSettingsEntryAndNoLegacyConnectionSubmenu() {
         val nav = source("app/src/main/java/dev/n2k02/mcplogger/LoggerUi.kt")
-        val rows = nav.substringAfter("Page.SETTINGS ->").substringBefore("Page.SHIZUKU ->")
-        assertEquals(1, Regex("SettingsRow\\(\"ADB\"").findAll(rows).count())
+        val rows = nav.substringAfter("Page.SETTINGS -> Column(").substringBefore("Page.SHIZUKU -> Column(")
+        assertEquals(1, rows.split("SettingsRow(\"ADB\"").size - 1)
         assertFalse(rows.contains("SettingsRow(\"ADB connection\""))
         assertFalse(rows.contains("SettingsRow(\"Shizuku\""))
         assertFalse(rows.contains("Pair, authorize and recover shell UID 2000"))
