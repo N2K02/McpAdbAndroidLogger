@@ -7,10 +7,10 @@ import android.content.pm.PackageManager
 import android.os.IBinder
 import android.os.Parcel
 import android.os.Process
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,38 +23,22 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import rikka.shizuku.Shizuku
 
-/** Compatibility interface while clients migrate away from historical ADB UI names.
- * This module contains NO ADB sockets, TLS pairing, mDNS, or TCP/5555 fallback. */
-enum class ShizukuOption { AUTO_PAIR, WATCHDOG, START_ON_BOOT, RESTORE_AFTER_RESTART, TCP_5555 }
-enum class ShizukuTransportMode { NONE, WIRELESS_TLS, LOCAL_TCP_5555, SHIZUKU }
-enum class ShizukuPhase { IDLE, SEARCHING, PAIRING, CONNECTING, VERIFIED, NEEDS_SETUP, STOPPED }
+/** The server is owned by LocalADB; clients only hold scoped Shizuku Binder access. */
+enum class ShizukuPhase { IDLE, CONNECTING, VERIFIED, NEEDS_SETUP, STOPPED }
 data class ShizukuState(
     val phase: ShizukuPhase = ShizukuPhase.IDLE,
     val message: String = "Shizuku not connected",
     val verifiedUid: Int? = null,
-    val transport: ShizukuTransportMode = ShizukuTransportMode.NONE,
-    val pairingPort: Int? = null,
-    val connectionPort: Int? = null,
-    val scanning: Boolean = false,
     val lastVerifiedAt: Long = 0L,
 ) {
-    val connected: Boolean get() = phase == ShizukuPhase.VERIFIED && verifiedUid == Process.SHELL_UID
+    val connected: Boolean get() =
+        phase == ShizukuPhase.VERIFIED && verifiedUid == Process.SHELL_UID
 }
 interface ShizukuPreferences {
-    fun enabled(option: ShizukuOption): Boolean
-    fun setEnabled(option: ShizukuOption, enabled: Boolean)
     fun manuallyStopped(): Boolean
     fun setManuallyStopped(stopped: Boolean)
-    fun lastTlsPort(): Int?
-    fun setLastTlsPort(port: Int)
     fun lastVerifiedAt(): Long
     fun setLastVerifiedAt(timeMs: Long)
-    fun wasAuthorized(): Boolean
-    fun setAuthorized()
-}
-interface ShizukuHostHooks {
-    suspend fun onVerifiedShell() {}
-    suspend fun onRestoreAfterRestartChanged(enabled: Boolean) {}
 }
 object ShizukuSessionRegistry {
     @Volatile private var current: ShizukuSession? = null
@@ -146,22 +130,17 @@ private class ShizukuBridge(context: Context) {
     suspend fun close() = lock.withLock { disconnectLocked() }
 }
 
-/** Shell verification is performed after each bind AND before every command. */
-class ShizukuSession(
-    context: Context,
-    val preferences: ShizukuPreferences,
-    private val hooks: ShizukuHostHooks = object : ShizukuHostHooks {},
-) {
+/** Every request validates live permission, Binder health and shell UID 2000. */
+class ShizukuSession(context: Context, private val preferences: ShizukuPreferences) {
     private val bridge = ShizukuBridge(context)
     private val lock = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _state = MutableStateFlow(ShizukuState(lastVerifiedAt = preferences.lastVerifiedAt()))
     val state: StateFlow<ShizukuState> = _state.asStateFlow()
     @Volatile private var quit = false
-    private var pages = 0
-    private var services = 0
+    private var owners = 0
     private val binderReceived = Shizuku.OnBinderReceivedListener {
-        if (!quit && !preferences.manuallyStopped() && (pages > 0 || services > 0))
+        if (!quit && !preferences.manuallyStopped() && owners > 0)
             scope.launch { retry(auto = true) }
     }
     private val binderDied = Shizuku.OnBinderDeadListener {
@@ -177,44 +156,43 @@ class ShizukuSession(
         Shizuku.addBinderDeadListener(binderDied)
         Shizuku.addRequestPermissionResultListener(permissionChanged)
     }
-    @Synchronized fun enterPage() { if (!quit) { pages++; scope.launch { retry(auto = true) } } }
-    @Synchronized fun leavePage() { pages = (pages - 1).coerceAtLeast(0) }
-    @Synchronized fun acquireService() { if (!quit) { services++; scope.launch { retry(auto = true) } } }
-    @Synchronized fun releaseService() { services = (services - 1).coerceAtLeast(0) }
-    fun beginAutomaticPairingDiscovery() { /* Shizuku has no ADB pairing flow. */ }
-    fun endAutomaticPairingDiscovery() { }
-    suspend fun pair(port: Int, code: String): Boolean = false
-    suspend fun connectTls(port: Int): Boolean = retry(auto = true)
+
+    @Synchronized fun acquireService() {
+        if (!quit) { owners++; scope.launch { retry(auto = true) } }
+    }
+    @Synchronized fun releaseService() { owners = (owners - 1).coerceAtLeast(0) }
 
     suspend fun retry(auto: Boolean = false): Boolean = lock.withLock {
         if (quit || (auto && preferences.manuallyStopped())) return@withLock false
         if (!auto) preferences.setManuallyStopped(false)
-        _state.value = _state.value.copy(phase = ShizukuPhase.CONNECTING,
-            message = "Connecting to LocalADB Shizuku…", verifiedUid = null,
-            transport = ShizukuTransportMode.NONE)
+        _state.value = ShizukuState(phase = ShizukuPhase.CONNECTING,
+            message = "Connecting to LocalADB Shizuku…")
         if (!bridge.connect()) {
-            _state.value = _state.value.copy(phase = ShizukuPhase.NEEDS_SETUP,
-                message = "Start LocalADB Shizuku and grant this app access")
+            _state.value = ShizukuState(phase = ShizukuPhase.NEEDS_SETUP,
+                message = "Start LocalADB and grant this app access")
             return@withLock false
         }
         val now = System.currentTimeMillis()
         _state.value = ShizukuState(phase = ShizukuPhase.VERIFIED,
-            message = "Shizuku ready • shell UID 2000", verifiedUid = Process.SHELL_UID,
-            transport = ShizukuTransportMode.SHIZUKU, lastVerifiedAt = now)
+            message = "Shizuku ready · shell UID 2000",
+            verifiedUid = Process.SHELL_UID, lastVerifiedAt = now)
         preferences.setLastVerifiedAt(now)
-        preferences.setAuthorized()
-        scope.launch {
-            runCatching { hooks.onVerifiedShell() }
-            if (preferences.enabled(ShizukuOption.RESTORE_AFTER_RESTART))
-                runCatching { hooks.onRestoreAfterRestartChanged(true) }
-        }
         true
     }
 
     suspend fun execVerified(command: String, timeoutMs: Long = 15_000L): String = lock.withLock {
         check(!quit && !preferences.manuallyStopped()) { "Shizuku stopped" }
         check(_state.value.connected) { "Shizuku shell not verified" }
-        val uid = runCatching { bridge.execute("id -u", 3_000L).trim() }.getOrNull()
+        val uid = try {
+            bridge.execute("id -u", 3_000L).trim()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            _state.value = ShizukuState(phase = ShizukuPhase.NEEDS_SETUP,
+                message = "Shizuku shell connection lost")
+            bridge.close()
+            throw failure
+        }
         if (uid != "2000") {
             _state.value = ShizukuState(phase = ShizukuPhase.NEEDS_SETUP,
                 message = "Shizuku shell identity failed verification")
@@ -223,28 +201,19 @@ class ShizukuSession(
         }
         bridge.execute(command, timeoutMs)
     }
-    suspend fun setOption(option: ShizukuOption, enabled: Boolean) {
-        if (quit || option == ShizukuOption.AUTO_PAIR || option == ShizukuOption.TCP_5555) return
-        preferences.setEnabled(option, enabled)
-        if (option == ShizukuOption.RESTORE_AFTER_RESTART && state.value.connected)
-            hooks.onRestoreAfterRestartChanged(enabled)
-    }
-    suspend fun disableTcp(): Boolean = false // No device-wide ADB TCP switch.
-    suspend fun startAfterBoot(): Boolean =
-        !preferences.manuallyStopped() && preferences.enabled(ShizukuOption.START_ON_BOOT) &&
-            retry(auto = true)
+
     suspend fun disconnectIdle() = lock.withLock {
         bridge.close()
         if (!quit) _state.value = ShizukuState(message = "Shizuku session released")
     }
-    suspend fun stop() = lock.withLock {
-        preferences.setManuallyStopped(true)
-        bridge.close()
-        _state.value = ShizukuState(phase = ShizukuPhase.STOPPED, message = "Stopped by user")
-    }
+
     suspend fun quit() {
         quit = true
-        stop()
+        preferences.setManuallyStopped(true)
+        lock.withLock {
+            bridge.close()
+            _state.value = ShizukuState(phase = ShizukuPhase.STOPPED, message = "Stopped by user")
+        }
         Shizuku.removeBinderReceivedListener(binderReceived)
         Shizuku.removeBinderDeadListener(binderDied)
         Shizuku.removeRequestPermissionResultListener(permissionChanged)
