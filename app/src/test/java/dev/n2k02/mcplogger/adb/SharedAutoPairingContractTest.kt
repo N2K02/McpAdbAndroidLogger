@@ -28,7 +28,7 @@ class SharedAutoPairingContractTest {
         val shell = source("app/src/main/java/dev/n2k02/mcplogger/shizuku/ShizukuSession.kt")
         assertTrue(nav.contains("Page.SHIZUKU ->"))
         assertTrue(nav.contains("SettingsRow(\"ADB\""))
-        assertTrue(settings.contains("Shizuku.checkSelfPermission()"))
+        assertTrue(settings.contains("readShizukuAccessStatus()"))
         assertTrue(shell.contains("Shizuku.checkSelfPermission()"))
         assertTrue(shell.contains("Process.SHELL_UID"))
         assertTrue(shell.contains("id -u"))
