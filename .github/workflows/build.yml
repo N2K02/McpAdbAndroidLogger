@@ -2,9 +2,9 @@ name: Build APK
 
 on:
   push:
-    branches: [main]
+    branches: [main-shizuku]
   pull_request:
-    branches: [main]
+    branches: [main-shizuku]
     types: [opened, synchronize, reopened]
   pull_request_target:
     types: [closed]
@@ -19,16 +19,17 @@ permissions:
   contents: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ (github.event_name == 'pull_request' && github.event.pull_request.number) || 'main' }}
+  group: ${{ github.workflow }}-${{ (github.event_name == 'pull_request' && github.event.pull_request.number) || github.ref }}
   cancel-in-progress: true
 
 env:
   APP: McpAdbAndroidLogger
+  RELEASE_TRACK: shizuku
   BUILD_COMMIT: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.merge_commit_sha || github.sha }}
 
 jobs:
   build:
-    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'pull_request_target' || (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.title, '[skip ci]')))
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'pull_request_target' || (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main-shizuku' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.title, '[skip ci]')))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -64,7 +65,8 @@ jobs:
           set -euo pipefail
           local_last=$(git tag -l 'v[0-9]*' | sed -nE 's/^v([0-9]+[.][0-9])$/\1/p' | sort -V | tail -1 || true)
           public_last=$(bash .github/scripts/latest-public-version.sh mcpadbandroidlogger)
-          latest=$(printf '%s\n%s\n' "$local_last" "${public_last#v}" | sed '/^$/d' | sort -V | tail -1)
+          track_last=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --json tagName -q '.[].tagName' | sed -nE 's/^shizuku-v([0-9]+[.][0-9])$/\1/p' | sort -V | tail -1 || true)
+          latest=$(printf '%s\n%s\n%s\n' "$local_last" "${public_last#v}" "$track_last" | sed '/^$/d' | sort -V | tail -1)
           if [ -n "$REQUESTED" ]; then
             echo "$REQUESTED" | grep -Eq '^[0-9]+[.][0-9]$' || exit 1
             version="$REQUESTED"
@@ -82,6 +84,7 @@ jobs:
           suffix=""
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then suffix="-experimental.$GITHUB_RUN_NUMBER"; fi
           echo "VERSION_SUFFIX=$suffix" >> "$GITHUB_ENV"
+          echo "APK_NAME=McpAdbAndroidLogger-SHIZUKU-$version$suffix.apk" >> "$GITHUB_ENV"
           {
             echo "## $APP $version"
             echo "Version code: $VERSION_CODE"
@@ -103,6 +106,7 @@ jobs:
           set -euo pipefail
           python3 .github/scripts/experimental_naming.py --self-test
           python3 .github/scripts/experimental_naming.py "$GITHUB_REPOSITORY" "$APP" "$GITHUB_RUN_NUMBER" "$PR_NUMBER"
+          echo "APK_NAME=McpAdbAndroidLogger-SHIZUKU-$VERSION-experimental.$GITHUB_RUN_NUMBER.apk" >> "$GITHUB_ENV"
       - name: Label experimental release notes
         if: github.event_name == 'pull_request'
         run: |
@@ -251,15 +255,15 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            tag="experimental-pr-$PR_NUMBER-run-$GITHUB_RUN_NUMBER"
+            tag="experimental-shizuku-pr-$PR_NUMBER-run-$GITHUB_RUN_NUMBER"
             title="$EXPERIMENTAL_TITLE"
             target="$PR_HEAD_SHA"
             extra=(--prerelease --latest=false)
           else
-            tag="v$VERSION"
+            tag="shizuku-v$VERSION"
             title="$APP $VERSION"
             target="$BUILD_COMMIT"
-            extra=(--latest)
+            extra=(--latest=false)
           fi
           if gh release view "$tag" >/dev/null 2>&1; then
             if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
