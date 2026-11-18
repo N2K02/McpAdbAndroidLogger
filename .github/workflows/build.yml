@@ -19,7 +19,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ (github.event_name == 'pull_request' && github.event.pull_request.number) || 'main' }}
+  group: ${{ github.workflow }}-${{ (github.event_name == 'pull_request' && github.event.pull_request.number) || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -66,7 +66,7 @@ jobs:
           local_last=$(git tag -l 'v[0-9]*' | sed -nE 's/^v([0-9]+[.][0-9])$/\1/p' | sort -V | tail -1 || true)
           public_last=$(bash .github/scripts/latest-public-version.sh mcpadbandroidlogger)
           track_last=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --json tagName -q '.[].tagName' | sed -nE 's/^shizuku-v([0-9]+[.][0-9])$/\1/p' | sort -V | tail -1 || true)
-          latest=$(printf '%s\n%s\n' "$local_last" "${public_last#v}" "$track_last" | sed '/^$/d' | sort -V | tail -1)
+          latest=$(printf '%s\n%s\n%s\n' "$local_last" "${public_last#v}" "$track_last" | sed '/^$/d' | sort -V | tail -1)
           if [ -n "$REQUESTED" ]; then
             echo "$REQUESTED" | grep -Eq '^[0-9]+[.][0-9]$' || exit 1
             version="$REQUESTED"
