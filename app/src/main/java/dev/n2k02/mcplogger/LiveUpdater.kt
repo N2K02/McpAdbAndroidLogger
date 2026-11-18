@@ -34,8 +34,7 @@ object LiveUpdater {
             repository = "N2K02/McpAdbAndroidLogger",
             packageName = app.packageName,
             installedVersionCode = versionCode(),
-            experimentalEnabled = experimentalEnabled.value
-        ),
+            experimentalEnabled = experimentalEnabled.value, releaseTrack = "adb"),
         offerPreferences = prefs()
     )
     val controller: UpdaterController get() = requireNotNull(instance)
