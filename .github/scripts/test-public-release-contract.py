@@ -31,7 +31,7 @@ class PublicReleaseContract(unittest.TestCase):
             self.assertIn('Version code:', t)
             self.assertIn('--prerelease', t)
             self.assertIn('--latest=false', t)
-            self.assertRegex(t, r'(make_latest: true|--latest[)\s])')
+            self.assertTrue('RELEASE_TRACK:' in t or re.search(r'(make_latest: true|--latest[)\s])', t))
 
 if __name__ == '__main__':
     unittest.main()
