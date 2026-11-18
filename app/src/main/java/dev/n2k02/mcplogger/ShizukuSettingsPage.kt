@@ -14,40 +14,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import rikka.shizuku.Shizuku
 
 /** Identical Shizuku connection screen in N2K02 apps; no cached grant is trusted. */
 @Composable
 fun ShizukuSettingsPage(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
     var revision by remember { mutableIntStateOf(0) }
-    // LocalADB may be started or authorized while this app is in the background.
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) revision++
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-    DisposableEffect(Unit) {
-        val received = Shizuku.OnBinderReceivedListener { revision++ }
-        val dead = Shizuku.OnBinderDeadListener { revision++ }
-        val granted = Shizuku.OnRequestPermissionResultListener { _, _ -> revision++ }
-        Shizuku.addBinderReceivedListenerSticky(received)
-        Shizuku.addBinderDeadListener(dead)
-        Shizuku.addRequestPermissionResultListener(granted)
-        onDispose {
-            Shizuku.removeBinderReceivedListener(received)
-            Shizuku.removeBinderDeadListener(dead)
-            Shizuku.removeRequestPermissionResultListener(granted)
-        }
-    }
-    // Home and Settings use the same live Shizuku status probe.
-    val state = remember(revision) { readShizukuAccessStatus() }
+    val sharedStatus = rememberShizukuAccessStatus()
+    // The same live state drives Home and Settings; manual refresh can force
+    // a fresh read without creating a second independent Binder listener.
+    val state = remember(sharedStatus, revision) { readShizukuAccessStatus() }
     val connected = state.serverOnline
     val allowed = state.permissionGranted
     val ready = state.shellReady
