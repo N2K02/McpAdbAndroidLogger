@@ -4,6 +4,9 @@ import android.content.pm.PackageManager
 import android.os.Process
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -58,6 +61,16 @@ internal fun rememberShizukuAccessStatus(): ShizukuAccessStatus {
             Shizuku.removeBinderReceivedListener(received)
             Shizuku.removeBinderDeadListener(died)
             Shizuku.removeRequestPermissionResultListener(permission)
+        }
+    }
+    // Binder callbacks can be delivered before the provider finishes initialization.
+    // Recheck while visible so Home cannot remain stuck at an earlier offline snapshot.
+    LaunchedEffect(lifecycleOwner) {
+        while (isActive) {
+            if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                revision++
+            }
+            delay(2_000L)
         }
     }
     return remember(revision) { readShizukuAccessStatus() }
