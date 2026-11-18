@@ -84,7 +84,7 @@ jobs:
           suffix=""
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then suffix="-experimental.$GITHUB_RUN_NUMBER"; fi
           echo "VERSION_SUFFIX=$suffix" >> "$GITHUB_ENV"
-          echo "APK_NAME=McpAdbAndroidLogger-SHIZUKU-$version$suffix.apk" >> "$GITHUB_ENV"
+          echo "APK_NAME=McpAdbAndroidLogger-SHIZUKU-$version$suffix" >> "$GITHUB_ENV"
           {
             echo "## $APP $version"
             echo "Version code: $VERSION_CODE"
@@ -106,7 +106,7 @@ jobs:
           set -euo pipefail
           python3 .github/scripts/experimental_naming.py --self-test
           python3 .github/scripts/experimental_naming.py "$GITHUB_REPOSITORY" "$APP" "$GITHUB_RUN_NUMBER" "$PR_NUMBER"
-          echo "APK_NAME=McpAdbAndroidLogger-SHIZUKU-$VERSION-experimental.$GITHUB_RUN_NUMBER.apk" >> "$GITHUB_ENV"
+          echo "APK_NAME=McpAdbAndroidLogger-SHIZUKU-$VERSION-experimental.$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
       - name: Label experimental release notes
         if: github.event_name == 'pull_request'
         run: |
