@@ -282,7 +282,7 @@ jobs:
           fi
           if gh release view "$tag" >/dev/null 2>&1; then
             if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-              gh release upload "$tag" "${APK_NAME:-$APP-$VERSION}.apk" --clobber
+              gh release view "$tag" --json assets --jq '.assets[].name' | grep -Fxq "${APK_NAME:-$APP-$VERSION}.apk"
             else
               echo "::error::Stable release tag already exists"
               exit 1
@@ -290,3 +290,10 @@ jobs:
           else
             gh release create "$tag" "${APK_NAME:-$APP-$VERSION}.apk" --target "$target"               --title "$title" --notes-file release-notes.md "${extra[@]}"
           fi
+
+  download-index:
+    needs: build
+    if: github.event_name == 'pull_request_target' || (github.event_name == 'pull_request' && !github.event.pull_request.draft)
+    permissions:
+      contents: write
+    uses: N2K02/n2k02updater/.github/workflows/index-downloads.yml@ae58c3ce0196b1b30d214927dd529ce5d779febf
