@@ -1,14 +1,11 @@
 name: MCP experimental APK verification
 
 on:
-  push:
-    branches: [experimental]
   pull_request:
-    branches: [main]
-  workflow_dispatch:
+    branches: [main-shizuku]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: mcp-experimental-apk-${{ github.ref }}
@@ -52,100 +49,3 @@ jobs:
           name: MCP-Android-Logger-experimental-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-
-      # The updater reads GitHub Releases, not GitHub Actions artifacts.
-      - name: Allocate experimental release and Android version
-        if: github.ref == 'refs/heads/experimental' && github.event_name != 'pull_request'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          APP: McpAdbAndroidLogger
-        run: |
-          set -euo pipefail
-          PR_NUMBER=$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" \
-            --jq '.[] | select(.head.ref == "experimental" and .head.repo.full_name == "'"$GITHUB_REPOSITORY"'" and .base.ref == "main") | .number' | head -n 1)
-          test -n "$PR_NUMBER" || { echo "::error::No active experimental PR for updater prerelease"; exit 1; }
-          echo "PR_NUMBER=$PR_NUMBER" >> "$GITHUB_ENV"
-          echo "APP=$APP" >> "$GITHUB_ENV"
-          python3 .github/scripts/experimental_naming.py --self-test
-          python3 .github/scripts/experimental_naming.py "$GITHUB_REPOSITORY" "$APP" "$GITHUB_RUN_NUMBER" "$PR_NUMBER"
-          VERSION_CODE=$(python3 .github/scripts/version_code.py "$GITHUB_REPOSITORY" "$GITHUB_RUN_NUMBER")
-          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
-          {
-            echo "## $APP experimental update"
-            echo "Version code: $VERSION_CODE"
-            echo
-            echo "Changes in $(git rev-parse --short HEAD) (PR #$PR_NUMBER)"
-            echo
-            git log -12 --no-merges --pretty='- %s'
-            echo
-            echo "Install the signed APK using the in-app experimental updater."
-          } > release-notes.md
-      - name: Build and sign updater-compatible experimental release APK
-        if: github.ref == 'refs/heads/experimental' && github.event_name != 'pull_request'
-        env:
-          N2K02_PACKAGES_TOKEN: ${{ secrets.N2K02_PACKAGES_TOKEN }}
-          SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
-          SIGNING_KEYSTORE_ENC_BASE64: ${{ secrets.SIGNING_KEYSTORE_ENC_BASE64 }}
-          ANDROID_SIGNING_KEYSTORE_B64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_B64 }}
-          ANDROID_SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
-          ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
-          ANDROID_SIGNING_ALIAS: ${{ secrets.ANDROID_SIGNING_ALIAS }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Same minified release variant and same signing identity for both channels.
-          ./gradlew --no-daemon :app:assembleRelease \
-            -PappVersion="$VERSION" -PappVersionCode="$VERSION_CODE" -PappVersionSuffix="$VERSION_SUFFIX"
-          K="$RUNNER_TEMP/apk-signing"
-          umask 077
-          mkdir -p "$K"
-          trap 'rm -rf "$K"' EXIT
-          KEYSTORE=""
-          STOREPASS=""
-          ALIAS=""
-          if [ -s signing/keys.tar.enc ]; then
-            : "${SIGNING_PASSPHRASE:?SIGNING_PASSPHRASE required for signing/keys.tar.enc}"
-            openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 \
-              -in signing/keys.tar.enc -pass env:SIGNING_PASSPHRASE | tar -xf - -C "$K"
-            if [ -s "$K/release.p12" ] && [ -s "$K/release.pass" ]; then
-              KEYSTORE="$K/release.p12"
-              STOREPASS=$(cat "$K/release.pass")
-              ALIAS=release
-            elif [ -s "$K/old.keystore" ]; then
-              KEYSTORE="$K/old.keystore"
-              STOREPASS=android
-              ALIAS=androiddebugkey
-            else
-              echo "::error::Signing bundle contains no usable keystore"
-              exit 1
-            fi
-          elif [ -n "$SIGNING_KEYSTORE_ENC_BASE64" ]; then
-            : "${SIGNING_PASSPHRASE:?SIGNING_PASSPHRASE required for encrypted keystore}"
-            printf '%s' "$SIGNING_KEYSTORE_ENC_BASE64" | base64 --decode | \
-              openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 \
-                -pass env:SIGNING_PASSPHRASE -out "$K/release.keystore"
-            KEYSTORE="$K/release.keystore"
-            STOREPASS="${ANDROID_SIGNING_STORE_PASSWORD:-android}"
-            ALIAS="${ANDROID_SIGNING_ALIAS:-androiddebugkey}"
-          elif [ -n "$ANDROID_SIGNING_KEYSTORE_B64" ]; then
-            printf '%s' "$ANDROID_SIGNING_KEYSTORE_B64" | base64 --decode > "$K/release.keystore"
-            KEYSTORE="$K/release.keystore"
-            : "${ANDROID_SIGNING_STORE_PASSWORD:?ANDROID_SIGNING_STORE_PASSWORD required}"
-            : "${ANDROID_SIGNING_ALIAS:?ANDROID_SIGNING_ALIAS required}"
-            STOREPASS="$ANDROID_SIGNING_STORE_PASSWORD"
-            ALIAS="$ANDROID_SIGNING_ALIAS"
-          else
-            echo "::error::No signing keystore found; configure the standard N2K02 signing secrets"
-            exit 1
-          fi
-          test -s "$KEYSTORE"
-          export SIGNING_STORE_PASS="$STOREPASS"
-          export SIGNING_KEY_PASS="${ANDROID_SIGNING_KEY_PASSWORD:-$STOREPASS}"
-          unset STOREPASS
-          BT=$(ls -d "${ANDROID_HOME:-$ANDROID_SDK_ROOT}"/build-tools/* | sort -V | tail -1)
-          "$BT/apksigner" sign \
-            --ks "$KEYSTORE" --ks-pass env:SIGNING_STORE_PASS \
-            --ks-key-alias "$ALIAS" --key-pass env:SIGNING_KEY_PASS \
-            --out "${APK_NAME:-$APP-$VERSION}.apk" app/build/outputs/apk/release/app-release-unsigned.apk
-          "$BT/apksigner" verify --print-certs "${APK_NAME:-$APP-$VERSION}.apk" | grep -E "Signer.*(DN|SHA-256 digest)"
-          test -s "${APK_NAME:-$APP-$VERSION}.apk"
