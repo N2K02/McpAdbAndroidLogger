@@ -46,13 +46,22 @@ object ShizukuSessionRegistry {
     fun uninstall(core: ShizukuSession) { if (current === core) current = null }
 }
 
+private enum class ShizukuConnectionFailure(val message: String) {
+    SERVER_UNAVAILABLE("Shizuku server unavailable · check LocalADB"),
+    PERMISSION_REQUIRED("Grant this logger Shizuku access"),
+    WRONG_SERVER_UID("Shizuku server must run as shell UID 2000"),
+    BIND_FAILED("Shizuku permission granted · could not start the logger shell service"),
+    BIND_TIMEOUT("Shizuku permission granted · logger shell service did not respond"),
+    VERIFICATION_FAILED("Shizuku logger shell service failed UID verification"),
+}
+
 /** A Shizuku user service is owned by the requesting app, authorized per package.
  * The Binder is never exported as an ordinary Android Service. */
 private class ShizukuBridge(context: Context) {
     private val app = context.applicationContext
     private val args = Shizuku.UserServiceArgs(
         ComponentName(app, ShizukuShellService::class.java)
-    ).daemon(false)
+    ).processNameSuffix("logger_shell").daemon(false)
     private val lock = Mutex()
     @Volatile private var binder: IBinder? = null
     @Volatile private var pending: CompletableDeferred<IBinder>? = null
@@ -66,38 +75,61 @@ private class ShizukuBridge(context: Context) {
         override fun onServiceDisconnected(name: ComponentName) { binder = null }
     }
 
-    private fun authorized(): Boolean = runCatching {
-        Shizuku.pingBinder() &&
-            Shizuku.getUid() == Process.SHELL_UID &&
-            Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
-    }.getOrDefault(false)
+    private fun accessFailure(): ShizukuConnectionFailure? = try {
+        when {
+            !Shizuku.pingBinder() -> ShizukuConnectionFailure.SERVER_UNAVAILABLE
+            Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED ->
+                ShizukuConnectionFailure.PERMISSION_REQUIRED
+            Shizuku.getUid() != Process.SHELL_UID -> ShizukuConnectionFailure.WRONG_SERVER_UID
+            else -> null
+        }
+    } catch (_: IllegalStateException) {
+        ShizukuConnectionFailure.SERVER_UNAVAILABLE
+    } catch (_: SecurityException) {
+        ShizukuConnectionFailure.PERMISSION_REQUIRED
+    }
 
-    suspend fun connect(): Boolean = lock.withLock {
-        if (!authorized()) return@withLock false
+    suspend fun connect(): ShizukuConnectionFailure? = lock.withLock {
+        accessFailure()?.let {
+            disconnectLocked()
+            return@withLock it
+        }
         if (binder?.isBinderAlive != true) {
             val deferred = CompletableDeferred<IBinder>()
             pending = deferred
             try {
-                Shizuku.bindUserService(args, connection)
                 bound = true
+                Shizuku.bindUserService(args, connection)
                 val received = withTimeoutOrNull(12_000L) { deferred.await() }
                 if (received == null || !received.isBinderAlive) {
                     disconnectLocked()
-                    return@withLock false
+                    return@withLock accessFailure() ?: ShizukuConnectionFailure.BIND_TIMEOUT
                 }
+            } catch (cancelled: CancellationException) {
+                disconnectLocked()
+                throw cancelled
             } catch (_: Exception) {
                 disconnectLocked()
-                return@withLock false
+                return@withLock accessFailure() ?: ShizukuConnectionFailure.BIND_FAILED
             } finally {
                 pending = null
             }
         }
-        runCatching { execute("id -u", 3_000L).trim() == "2000" }
-            .getOrDefault(false).also { if (!it) disconnectLocked() }
+        val verified = try {
+            execute("id -u", 3_000L).trim() == "2000"
+        } catch (cancelled: CancellationException) {
+            disconnectLocked()
+            throw cancelled
+        } catch (_: Exception) {
+            false
+        }
+        if (verified) return@withLock null
+        disconnectLocked()
+        accessFailure() ?: ShizukuConnectionFailure.VERIFICATION_FAILED
     }
 
     suspend fun execute(command: String, timeoutMs: Long): String {
-        check(authorized()) { "Shizuku authorization or shell UID 2000 unavailable" }
+        accessFailure()?.let { error(it.message) }
         val service = binder?.takeIf { it.isBinderAlive }
             ?: error("Shizuku user service disconnected")
         require(command.length in 1..ShizukuShellService.MAX_COMMAND_CHARS)
@@ -167,9 +199,10 @@ class ShizukuSession(context: Context, private val preferences: ShizukuPreferenc
         if (!auto) preferences.setManuallyStopped(false)
         _state.value = ShizukuState(phase = ShizukuPhase.CONNECTING,
             message = "Connecting to LocalADB Shizuku…")
-        if (!bridge.connect()) {
+        val failure = bridge.connect()
+        if (failure != null) {
             _state.value = ShizukuState(phase = ShizukuPhase.NEEDS_SETUP,
-                message = "Start LocalADB and grant this app access")
+                message = failure.message, lastVerifiedAt = preferences.lastVerifiedAt())
             return@withLock false
         }
         val now = System.currentTimeMillis()

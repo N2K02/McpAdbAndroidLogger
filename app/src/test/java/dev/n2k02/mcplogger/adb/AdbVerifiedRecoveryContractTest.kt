@@ -13,8 +13,8 @@ class AdbVerifiedRecoveryContractTest {
     @Test fun shellAlwaysChecksShizukuAndRealUid() {
         val session = source("shizuku/ShizukuSession.kt")
         assertTrue(session.contains("Shizuku.pingBinder()"))
-        assertTrue(session.contains("Shizuku.getUid() == Process.SHELL_UID"))
-        assertTrue(session.contains("Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED"))
+        assertTrue(session.contains("Shizuku.getUid() != Process.SHELL_UID"))
+        assertTrue(session.contains("Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED"))
         assertTrue(session.contains("bridge.execute(\"id -u\", 3_000L)"))
         assertTrue(session.contains("throw SecurityException("))
         assertTrue(source("adb/AdbCoordinator.kt").contains("verified.value = state.connected"))
