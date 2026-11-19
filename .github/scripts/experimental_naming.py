@@ -11,7 +11,7 @@ import sys
 import urllib.error
 import urllib.request
 
-TAG = re.compile(r"^(?:sdcleaner-)?v?(\d+)\.(\d)$", re.I)
+TAG = re.compile(r"^(?:(?:adb|shizuku)-)?(?:sdcleaner-)?v?(\d+)\.(\d)$", re.I)
 EXPERIMENT = re.compile(r"^(.*?) (\d+\.\d)-experimental\.(\d+)$", re.I)
 LEGACY = re.compile(r"^experimental-pr-(\d+)-run-(\d+)$", re.I)
 MAX_PAGES = 20
@@ -88,6 +88,9 @@ def naming(repo, app, run, pr):
 
 def tests():
     assert next_base("v8.3") == "8.4"
+    assert next_base("adb-v4.1") == "4.2"
+    assert next_base("shizuku-v4.1") == "4.2"
+    assert next_base("adb-sdcleaner-v2.9") == "3.0"
     assert next_base("sdcleaner-v2.9") == "3.0"
     assert latest_sequence([], "VREC", "8.4", 5, 1) == 1
     releases = [{"name": "VREC 8.4-experimental.2", "tag_name": "experimental-pr-1-run-5", "prerelease": True},
