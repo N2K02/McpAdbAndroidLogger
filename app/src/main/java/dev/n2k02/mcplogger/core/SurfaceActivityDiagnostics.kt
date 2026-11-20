@@ -147,6 +147,14 @@ internal object SurfaceActivityDiagnostics {
                 })
                 .put("frame_timeline_supported", traceResult?.frameStatus == "ok")
                 .put("scheduler_events_supported", traceResult?.schedStatus == "ok")
+                // An empty Perfetto trace does not erase real TimeStats evidence.
+                // SurfaceFlinger contributions remain ranked; never call this
+                // a successful FrameTimeline capture or invent per-app GPU use.
+                .put("perfetto_fallback_used", usePerfetto && traceStatus != "ok" &&
+                    layers.isNotEmpty())
+                .put("perfetto_fallback_source", if (usePerfetto &&
+                    traceStatus != "ok" && layers.isNotEmpty())
+                    "surfaceflinger_timestats" else JSONObject.NULL)
                 .put("taken_at", System.currentTimeMillis())
                 .put("notes", "Explicit bounded capture. SurfaceFlinger CPU is shared across " +
                     "all layers; ranked packages are rendering contributors, NOT per-app " +
