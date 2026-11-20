@@ -2,7 +2,15 @@
 
 Android Logcat monitoring and a read-only AI MCP bridge, using the **same shared N2K02 template** as mRadio and AAYouTube.
 
-**Development:** one experimental PR, no changes to the production branch until CI/device verification. GPL-3.0-or-later (LogFox-derived parsing).
+**Development:** reuse the single `experimental` branch/PR for Shizuku changes. Protected stable branches accept changes only through reviewed, green CI. GPL-3.0-or-later (LogFox-derived parsing).
+
+## Stable and experimental: one Shizuku APK per channel
+
+The target release layout is **one Stable release** and **one Experimental release**, each containing **one Shizuku APK** (not separate ADB and Shizuku downloads). The canonical branches after consolidation will be `main` (stable) and `experimental` (experimental). Existing signed Shizuku APKs and their signing lineage must remain update-compatible.
+
+**Migration status:** [PR #59](https://github.com/N2K02/McpAdbAndroidLogger/pull/59) is still a draft with conflicts. Until it merges and CI verifies the replacement release pipeline, `main-shizuku` remains the Shizuku stable branch. Historical `main-adb` and `experimental-adb-integrated` must not publish into the new Shizuku-only channels; retain them as rollback references until cutover is verified. Do not delete old releases needed for installed clients' updates.
+
+See [Release channels and cleanup policy](docs/RELEASE_CHANNELS.md) for the rollout and deletion gates.
 
 ## Start here: public MCP connection through Cloudflare Worker
 
@@ -22,10 +30,10 @@ Android Logcat monitoring and a read-only AI MCP bridge, using the **same shared
 
 ## Components
 
-- **Android app:** Material 3 Expressive via `dev.n2k02:theme:0.1.4`, single mRadio-style header, Home, Settings, Logs, Quit.
-- **In-app updater:** `dev.n2k02:updater:0.1.19`, stable/experimental channels, shared update screen, pending-update badges and install guard while capture is active. Configured for `https://n2k02.github.io/mcpadbandroidlogger/updates`.
-- **Embedded ADB:** VRec-derived private ADB client; first-pairing via Android Wireless debugging, mDNS port discovery, UID 2000 verification, optional TCP/5555 promotion and reconnect.
-- **Logcat:** On-demand, bounded `logcat -d` snapshots via ADB (no continuous polling), LogFox-inspired parsing, package/UID filtering, cursor history and crash/ANR detection; read-only.
+- **Android app:** Material 3 Expressive via `dev.n2k02:theme:0.1.14`, mRadio-style navigation, Logs, settings and Quit.
+- **In-app updater:** `dev.n2k02:updater:0.1.38`, Shizuku-scoped stable/experimental channels, shared update UI and signer validation.
+- **Privileged shell:** external Shizuku service and its authorized Binder-backed shell. This app's Shizuku variant does **not** embed an ADB pairing/TCP transport.
+- **Logcat:** on-demand bounded snapshots through Shizuku shell access (no continuous polling), LogFox-inspired parsing, package/UID filtering and crash/ANR detection; read-only.
 - **MCP gateway:** outbound HTTPS ingestion and authenticated Streamable HTTP MCP server. The gateway cannot execute device commands.
 
 ## Build
@@ -41,11 +49,12 @@ This repository's Actions secrets must be configured; secrets from other reposit
 
 ## Device setup
 
-1. Install debug APK. Enable USB debugging and Wireless debugging.
-2. In **Settings → ADB connection**, open Android's **Pair device with pairing code** and enter the code using **Pair manually** (or enable the optional Accessibility helper in **Settings → ADB connection**). Android must authorize the app's ADB key once.
-3. The app validates `id -u == 2000` before starting capture. TCP/5555 is enabled by default but can expose an ADB listener to the LAN; disable in Settings if not wanted.
-4. Use **Logs → Search**, or request a Logcat tool from MCP. Each request reads Android's existing logd buffer once and stops. ADB and the phone-hosted MCP foreground service remain connected; no continuous capture runs.
-5. For remote AI access, follow the **Start here** Cloudflare Worker steps above. Your phone hosts the MCP service; once the permanent Worker endpoint is **Online**, connect via OAuth/DCR. **Do not generate or rotate the MCP client access key merely to troubleshoot a Worker deployment.**
+1. Install the Shizuku APK and install/start Shizuku (or the supported LocalADB-hosted Shizuku server).
+2. Authorize this app in Shizuku, then verify its status in the app's Shizuku settings. The privileged shell should pass its expected shell-identity check before log access.
+3. Use **Logs → Search** or a read-only Logcat MCP tool. Each request reads a bounded snapshot, without continuous capture.
+4. For remote AI access, follow the Cloudflare Worker setup above. Use the existing public MCP URL, OAuth/DCR and client access key; do not rotate credentials to troubleshoot a Worker deployment.
+
+The embedded ADB pairing-code UI, TCP/5555 promotion and wireless debugging recovery belong to the historical integrated-ADB variant, **not** the Shizuku release.
 
 ## Legacy external MCP gateway (optional, not the recommended phone-hosted flow)
 
@@ -72,23 +81,20 @@ pytest gateway/tests
 
 ## APK configuration: stable and experimental
 
-Release setup matches AAYouTube/VRec. **Both PR and stable produce an R8-minified release APK signed with the same signing key**, never a debug-key APK as a published update.
+**After PR #59 cutover**, publish only two user-facing Shizuku channels:
 
-- Experimental PR: `McpAdbAndroidLogger-1.0.apk` (name based on latest stable baseline), Android versionName `1.0-experimental.RUN`, versionCode `100000 + GITHUB_RUN_NUMBER`. Published as `experimental-pr-N-run-RUN` prerelease in source Releases and `mcpadbandroidlogger/updates/experimental.json` in the public distribution.
-- Stable main build: increments the last stable `major.minor` version, publishes `McpAdbAndroidLogger-X.Y.apk` under `vX.Y` as the latest stable release, and updates `mcpadbandroidlogger/updates/stable.json`.
-- Signing sources supported: `signing/keys.tar.enc` + `SIGNING_PASSPHRASE` (AAYouTube/MRadio), `SIGNING_KEYSTORE_ENC_BASE64` + `SIGNING_PASSPHRASE` (VRec), or `ANDROID_SIGNING_KEYSTORE_B64` + `ANDROID_SIGNING_STORE_PASSWORD`/`ANDROID_SIGNING_ALIAS`. Missing signing material **fails CI**, not a silent debug fallback.
-- Signed APKs are retained as Actions artifacts and public source Releases. Stable and experimental updates download directly from those releases without a distribution credential.
-- `n2k02updater` uses the same stable/experimental toggle, installation-time signer validation, and user-triggered update flow as the other apps. Updates are blocked while live log capture is active.
+- **Stable:** source `main`, tag `shizuku-vX.Y`, signed asset `McpAdbAndroidLogger-SHIZUKU-X.Y.apk`.
+- **Experimental:** source `experimental` through its PR into `main`, prerelease tag `experimental-shizuku-pr-N-run-R`, signed asset `McpAdbAndroidLogger-SHIZUKU-X.Y-experimental.R.apk`.
 
-CI validates MCP gateway tests, Android unit tests/lint, R8 release builds, and public version-resolution regression tests. The signed release APK is installed on an Android API 35 emulator and cold-launched three times before it can be published, catching WorkManager/Room startup crashes that debug/unit tests miss.
+Each channel should expose only its newest eligible Shizuku APK in the public grouped download release; do not add ADB APK assets. Release tags, version metadata and Shizuku track selection must remain compatible with existing installed Shizuku builds. ADB-to-Shizuku switching is a manual migration, never an automatic update. Avoid lowering versionCode or changing the application ID or signing identity.
+
+The release workflow builds/tests a debug APK, then publishes an R8-minified **release** APK signed with the configured release key. Secrets missing or a signing mismatch must fail CI; never publish a debug-signed fallback. Require gateway tests, unit tests, Android lint, signed APK verification, release-contract checks and all branch protection checks before a stable publication.
+
+The prior dual-architecture releases and tags are historical and must not be automatically deleted until the new stable release and updater continuity are verified on a device. See [Release channels and cleanup policy](docs/RELEASE_CHANNELS.md).
 
 ## Hardware validation needed
 
-Initial pairing and permission approvals, Android 13+ Logcat availability, TCP/5555 handoff, OEM reboot recovery, foreground-service time limits, update signer continuity and Claude OAuth integration must be tested on an Android device and deployment. CI passing alone cannot verify these.
-
-
-The **Home → Connection** tab hosts the pairing-code entry, live discovery status, manual Retry, and Developer options shortcut. **Settings → ADB connection** contains only VRec's two cards and five choices. USB debugging alone does not authorize an app, start local TCP/5555 or establish a loopback ADB connection: pair/authorize through Wireless debugging or use an already authorized TCP/5555 listener. Every successful connection must verify shell UID 2000.
-
+Verify Shizuku authorization and restart/reboot recovery, Android 13+ Logcat access, foreground-service lifecycle, update signer/version continuity, and Cloudflare Worker/OAuth connectivity on an actual device. A green CI build alone cannot establish device-level reliability.
 
 ## Permanent MCP URL (Cloudflare Worker)
 
@@ -135,7 +141,7 @@ The signed APK contains the official Cloudflare 2026.10.7 ARM64 binary
 verified with SHA-256. Other CPU architectures expose only local MCP.
 No executable is downloaded at runtime. The server binds to 127.0.0.1,
 validates Origin, uses constant-time bearer-token authentication and strict
-request size limits. Log tools trigger one bounded, read-only ADB Logcat dump, redact
+request size limits. Log tools trigger one bounded, read-only Shizuku shell Logcat dump, redact
 results and return them; they do not grant an MCP client arbitrary shell access.
 
 Logcat is idle between explicit refreshes; Quit stops the service, local MCP,
@@ -148,7 +154,7 @@ retained for legacy use but no longer uploads logs in phone-hosted mode.
 The Android **Logs** page already has an app/package picker. **Remote MCP
 clients now have their own optional `package_name` argument**, independent of
 the phone's UI filter, on `get_live_logs`, `search_logs`, `get_crashes` and
-`get_anrs`. To find exact names call `list_installed_apps` first (the ADB
+`get_anrs`. To find exact names call `list_installed_apps` first (the Shizuku
 shell lists third-party packages with UID mappings).
 
 For example, ask your connected MCP agent to call
@@ -184,7 +190,7 @@ The bottom navigation is **Home · Audits · Logs · Settings · Quit**.
 Home has one page with manual Logcat statistics and a separate MCP activity
 card (read count, active tools and last read time). Home no longer contains
 performance or connection tabs, and MCP reads never modify manual Logs or
-manual search statistics. ADB and MCP connection settings remain under Settings.
+manual search statistics. Shizuku access and MCP connection settings remain under Settings.
 
 **Logs** is for manual Logcat only. Tap **Search** for an explicit device
 snapshot, then use its app, severity, time, text, tag or PID filters. The
@@ -199,33 +205,11 @@ Remote diagnostics are strictly on demand, with no background Logcat polling,
 streaming or arbitrary shell command access. See
 [Diagnostic MCP tools](docs/DIAGNOSTIC_LOGCAT.md).
 
-## VRec ADB parity and persistent background MCP
+## Shizuku access and persistent background MCP
 
-ADB connection matches the latest VRec `main` design (Pairing & recovery,
-Connection & security) and copies VRec's behavioral policy where it applies:
-automatic pairing-code detection through explicit Accessibility consent;
-2-minute in-process ADB watchdog with a 15-minute WorkManager backstop;
-boot-aware TLS-port verification, conservative authorization retry, opt-in
-Wireless debugging restoration after reboot (never overriding same-boot manual
-off), and verified TCP/5555 disable. The logger does not copy VRec's recording
-daemon or call capture routines.
+The canonical app uses **Shizuku Binder-based privileged shell access** and does not perform embedded ADB pairing, TCP/5555 promotion or ADB key management. The historical integrated-ADB implementation remains isolated from Shizuku releases.
 
-The phone-hosted MCP listener/tunnel belongs to a persistent
-`connectedDevice` foreground service, not the UI. It continues when the
-user opens Claude/ChatGPT, switches apps, or turns off the screen, subject to
-Android battery restrictions, task-manager stop and device power policies.
-Android 15 limits `dataSync` foreground services to six hours, so the
-ADB/network service uses the documented `connectedDevice` type with its
-required permission. Cloudflared retries transient outages with backoff and
-keeps a confirmed Quick Tunnel registration. No battery or wakelock bypass
-is attempted.
-
-Closing the Activity leaves the connection available; Stop server persists
-until explicitly restarted. Quit cancels ADB workers, discovery, foreground
-capture, local MCP listener and public tunnel. Start on boot controls
-best-effort recovery, which is still subject to Android's boot/foreground
-service launch rules.
-
+The phone-hosted MCP listener and tunnel run under the app's foreground service and can continue when the UI is closed, subject to Android battery, task-manager and foreground-service policies. Cloudflared retries transient network errors. Stopping the server or using Quit stops app-owned MCP, tunnel and diagnostic work; it does not stop the external Shizuku service.
 
 ## OAuth for any remote MCP agent (Claude, ChatGPT, other providers)
 
@@ -318,14 +302,14 @@ callback cannot reach ChatGPT, restart connection setup using the current URL.
   Android's original system buffers. An in-flight snapshot result is discarded
   so it cannot refill the list with pre-clear entries.
 - **Logs → Clear device Logcat (all buffers)** requires a separate confirmation,
-  a connected and newly verified ADB shell UID 2000, and executes
+  a connected and newly verified Shizuku shell UID 2000, and executes
   `logcat -b all -c`. This deletes Android's available system-wide Logcat
   buffers (including logs from other apps). It resets the app's captured-log
   cache, dedup window and current-session counters only on success. New
   events appear after the next explicit manual or MCP refresh.
 - **Home → Logcat activity → Reset Home statistics** resets the scan totals,
   error count and last-scan timestamp without deleting the buffered events.
-  ADB connection, public MCP URL, access key and live statuses remain
+  Shizuku access, public MCP URL, access key and live statuses remain
   authoritative and unchanged.
 - None of these actions deletes **Audits** records; use that
   screen's separate Clear history button for the private MCP audit journal.
@@ -361,7 +345,7 @@ API keys, bearer tokens or HTTP headers are written to the audit journal.
 
 ## CPU and graphics performance snapshots (on demand)
 
-The **Home → CPU & frame timing** card requires verified local ADB shell
+The **Home → CPU & frame timing** card requires verified local Shizuku shell
 UID 2000. Nothing polls CPU or GPU in the background. Remote MCP agents can
 request one of the following read-only tools after installing the experimental
 APK and refreshing their MCP tool catalog:
@@ -383,7 +367,7 @@ GPU-completion latency includes scheduling and must not be treated as GPU
 execution time. When UI frame stats are unavailable, the response is
 no_ui_framestats, not an invented 0% GPU load.
 
-Only fixed built-in commands are executed by the authenticated local ADB
+Only fixed built-in commands are executed by the authorized Shizuku shell
 client; package names are strictly validated to prevent shell argument
 injection. There is no public arbitrary-command endpoint, no daemon running
 CPU/GPU probes, no persisted traces, and no file writes. One performance
@@ -449,7 +433,7 @@ Logcat, stored exports or revoke MCP agent authorization.
 
 **Home → Performance → Device health** includes Battery, RAM / PSI,
 Wakelock snapshot, Start baseline and Compare. Equivalent authenticated MCP tools
-require verified ADB shell UID 2000:
+require verified Shizuku shell UID 2000:
 
 - get_cpu_usage: already implemented; a single bounded top process sample.
 - get_battery_diagnostics: battery level, charging state, temperature and
@@ -473,7 +457,7 @@ require verified ADB shell UID 2000:
   **per-package layer counts only**. The raw layer/window names can include
   private activity or notification text and are intentionally discarded.
   Package layer counts are not per-app rendering rates, compositor CPU or
-  hardware GPU usage. ADB permission limitations are reported explicitly.
+  hardware GPU usage. Shizuku/Android permission limitations are reported explicitly.
   A matching read-only button is available under Home → Performance →
   Device health.
 - get_surfaceflinger_activity: one explicit 3–10-second TimeStats window (default
@@ -487,12 +471,12 @@ require verified ADB shell UID 2000:
   `sched/sched_switch` and process metadata. On ARM64 builds it uses a
   **build-time SHA-256-verified official Perfetto Trace Processor v57.2** bundled
   as an executable installed native library, when Android has no system
-  `trace_processor_shell`. It runs through the existing verified ADB shell
+  `trace_processor_shell`. It runs through the existing verified Shizuku shell
   UID 2000, only during an explicit deep diagnostic. The binary is 13.1 MB
   uncompressed, so the APK becomes larger; it is never downloaded at runtime.
   Other ABIs and devices that reject native binary execution safely report
   `processor_unavailable`/`capture_unavailable` with TimeStats fallback.
-  No Shizuku dependency or elevated/root permissions are added.
+  The Shizuku variant relies on authorized Shizuku shell access; no root permission is required.
   The CPU/TimeStats endpoint is captured before SQL trace analysis for
   consistent timing. Only aggregate verified-package frame/jank counts and
   shared compositor scheduled CPU time are returned; raw trace data, window
@@ -569,13 +553,13 @@ discover the new tools; older APKs can still advertise just the original six.
 The **existing** `get_device_status` tool reports
 `mcp_catalog_revision`, `mcp_tool_count`,
 `mcp_tool_names`, `on_demand_health_available`, and
-`on_demand_health_ready` without running any ADB diagnostics.
-The experimental catalog contains **25 built-in tools**, including
+`on_demand_health_ready` without running any privileged diagnostics.
+The current Shizuku catalog contains **29 built-in tools**, including
 `get_app_runtime`, `get_app_ops`, and four read-only system diagnostic tools. The MCP audit tool is not exposed.
 `get_device_status` reports the installed catalog revision.
 
 If ChatGPT still offers only the original six tool names but
-`get_device_status` reports 25 built-in tools, the phone server is updated
+`get_device_status` reports 29 built-in tools, the phone server is updated
 and the *ChatGPT MCP integration's cached tool schema* is out of date.
 Reconnect or re-add the existing MCP integration (using the same public MCP URL
 and authorized access) to force tool rediscovery. Merely rebuilding or
