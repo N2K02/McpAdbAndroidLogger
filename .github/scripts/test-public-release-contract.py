@@ -54,6 +54,7 @@ class PublicReleaseContract(unittest.TestCase):
         for file in workflows.glob('*.yml'):
             source = file.read_text()
             self.assertNotIn('group-downloads.yml', source, str(file))
+            self.assertNotIn('index-downloads.yml', source, str(file))
             self.assertNotIn('downloads-stable', source, str(file))
             self.assertNotIn('downloads-experimental', source, str(file))
 
