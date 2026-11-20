@@ -8,3 +8,4 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: python3 .github/scripts/test-public-release-contract.py
+      - run: python3 .github/scripts/group-shizuku-downloads.py --self-test

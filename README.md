@@ -6,9 +6,9 @@ Android Logcat monitoring and a read-only AI MCP bridge, using the **same shared
 
 ## Stable and experimental: one Shizuku APK per channel
 
-The target release layout is **one Stable release** and **one Experimental release**, each containing **one Shizuku APK** (not separate ADB and Shizuku downloads). The canonical branches after consolidation will be `main` (stable) and `experimental` (experimental). Existing signed Shizuku APKs and their signing lineage must remain update-compatible.
+The release layout is **one Stable release** and **one Experimental release**, each containing **one Shizuku APK** (not separate ADB and Shizuku downloads). The canonical branches are `main` (stable) and `experimental` (experimental). Existing signed Shizuku APKs and their signing lineage must remain update-compatible.
 
-**Migration status:** [PR #59](https://github.com/N2K02/McpAdbAndroidLogger/pull/59) is still a draft with conflicts. Until it merges and CI verifies the replacement release pipeline, `main-shizuku` remains the Shizuku stable branch. Historical `main-adb` and `experimental-adb-integrated` must not publish into the new Shizuku-only channels; retain them as rollback references until cutover is verified. Do not delete old releases needed for installed clients' updates.
+**Branch consolidation:** [PR #59](https://github.com/N2K02/McpAdbAndroidLogger/pull/59) migrates Shizuku stable onto `main`. After it is merged and the stable release verifies successfully, `main-shizuku` can be retired; use `experimental` for future Shizuku changes. Historical integrated-ADB releases must not be offered as Shizuku updates, and previously published versioned releases should remain available for update continuity.
 
 See [Release channels and cleanup policy](docs/RELEASE_CHANNELS.md) for the rollout and deletion gates.
 

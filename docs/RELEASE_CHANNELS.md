@@ -13,11 +13,11 @@ Stable and experimental must use the same Android application ID and signing lin
 
 The public grouped downloads, `downloads-stable` and `downloads-experimental`, should each contain **one current Shizuku APK**, not parallel ADB/Shizuku APKs. Keep the correct latest stable pointer, release notes, signature/version metadata, and updater routing. Historical tags and previously published releases are retained until update continuity has been validated.
 
-## Migration is not yet complete
+## Migration verification and acceptance
 
-As of 2026-11-20, the active Shizuku stable source is `main-shizuku`; `main` still contains legacy code and [PR #59](https://github.com/N2K02/McpAdbAndroidLogger/pull/59) is a draft with merge conflicts. This document specifies the **target state**, not a claim that the new channels are already live.
+[PR #59](https://github.com/N2K02/McpAdbAndroidLogger/pull/59) brings the Shizuku implementation onto the protected `main` branch. Treat `main` as canonical only after the migration PR and its stable build pass, and verify that the two grouped releases are populated exclusively with Shizuku APKs.
 
-Only switch to `main` when:
+The migration acceptance checks are:
 
 1. Resolve the conflicting commits between `main` and `main-shizuku` without discarding compatible diagnostic fixes or importing integrated-ADB transport into the Shizuku architecture.
 2. Migrate both the stable and experimental verification workflow triggers from `main-shizuku` to `main`; keep required PR/build/release approval checks on the protected stable branch.
@@ -31,8 +31,8 @@ Do **not** bypass failing CI, force-push protected stable branches, delete histo
 ## Branch cleanup policy
 
 - **Keep:** `main` (future stable), `experimental` (single reused experimental working branch).
-- **Keep through migration:** `main-shizuku` (current stable and head of PR #59). Remove only after the PR is merged, migration is verified, and any downstream references are updated.
-- **Archive/hold before removal:** `main-adb` and `experimental-adb-integrated` contain a distinct integrated-ADB implementation; do not merge them into Shizuku or delete them while a rollback path is still needed. Disable their release triggers as part of cutover, then consider archival/branch deletion after verification.
+- **Keep through migration:** `main-shizuku` (former stable and head of PR #59). Remove only after the PR is merged, migration is verified, and any downstream references are updated.
+- **Archive/hold before removal:** `main-adb` and `experimental-adb-integrated` were integrated-ADB branches; they may be gone but historical versioned ADB releases must remain available until explicitly retired. Disable their release triggers as part of cutover, then consider archival/branch deletion after verification.
 - **Cleanup candidates:** `experimental-scrcpy-diagnostics`, `maintenance/group-architecture-downloads`, and `maintenance/preserve-canonical-latest` if their changes are fully merged or superseded and no workflows/PRs rely on them. Check commit reachability before deletion.
 - **Keep while PR open:** `dependabot/all_dependencies-ab7af4b34d` is associated with an open dependency PR; do not delete it until the PR is resolved.
 

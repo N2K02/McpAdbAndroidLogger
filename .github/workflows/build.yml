@@ -2,9 +2,9 @@ name: Build APK
 
 on:
   push:
-    branches: [main-shizuku]
+    branches: [main]
   pull_request:
-    branches: [main-shizuku]
+    branches: [main]
     types: [opened, synchronize, reopened]
 
 permissions:
@@ -21,10 +21,37 @@ env:
 
 jobs:
   stable-approval:
+    # The legacy reusable gate accepts only main-adb/main-shizuku.
+    # Keep an equivalent main-specific gate checking the merged PR and CI head.
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: read
-    uses: N2K02/n2k02updater/.github/workflows/require-stable-merge.yml@cfbb69f4ac19cf6b24aea96f82cadf2144c29635
+      checks: read
+    steps:
+      - name: Verify stable main comes from a protected, green pull request
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || { echo "::error::Stable publication only runs from main"; exit 1; }
+          head=""
+          for delay in 0 2 4 8 12; do
+            sleep "$delay"
+            head=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" |
+              jq -r --arg branch "main" --arg sha "$GITHUB_SHA" --arg repo "$GITHUB_REPOSITORY"                 '[.[][] | select(.state == "closed" and .merged_at != null and .base.ref == $branch and .base.repo.full_name == $repo and .merge_commit_sha == $sha) | .head.sha] | .[0] // empty')
+            [[ -z "$head" ]] || break
+          done
+          [[ "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::No approved PR matches this exact main merge commit"; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/rules/branches/main" |
+            jq -e 'map(.type) as $rules | ["pull_request", "non_fast_forward"] | all(. as $item | $rules | index($item) != null)' >/dev/null ||
+            { echo "::error::PR and force-push protections must be active on main"; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/commits/$head/check-runs?per_page=100" |
+            jq -e '.check_runs as $checks | ["build", "verify-apk", "contract"] |
+              all(. as $required | any($checks[]; .name == $required and .status == "completed" and .conclusion == "success"))' >/dev/null ||
+            { echo "::error::Merged PR head lacks successful build, verify-apk or contract checks"; exit 1; }
   build:
     needs: stable-approval
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
@@ -261,6 +288,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish stable or PR experimental release
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'experimental')
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -276,7 +304,7 @@ jobs:
             tag="shizuku-v$VERSION"
             title="$APP $VERSION"
             target="$BUILD_COMMIT"
-            extra=(--latest=false)
+            extra=(--latest)
           fi
           if gh release view "$tag" >/dev/null 2>&1; then
             if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
@@ -291,7 +319,7 @@ jobs:
 
   download-index:
     needs: build
-    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'experimental')
     permissions:
       contents: write
     uses: N2K02/n2k02updater/.github/workflows/index-downloads.yml@ae58c3ce0196b1b30d214927dd529ce5d779febf

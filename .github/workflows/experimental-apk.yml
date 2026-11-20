@@ -2,7 +2,7 @@ name: MCP experimental APK verification
 
 on:
   pull_request:
-    branches: [main-shizuku]
+    branches: [main]
 
 permissions:
   contents: read
