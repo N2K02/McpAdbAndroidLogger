@@ -141,7 +141,7 @@ The signed APK contains the official Cloudflare 2026.10.7 ARM64 binary
 verified with SHA-256. Other CPU architectures expose only local MCP.
 No executable is downloaded at runtime. The server binds to 127.0.0.1,
 validates Origin, uses constant-time bearer-token authentication and strict
-request size limits. Log tools trigger one bounded, read-only ADB Logcat dump, redact
+request size limits. Log tools trigger one bounded, read-only Shizuku shell Logcat dump, redact
 results and return them; they do not grant an MCP client arbitrary shell access.
 
 Logcat is idle between explicit refreshes; Quit stops the service, local MCP,
@@ -154,7 +154,7 @@ retained for legacy use but no longer uploads logs in phone-hosted mode.
 The Android **Logs** page already has an app/package picker. **Remote MCP
 clients now have their own optional `package_name` argument**, independent of
 the phone's UI filter, on `get_live_logs`, `search_logs`, `get_crashes` and
-`get_anrs`. To find exact names call `list_installed_apps` first (the ADB
+`get_anrs`. To find exact names call `list_installed_apps` first (the Shizuku
 shell lists third-party packages with UID mappings).
 
 For example, ask your connected MCP agent to call
@@ -190,7 +190,7 @@ The bottom navigation is **Home · Audits · Logs · Settings · Quit**.
 Home has one page with manual Logcat statistics and a separate MCP activity
 card (read count, active tools and last read time). Home no longer contains
 performance or connection tabs, and MCP reads never modify manual Logs or
-manual search statistics. ADB and MCP connection settings remain under Settings.
+manual search statistics. Shizuku access and MCP connection settings remain under Settings.
 
 **Logs** is for manual Logcat only. Tap **Search** for an explicit device
 snapshot, then use its app, severity, time, text, tag or PID filters. The
@@ -302,14 +302,14 @@ callback cannot reach ChatGPT, restart connection setup using the current URL.
   Android's original system buffers. An in-flight snapshot result is discarded
   so it cannot refill the list with pre-clear entries.
 - **Logs → Clear device Logcat (all buffers)** requires a separate confirmation,
-  a connected and newly verified ADB shell UID 2000, and executes
+  a connected and newly verified Shizuku shell UID 2000, and executes
   `logcat -b all -c`. This deletes Android's available system-wide Logcat
   buffers (including logs from other apps). It resets the app's captured-log
   cache, dedup window and current-session counters only on success. New
   events appear after the next explicit manual or MCP refresh.
 - **Home → Logcat activity → Reset Home statistics** resets the scan totals,
   error count and last-scan timestamp without deleting the buffered events.
-  ADB connection, public MCP URL, access key and live statuses remain
+  Shizuku access, public MCP URL, access key and live statuses remain
   authoritative and unchanged.
 - None of these actions deletes **Audits** records; use that
   screen's separate Clear history button for the private MCP audit journal.
@@ -345,7 +345,7 @@ API keys, bearer tokens or HTTP headers are written to the audit journal.
 
 ## CPU and graphics performance snapshots (on demand)
 
-The **Home → CPU & frame timing** card requires verified local ADB shell
+The **Home → CPU & frame timing** card requires verified local Shizuku shell
 UID 2000. Nothing polls CPU or GPU in the background. Remote MCP agents can
 request one of the following read-only tools after installing the experimental
 APK and refreshing their MCP tool catalog:
@@ -367,7 +367,7 @@ GPU-completion latency includes scheduling and must not be treated as GPU
 execution time. When UI frame stats are unavailable, the response is
 no_ui_framestats, not an invented 0% GPU load.
 
-Only fixed built-in commands are executed by the authenticated local ADB
+Only fixed built-in commands are executed by the authorized Shizuku shell
 client; package names are strictly validated to prevent shell argument
 injection. There is no public arbitrary-command endpoint, no daemon running
 CPU/GPU probes, no persisted traces, and no file writes. One performance
@@ -433,7 +433,7 @@ Logcat, stored exports or revoke MCP agent authorization.
 
 **Home → Performance → Device health** includes Battery, RAM / PSI,
 Wakelock snapshot, Start baseline and Compare. Equivalent authenticated MCP tools
-require verified ADB shell UID 2000:
+require verified Shizuku shell UID 2000:
 
 - get_cpu_usage: already implemented; a single bounded top process sample.
 - get_battery_diagnostics: battery level, charging state, temperature and
@@ -457,7 +457,7 @@ require verified ADB shell UID 2000:
   **per-package layer counts only**. The raw layer/window names can include
   private activity or notification text and are intentionally discarded.
   Package layer counts are not per-app rendering rates, compositor CPU or
-  hardware GPU usage. ADB permission limitations are reported explicitly.
+  hardware GPU usage. Shizuku/Android permission limitations are reported explicitly.
   A matching read-only button is available under Home → Performance →
   Device health.
 - get_surfaceflinger_activity: one explicit 3–10-second TimeStats window (default
@@ -471,7 +471,7 @@ require verified ADB shell UID 2000:
   `sched/sched_switch` and process metadata. On ARM64 builds it uses a
   **build-time SHA-256-verified official Perfetto Trace Processor v57.2** bundled
   as an executable installed native library, when Android has no system
-  `trace_processor_shell`. It runs through the existing verified ADB shell
+  `trace_processor_shell`. It runs through the existing verified Shizuku shell
   UID 2000, only during an explicit deep diagnostic. The binary is 13.1 MB
   uncompressed, so the APK becomes larger; it is never downloaded at runtime.
   Other ABIs and devices that reject native binary execution safely report
@@ -553,7 +553,7 @@ discover the new tools; older APKs can still advertise just the original six.
 The **existing** `get_device_status` tool reports
 `mcp_catalog_revision`, `mcp_tool_count`,
 `mcp_tool_names`, `on_demand_health_available`, and
-`on_demand_health_ready` without running any ADB diagnostics.
+`on_demand_health_ready` without running any privileged diagnostics.
 The current Shizuku catalog contains **29 built-in tools**, including
 `get_app_runtime`, `get_app_ops`, and four read-only system diagnostic tools. The MCP audit tool is not exposed.
 `get_device_status` reports the installed catalog revision.
