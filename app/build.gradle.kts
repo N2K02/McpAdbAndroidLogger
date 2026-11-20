@@ -16,7 +16,7 @@ android {
         versionCode = versionNumber
         versionName = appVersion + ((findProperty("appVersionSuffix") as String?) ?: "")
     }
-    buildFeatures { compose = true; buildConfig = true; aidl = true }
+    buildFeatures { compose = true; buildConfig = true }
     packaging {
         jniLibs {
             useLegacyPackaging = true
@@ -39,8 +39,7 @@ android {
 }
 dependencies {
     implementation("dev.n2k02:theme:0.1.14")
-    implementation("dev.n2k02:updater:0.1.36")
-    implementation("dev.n2k02:adb-core:0.1.8")
+    implementation("dev.n2k02:updater:0.1.38")
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")
     implementation("androidx.compose.material3:material3:1.5.0-rc01")
@@ -49,7 +48,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     implementation("androidx.work:work-runtime-ktx:2.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
-    implementation("com.github.MuntashirAkon:libadb-android:3.1.1")
     implementation("org.bouncycastle:bcprov-jdk15to18:1.86")
     implementation("org.bouncycastle:bcpkix-jdk15to18:1.86")
     implementation("org.conscrypt:conscrypt-android:2.9.0")
@@ -61,7 +59,7 @@ val verifySharedLibraries = tasks.register("verifySharedLibraries") {
         val found = configurations.getByName("implementation").dependencies
             .filter { it.group == "dev.n2k02" }
             .associate { it.name to it.version }
-        check(found["theme"] == "0.1.14" && found["updater"] == "0.1.36") {
+        check(found["theme"] == "0.1.14" && found["updater"] == "0.1.38") {
             "Shared N2K02 theme and updater must be pinned to approved versions"
         }
     }

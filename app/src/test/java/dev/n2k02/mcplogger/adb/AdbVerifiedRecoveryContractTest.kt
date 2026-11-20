@@ -1,56 +1,45 @@
 package dev.n2k02.mcplogger.adb
 
+import java.io.File
 import org.junit.Assert.*
 import org.junit.Test
-import java.io.File
 
-/** Regression checks for the one-transport shared ADB runtime cutover. */
 class AdbVerifiedRecoveryContractTest {
-    private fun source(name: String): String {
-        val file = "app/src/main/java/dev/n2k02/mcplogger/adb/" + name
-        return listOf(File(file), File("../" + file)).first { it.isFile }.readText()
+    private fun source(file: String) = listOf(
+        File("app/src/main/java/dev/n2k02/mcplogger/$file"),
+        File("../app/src/main/java/dev/n2k02/mcplogger/$file")
+    ).first { it.isFile }.readText()
+
+    @Test fun shellAlwaysChecksShizukuAndRealUid() {
+        val session = source("shizuku/ShizukuSession.kt")
+        assertTrue(session.contains("Shizuku.pingBinder()"))
+        assertTrue(session.contains("Shizuku.getUid() != Process.SHELL_UID"))
+        assertTrue(session.contains("Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED"))
+        assertTrue(session.contains("bridge.execute(\"id -u\", 3_000L)"))
+        assertTrue(session.contains("throw SecurityException("))
+        assertTrue(source("adb/AdbCoordinator.kt").contains("verified.value = state.connected"))
     }
 
-    @Test fun allMcpShellCommandsUseSharedFreshUidVerification() {
-        val transport = source("AdbTransport.kt")
-        assertTrue(transport.contains("SharedAdbHostAdapter.current()?.let"))
-        assertTrue(transport.contains("core.execVerified(command, timeoutMs)"))
-        assertTrue(transport.contains("SharedAdbHostAdapter.current() == null"))
-        val coordinator = source("AdbCoordinator.kt")
-        assertTrue(coordinator.contains("SharedAdbHostAdapter.core(context.applicationContext)"))
-        assertTrue(coordinator.contains("verified.value = state.connected"))
-        assertFalse(coordinator.contains("AdbTransport.connect("))
-        assertFalse(coordinator.contains("AdbTransport.pairLocal("))
-    }
-
-    @Test fun tcpAndTlsRecoveryAndQuitAreOwnedByOneSharedCore() {
-        val coordinator = source("AdbCoordinator.kt")
-        assertTrue(coordinator.contains("shared.retry(auto = !userInitiated)"))
-        assertTrue(coordinator.contains("shared.connectTls(preferred)"))
-        assertTrue(coordinator.contains("shared.disableTcp()"))
-        assertTrue(coordinator.contains("SharedAdbHostAdapter.shutdown()"))
-        val adapter = source("SharedAdbHostAdapter.kt")
-        assertTrue(adapter.contains("AdbCoreRegistry.install(it)"))
-        assertTrue(adapter.contains("AdbCoreRegistry.uninstall(it)"))
+    @Test fun onlyShizukuCanExecuteShellCommands() {
+        val transport = source("adb/AdbTransport.kt")
+        assertTrue(transport.contains("ShizukuHostAdapter.current()"))
+        assertTrue(transport.contains("session.execVerified(command, timeoutMs)"))
+        for (obsolete in listOf("pairLocal(", "connectLocalTls(", "switchToTcpip(", "LibAdbWire", "Socket(")) {
+            assertFalse(obsolete, transport.contains(obsolete))
+        }
+        val adapter = source("adb/ShizukuHostAdapter.kt")
+        assertTrue(adapter.contains("ShizukuSessionRegistry.install(it)"))
+        assertTrue(adapter.contains("ShizukuSessionRegistry.uninstall(it)"))
         assertTrue(adapter.contains("it.quit()"))
-        val recovery = source("AdbRecoveryLifecycle.kt")
-        assertTrue(recovery.contains("core.setOption(AdbOption.WATCHDOG, enabled)"))
-        assertTrue(recovery.contains("never launch two watchdogs"))
     }
 
-    @Test fun listenerOpenAloneCannotClaimShellUid2000() {
-        val coordinator = source("AdbCoordinator.kt")
-        assertTrue(coordinator.contains("state.connected"))
-        assertTrue(coordinator.contains("state.transport == AdbTransportMode.LOCAL_TCP_5555"))
-        assertTrue(coordinator.contains("check(connected && shared.state.value.connected)"))
-        assertTrue(coordinator.contains("AdbRecoverySettings.manuallyQuit(app)"))
-        assertTrue(coordinator.contains("shared.acquireService()"))
-        assertTrue(coordinator.contains("observedCore?.releaseService()"))
-        assertTrue(coordinator.contains("serviceOwner = false"))
-        assertTrue(coordinator.contains("if (userInitiated)"))
-        assertTrue(coordinator.contains("discover(app)"))
-        val adapter = source("SharedAdbHostAdapter.kt")
-        assertTrue(adapter.contains("RecoveryWork.schedule(app)"))
-        assertTrue(adapter.contains("RecoveryWork.cancel(app)"))
+    @Test fun failedBinderDoesNotStayConnectedAndQuitStopsRecovery() {
+        val session = source("shizuku/ShizukuSession.kt")
+        assertTrue(session.contains("Shizuku.OnBinderDeadListener"))
+        assertTrue(session.contains("ShizukuPhase.NEEDS_SETUP"))
+        assertTrue(session.contains("Shizuku.removeBinderReceivedListener(binderReceived)"))
+        val lifecycle = source("adb/AdbRecoveryLifecycle.kt")
+        assertTrue(lifecycle.contains("RecoveryWork.cancel(app)"))
+        assertTrue(lifecycle.contains("scope.coroutineContext.cancelChildren()"))
     }
 }

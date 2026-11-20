@@ -1,23 +1,28 @@
-# Shared ADB lifecycle parity contract
+# Shizuku-only ADB access lifecycle
 
-For VREC, LocalAdb and McpAdbAndroidLogger, the shared ADB transport must:
-1. Use an RSA key persisted across app restarts. Do not rotate it on reconnect or Quit.
-2. Pass a freshly decoded disposable private-key object to each libadb manager.
-3. Use `disconnect()` (not manager `close()`) for ADB teardown, and retire the manager.
-4. On shell timeout, close the stream, disconnect the socket, invalidate manager
-   and connection state, then reverify shell UID 2000 after reconnect.
-5. Serialize shell commands and transport transitions. Close readers and writers.
-6. Reuse a live, already verified session without unnecessary disconnect/reconnect.
-7. Verify UID 2000 after connecting, and after TLS-to-TCP/5555 or USB mode changes.
-   A listening TCP port or saved pairing flag is never proof of authorization.
-8. Keep automatic recovery single-flight, bounded and cancellation-safe; respect
-   manual Stop/Quit and never override disabled Wireless debugging same-boot.
-9. Ensure one Quit owner awaits socket cleanup before finishing the Activity/Service.
-10. Test key isolation, reconnect, timeout, mode switches, and Quit cancellation.
+MCP Android Logger uses the **LocalADB Shizuku server** and never creates an ADB
+socket, opens TCP/5555, pairs over wireless debugging, or generates an RSA host identity.
 
-Only feature-specific work should vary: VREC's capture helper, LocalAdb's
-console/Shizuku server, and MCP Logger's Logcat/MCP/Cloudflare resources.
+## Connection
 
-Reference upstream: `MuntashirAkon/libadb-android` tag `3.1.1`.
-The upstream connection reader may print `Socket closed` on intentional
-shutdown; do not globally suppress unexpected I/O errors.
+1. **Settings → ADB** is the single setup page. It displays live Binder
+   availability, per-app permission, and shell UID 2000, like SEQ and VREC.
+2. The user starts LocalADB and grants MCP Android Logger Shizuku permission.
+3. `ShizukuHostAdapter` owns exactly one app-local `ShizukuSession`, shared by
+   background Logcat and MCP tools through `AdbCoordinator`.
+4. `ShizukuSession` verifies the Binder, permission, and UID 2000 when binding,
+   verifies `id -u` before every privileged command, and invalidates state on
+   disconnect or binder death. No cached historical grant authorizes commands.
+5. `AdbTransport.exec` only forwards to the Shizuku session.
+6. `AdbRecoveryLifecycle` retries only the app-side Binder connection. It never
+   starts LocalADB, changes wireless-debugging settings, or pairs ADB.
+7. Quit cancels app-owned recovery, unbinds the app's Shizuku user service,
+   removes Binder listeners, and stops MCP monitoring/tunnel resources.
+   LocalADB's separate server is not stopped by MCP Quit.
+
+## Tests
+
+Maintain tests covering Binder loss, permission and UID checks, command
+cancellation, single-session ownership, status refresh, and Quit. Reject any
+reintroduction of `AdbIdentity`, `AdbSessionKey`, pairing-code parsers,
+`libadb`, or TLS/TCP transport fallbacks.

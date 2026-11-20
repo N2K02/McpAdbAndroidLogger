@@ -31,7 +31,32 @@ class PublicReleaseContract(unittest.TestCase):
             self.assertIn('Version code:', t)
             self.assertIn('--prerelease', t)
             self.assertIn('--latest=false', t)
-            self.assertRegex(t, r'(make_latest: true|--latest[)\s])')
+            self.assertTrue('RELEASE_TRACK:' in t or re.search(r'(make_latest: true|--latest[)\s])', t))
+
+
+    def test_shizuku_only_direct_release_channels(self):
+        workflows = ROOT / '.github/workflows'
+        build = (workflows / 'build.yml').read_text()
+        verify = (workflows / 'experimental-apk.yml').read_text()
+        updater = (ROOT / 'app/src/main/java/dev/n2k02/mcplogger/LiveUpdater.kt').read_text()
+        naming = (ROOT / '.github/scripts/experimental_naming.py').read_text()
+        self.assertIn('branches: [main]', build)
+        self.assertIn('branches: [main]', verify)
+        self.assertIn('RELEASE_TRACK: shizuku', build)
+        self.assertIn('tag="shizuku-v$VERSION"', build)
+        self.assertIn('tag="experimental-shizuku-pr-$PR_NUMBER-run-$GITHUB_RUN_NUMBER"', build)
+        self.assertIn('extra=(--latest)', build)
+        self.assertIn('extra=(--prerelease --latest=false)', build)
+        self.assertIn('releaseTrack = "shizuku"', updater)
+        self.assertIn('shizuku-v', naming)
+        self.assertFalse((workflows / 'apk-retention.yml').exists())
+        self.assertFalse((ROOT / '.github/scripts/group-shizuku-downloads.py').exists())
+        for file in workflows.glob('*.yml'):
+            source = file.read_text()
+            self.assertNotIn('group-downloads.yml', source, str(file))
+            self.assertNotIn('index-downloads.yml', source, str(file))
+            self.assertNotIn('downloads-stable', source, str(file))
+            self.assertNotIn('downloads-experimental', source, str(file))
 
 if __name__ == '__main__':
     unittest.main()

@@ -289,7 +289,6 @@ class LogMonitorService : Service() {
                     .putBoolean("manual_quit", true).apply()
                 AdbRecoverySettings.setManuallyQuit(applicationContext, true)
                 AdbRecoveryLifecycle.shutdown(applicationContext)
-                dev.n2k02.mcplogger.shizuku.ShizukuReadBackend.shutdown()
                 MonitorState.quit()
                 // Keep the Service alive until ADB socket teardown completes:
                 // stopSelf triggers onDestroy, which cancels the Service scope.

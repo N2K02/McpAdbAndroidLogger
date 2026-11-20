@@ -15,6 +15,7 @@ import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.Semaphore
 import org.json.JSONObject
 
 /** Loopback-only authenticated local MCP endpoint. Owned by LogMonitorService. */
@@ -32,7 +33,8 @@ object LocalMcpServer {
         { task -> Thread(task, "mcp-local-client").apply { isDaemon = true } },
         ThreadPoolExecutor.AbortPolicy()
     )
-    // DiagnosticExecutionGate owns fair admission and bounded wait telemetry.
+    // Keep independent HTTP/OAuth workers responsive during shell diagnostics.
+    private val diagnosticSlots = Semaphore(2, true)
     private var workers: ExecutorService? = null
     @Volatile private var listener: ServerSocket? = null
     @Volatile private var active = false
@@ -108,7 +110,6 @@ object LocalMcpServer {
         listener = null
         MonitorState.localMcp.value = "Stopped"
         DeviceDiagnostics.clearBaseline()
-        DiagnosticExecutionGate.reset()
     }
 
     /** Never log OAuth parameters, headers, browser forms, access tokens or codes. */
@@ -320,7 +321,9 @@ object LocalMcpServer {
                     },
                     performanceReader = { name, arguments ->
                         // Authenticated requests only; no caller-defined commands.
-                        DiagnosticExecutionGate.execute {
+                        if (!diagnosticSlots.tryAcquire(250, TimeUnit.MILLISECONDS))
+                            throw IllegalStateException("diagnostic_busy")
+                        try {
                             kotlinx.coroutines.runBlocking {
                                 // Captures are bounded to 10 seconds; the trace parser
                                 // may need more time after capture to process its output.
@@ -336,21 +339,12 @@ object LocalMcpServer {
                                 "get_app_jobs" -> OnDemandSystemDiagnostics.jobs(pkg)
                                 "get_thermal_state" -> OnDemandSystemDiagnostics.thermal()
                                 "get_device_capabilities" -> OnDemandSystemDiagnostics.capabilities()
-                                    .put("shizuku",
-                                        dev.n2k02.mcplogger.adb.ShizukuAvailability.snapshot())
-                                    .put("shizuku_service_probe",
-                                        dev.n2k02.mcplogger.shizuku.ShizukuReadBackend.read(
-                                            dev.n2k02.mcplogger.shizuku.ShizukuReadBackend.HIDDEN_SERVICE_PROBE
-                                        )?.let { org.json.JSONObject(it) } ?: org.json.JSONObject.NULL)
                                 "get_cpu_usage" -> PerformanceDiagnostics.cpu(
                                     pkg, arguments.optInt("limit", 20))
                                 "get_frame_timing" -> PerformanceDiagnostics.frames(pkg, budget)
                                 "get_performance_snapshot" -> PerformanceDiagnostics.summary(pkg, budget)
                                 "get_decoder_surface_profile" -> DecoderSurfaceDiagnostics.capture(pkg)
-                                "get_adb_transport_profile" ->
-                                    dev.n2k02.mcplogger.adb.AdbConnectionTelemetry.snapshot(
-                                        dev.n2k02.mcplogger.adb.AdbCoordinator.verified.value)
-                                        .put("diagnostic_queue", DiagnosticExecutionGate.snapshot())
+                                "get_adb_transport_profile" -> ShizukuTransportDiagnostics.profile()
                                 "get_battery_diagnostics" -> DeviceDiagnostics.battery()
                                 "get_memory_pressure" -> DeviceDiagnostics.memory()
                                 "get_wakelock_usage" -> DeviceDiagnostics.wakelocks(arguments.optInt("limit", 20))
@@ -366,6 +360,8 @@ object LocalMcpServer {
                                     }
                                 }
                             }
+                        } finally {
+                            diagnosticSlots.release()
                         }
                     })
                 val status = if (result == null) "Accepted"

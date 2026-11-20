@@ -75,8 +75,7 @@ fun LoggerApp(onQuit: () -> Unit) {
                             when (page) {
                                 Page.HOME -> Icons.Rounded.Home
                                 Page.SETTINGS -> Icons.Rounded.Settings
-                                Page.ADB -> Icons.Rounded.SettingsInputAntenna
-                                Page.SHIZUKU -> Icons.Rounded.Extension
+                                Page.SHIZUKU -> Icons.Rounded.SettingsInputAntenna
                                 Page.BRIDGE -> Icons.Rounded.Cloud
                                 Page.MCP_AUDITS -> Icons.Rounded.ManageSearch
                                 Page.LOGS -> Icons.Rounded.List
@@ -132,12 +131,10 @@ fun LoggerApp(onQuit: () -> Unit) {
         when (page) {
             Page.HOME -> HomePage(Modifier.padding(padding),
                 onLogs = { navigateTo(Page.LOGS) },
-                onAdb = { navigateTo(Page.ADB) }, onMcp = { navigateTo(Page.BRIDGE) })
+                onAdb = { navigateTo(Page.SHIZUKU) }, onMcp = { navigateTo(Page.BRIDGE) })
             Page.SETTINGS -> Column(Modifier.padding(padding).verticalScroll(rememberScrollState())) {
-                SettingsRow("ADB connection", "Pair, authorize and recover shell UID 2000",
-                    Icons.Rounded.SettingsInputAntenna) { navigateTo(Page.ADB) }
-                SettingsRow("Shizuku", "Optional privileged diagnostics and ADB fallback",
-                    Icons.Rounded.Extension) { navigateTo(Page.SHIZUKU) }
+                SettingsRow("ADB", "LocalADB server and permission status",
+                    Icons.Rounded.SettingsInputAntenna) { navigateTo(Page.SHIZUKU) }
                 SettingsRow("MCP connection", "Local MCP server and secure public tunnel",
                     Icons.Rounded.Cloud) { navigateTo(Page.BRIDGE) }
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
@@ -147,8 +144,9 @@ fun LoggerApp(onQuit: () -> Unit) {
                     trailingContent = { N2K02UpdateBadge(status) },
                     modifier = Modifier.clickable { navigateTo(Page.UPDATES) })
             }
-            Page.ADB -> AdbPage(Modifier.padding(padding))
-            Page.SHIZUKU -> ShizukuPage(Modifier.padding(padding))
+            Page.SHIZUKU -> Column(Modifier.padding(padding).verticalScroll(rememberScrollState())) {
+                ShizukuSettingsPage()
+            }
             Page.BRIDGE -> BridgePage(Modifier.padding(padding))
             Page.MCP_AUDITS -> McpAuditsScreen(Modifier.padding(padding))
             Page.LOGS -> LogsPage(Modifier.padding(padding))
@@ -178,117 +176,6 @@ private fun SettingsRow(title: String, subtitle: String,
 private fun HomePage(modifier: Modifier, onLogs: () -> Unit,
     onAdb: () -> Unit, onMcp: () -> Unit) {
     HomeDashboard(modifier, onLogs, onAdb, onMcp)
-}
-
-@Composable
-private fun AdbPage(modifier: Modifier) {
-    val context = LocalContext.current
-    val adb = remember(context.applicationContext) {
-        dev.n2k02.mcplogger.adb.SharedAdbHostAdapter.core(context)
-    }
-    // Keep the MCP pairing helper: the library's generic Accessibility service
-    // is not a substitute for this app's already-declared Android service.
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    var resumeTick by remember { mutableIntStateOf(0) }
-    DisposableEffect(lifecycleOwner) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) resumeTick++
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-    val accessibilityEnabled = remember(resumeTick) {
-        dev.n2k02.mcplogger.adb.PairingAccessibilityService.enabled(context)
-    }
-    Column(modifier.verticalScroll(rememberScrollState())) {
-        dev.n2k02.adb.core.AdbConnectionSettingsPage(
-            adb = adb,
-            accessibilityEnabled = accessibilityEnabled,
-            onOpenAccessibility = {
-                runCatching { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
-            },
-        )
-    }
-}
-
-/**
- * This page is app-specific. The shared ADB settings component remains untouched.
- * Enabled means the optional backend is preferred for its three fixed reads, not
- * that Shizuku permissions or hidden APIs are automatically granted.
- */
-@Composable
-private fun ShizukuPage(modifier: Modifier) {
-    val context = LocalContext.current
-    val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    var enabled by remember {
-        mutableStateOf(dev.n2k02.mcplogger.adb.ShizukuPreferences.enabled(context))
-    }
-    var refresh by remember { mutableIntStateOf(0) }
-    DisposableEffect(owner) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) refresh++
-        }
-        owner.lifecycle.addObserver(observer)
-        onDispose { owner.lifecycle.removeObserver(observer) }
-    }
-    val state = remember(refresh, enabled) {
-        dev.n2k02.mcplogger.adb.ShizukuAvailability.state()
-    }
-    val bound = remember(refresh, enabled) {
-        dev.n2k02.mcplogger.shizuku.ShizukuReadBackend.isReady()
-    }
-    Column(modifier.verticalScroll(rememberScrollState())
-        .padding(horizontal = 16.dp, vertical = 12.dp)) {
-        ElevatedCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Extension, contentDescription = null)
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text("Shizuku diagnostics", style = MaterialTheme.typography.titleMedium)
-                        Text("Use authorized read-only system diagnostics when available",
-                            style = MaterialTheme.typography.bodySmall)
-                    }
-                    Switch(checked = enabled, onCheckedChange = { checked ->
-                        enabled = checked
-                        dev.n2k02.mcplogger.shizuku.ShizukuReadBackend
-                            .updateEnabled(context, checked)
-                        refresh++
-                    })
-                }
-                HorizontalDivider()
-                Text("Server: " + if (state.connected) "Connected" else "Not detected")
-                Text("Permission: " + if (state.authorized) "Granted" else "Not granted")
-                Text("Service: " + if (bound) "Ready" else
-                    dev.n2k02.mcplogger.shizuku.ShizukuReadBackend.diagnosticStatus()
-                        .replace('_', ' '))
-                Text("Backend: " + if (enabled && bound) "Shizuku with ADB fallback"
-                    else "ADB")
-                Text("Enabled by default; disabling affects only this app.")
-                OutlinedButton(onClick = { refresh++ }) { Text("Refresh status") }
-                if (state.serverUid != null)
-                    Text("Server UID: ${state.serverUid}")
-                if (enabled && state.connected && !state.authorized) {
-                    FilledTonalButton(onClick = {
-                        dev.n2k02.mcplogger.adb.ShizukuAvailability.requestPermission()
-                        refresh++
-                    }) { Text("Authorize Shizuku") }
-                }
-                if (enabled && state.authorized && !bound) {
-                    OutlinedButton(onClick = {
-                        dev.n2k02.mcplogger.shizuku.ShizukuReadBackend
-                            .bindIfAuthorized(context)
-                        refresh++
-                    }) { Text("Reconnect service") }
-                }
-                Text("Shizuku must be installed, running and explicitly authorized. " +
-                    "Enabling this option does not grant Android privileges. " +
-                    "Only thermal, audio, service discovery and JobScheduler reads use Shizuku; " +
-                    "all other diagnostics use the shared ADB core.",
-                    style = MaterialTheme.typography.bodySmall)
-            }
-        }
-    }
 }
 
 @Composable

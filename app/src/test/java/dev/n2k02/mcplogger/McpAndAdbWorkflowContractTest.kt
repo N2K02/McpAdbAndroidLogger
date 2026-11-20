@@ -25,28 +25,30 @@ class McpAndAdbWorkflowContractTest {
 
     @Test fun adbPairingStaysInSettingsAndMcpDoesNotRequireHomeControls() {
         val settings = source("app/src/main/java/dev/n2k02/mcplogger/LoggerUi.kt")
-            .substringAfter("private fun AdbPage(").substringBefore("private fun BridgePage(")
+            
         val home = source("app/src/main/java/dev/n2k02/mcplogger/HomeDashboard.kt")
-        val setup = source("app/src/main/java/dev/n2k02/mcplogger/AdbHomeSetupCard.kt")
+        val setup = source("app/src/main/java/dev/n2k02/mcplogger/ShizukuSettingsPage.kt")
         assertTrue(home.contains("HomeConnectionTile(\"ADB\""))
         assertFalse(home.contains("AdbHomeSetupCard()"))
-        assertTrue(setup.contains("SharedAdbHostAdapter.core(context)"))
-        assertTrue(setup.contains("AdbHomeSetupPage(adb, accessibilityEnabled"))
-        assertTrue(setup.contains("AdbPageLifecycle(adb)"))
-        assertTrue(setup.contains("state.connected"))
+        assertTrue(setup.contains("readShizukuAccessStatus()"))
+        assertTrue(setup.contains("rememberShizukuAccessStatus()"))
+        assertFalse(setup.contains("AdbHomeSetupPage("))
+        assertFalse(setup.contains("AdbPageLifecycle("))
+        assertTrue(settings.contains("Page.SHIZUKU"))
         assertFalse(settings.contains("Connect Android ADB"))
         assertFalse(settings.contains("Advanced: manual ports"))
-        assertTrue(settings.contains("AdbConnectionSettingsPage("))
-        assertTrue(settings.contains("PairingAccessibilityService.enabled(context)"))
+        assertTrue(settings.contains("ShizukuSettingsPage()"))
+        assertFalse(settings.contains("PairingAccessibilityService.enabled(context)"))
         // The five controls and two cards live in ONE versioned shared page,
         // rather than duplicated copies in each app.
         assertFalse(settings.contains("Pairing & recovery"))
         assertFalse(settings.contains("Connection & security"))
         val adb = source("app/src/main/java/dev/n2k02/mcplogger/adb/AdbCoordinator.kt")
-        assertTrue(adb.contains("val discoveryState = MutableStateFlow"))
-        assertTrue(adb.contains("SharedAdbHostAdapter.core(context.applicationContext)"))
-        assertTrue(adb.contains("shared.retry(auto = !userInitiated)"))
+        assertTrue(adb.contains("ShizukuHostAdapter.core(context.applicationContext)"))
+        assertTrue(adb.contains("session.retry(auto = !userInitiated)"))
         val transport = source("app/src/main/java/dev/n2k02/mcplogger/adb/AdbTransport.kt")
-        assertTrue(transport.contains("core.execVerified(command, timeoutMs)"))
+        assertTrue(transport.contains("session.execVerified(command, timeoutMs)"))
+        assertFalse(transport.contains("connectLocalTls("))
+        assertFalse(transport.contains("pairLocal("))
     }
 }

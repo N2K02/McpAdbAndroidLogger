@@ -25,10 +25,5 @@
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
 
-# Shizuku launches UserService reflectively in an isolated shell process.
-# Retain its exact name, public no-arg constructor and AIDL Binder interface.
-# LocalADB preserves these same reflection entrypoints for its UserServices.
--keep class dev.n2k02.mcplogger.shizuku.ReadOnlyShizukuService { *; }
--keep class dev.n2k02.mcplogger.shizuku.IReadOnlyDiagnostics { *; }
--keep class dev.n2k02.mcplogger.shizuku.IReadOnlyDiagnostics$Stub { *; }
--keep class dev.n2k02.mcplogger.shizuku.IReadOnlyDiagnostics$Stub$Proxy { *; }
+# Shizuku starts this user service by its class name in the shell process.
+-keep class dev.n2k02.mcplogger.shizuku.ShizukuShellService { public <init>(); *; }

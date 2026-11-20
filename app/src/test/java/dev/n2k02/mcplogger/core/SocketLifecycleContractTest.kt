@@ -49,27 +49,23 @@ class SocketLifecycleContractTest {
         assertTrue(tunnel.contains("if (process === running) process = null"))
     }
 
-    @Test fun adbShellClosesAllStreamsAndDisconnectionResetsStatus() {
-        val adb = source("adb/AdbTransport.kt")
-        val close = adb.substringAfter("fun close() {").substringBefore("private companion object")
-        assertTrue(close.contains("runCatching { reader.close() }"))
-        assertTrue(close.contains("runCatching { out.close() }"))
-        assertTrue(adb.contains("lastKnownConnected = false"))
+    @Test fun shizukuBinderShutdownReleasesConnectionAndResetsStatus() {
+        val transport = source("adb/AdbTransport.kt")
         val coordinator = source("adb/AdbCoordinator.kt")
-        val shared = source("adb/SharedAdbHostAdapter.kt")
-        // Production ADB shutdown now belongs exclusively to the shared core.
-        assertFalse(coordinator.contains("AdbTransport.close()"))
-        assertTrue(coordinator.contains("SharedAdbHostAdapter.shutdown()"))
-        assertTrue(shared.contains("it.quit()"))
-        assertTrue(shared.contains("AdbCoreRegistry.uninstall(it)"))
-        assertTrue(adb.contains("oldManager?.disconnect()"))
-        assertFalse(adb.contains("manager?.close()"))
-        assertFalse(adb.contains("mgr.close()"))
-        assertTrue(adb.contains("manager = null"))
+        val adapter = source("adb/ShizukuHostAdapter.kt")
+        val session = source("shizuku/ShizukuSession.kt")
+        assertTrue(transport.contains("suspend fun disconnect()"))
+        assertTrue(transport.contains("ShizukuHostAdapter.current()?.disconnectIdle()"))
+        assertTrue(transport.contains("session.execVerified(command, timeoutMs)"))
         assertTrue(coordinator.contains("verified.value = state.connected"))
-        assertTrue(adb.contains("core.execVerified(command, timeoutMs)"))
-        assertTrue(adb.contains("SharedAdbHostAdapter.current() == null"))
-        assertFalse(source("MainActivity.kt").contains(
-            "lifecycleScope.launch { AdbCoordinator.quit() }"))
+        assertTrue(coordinator.contains("ShizukuHostAdapter.shutdown()"))
+        assertTrue(adapter.contains("ShizukuSessionRegistry.uninstall(it)"))
+        assertTrue(adapter.contains("it.quit()"))
+        assertTrue(session.contains("Shizuku.unbindUserService(args, connection, true)"))
+        assertTrue(session.contains("Shizuku.removeBinderDeadListener(binderDied)"))
+        assertTrue(session.contains("Shizuku.removeBinderReceivedListener(binderReceived)"))
+        assertTrue(session.contains("binder = null"))
+        assertTrue(session.contains("ShizukuPhase.NEEDS_SETUP"))
+        assertFalse(transport.contains("Socket("))
     }
 }

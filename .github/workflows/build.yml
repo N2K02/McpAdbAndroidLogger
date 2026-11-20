@@ -3,43 +3,63 @@ name: Build APK
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - '.github/workflows/apk-retention.yml'
-      - '.github/workflows/build.yml'
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
-    paths-ignore:
-      - '.github/workflows/apk-retention.yml'
-      - '.github/workflows/build.yml'
-  pull_request_target:
-    types: [closed]
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Version to release, e.g. 1.1; blank increments previous tag."
-        required: false
-        default: ""
 
 permissions:
   contents: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ (github.event_name == 'pull_request' && github.event.pull_request.number) || 'main' }}
+  group: ${{ github.workflow }}-${{ (github.event_name == 'pull_request' && github.event.pull_request.number) || github.ref }}
   cancel-in-progress: true
 
 env:
   APP: McpAdbAndroidLogger
-  BUILD_COMMIT: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.merge_commit_sha || github.sha }}
+  RELEASE_TRACK: shizuku
+  BUILD_COMMIT: ${{ github.sha }}
 
 jobs:
+  stable-approval:
+    # The legacy reusable gate accepts only main-adb/main-shizuku.
+    # Keep an equivalent main-specific gate checking the merged PR and CI head.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+    steps:
+      - name: Verify stable main comes from a protected, green pull request
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || { echo "::error::Stable publication only runs from main"; exit 1; }
+          head=""
+          for delay in 0 2 4 8 12; do
+            sleep "$delay"
+            head=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" |
+              jq -r --arg branch "main" --arg sha "$GITHUB_SHA" --arg repo "$GITHUB_REPOSITORY"                 '[.[][] | select(.state == "closed" and .merged_at != null and .base.ref == $branch and .base.repo.full_name == $repo and .merge_commit_sha == $sha) | .head.sha] | .[0] // empty')
+            [[ -z "$head" ]] || break
+          done
+          [[ "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::No approved PR matches this exact main merge commit"; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/rules/branches/main" |
+            jq -e 'map(.type) as $rules | ["pull_request", "non_fast_forward"] | all(. as $item | $rules | index($item) != null)' >/dev/null ||
+            { echo "::error::PR and force-push protections must be active on main"; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/commits/$head/check-runs?per_page=100" |
+            jq -e '.check_runs as $checks | ["build", "verify-apk", "contract"] |
+              all(. as $required | any($checks[]; .name == $required and .status == "completed" and .conclusion == "success"))' >/dev/null ||
+            { echo "::error::Merged PR head lacks successful build, verify-apk or contract checks"; exit 1; }
   build:
-    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'pull_request_target' || (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.title, '[skip ci]')))
+    needs: stable-approval
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.merge_commit_sha || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - uses: actions/setup-java@v6
@@ -70,7 +90,8 @@ jobs:
           set -euo pipefail
           local_last=$(git tag -l 'v[0-9]*' | sed -nE 's/^v([0-9]+[.][0-9])$/\1/p' | sort -V | tail -1 || true)
           public_last=$(bash .github/scripts/latest-public-version.sh mcpadbandroidlogger)
-          latest=$(printf '%s\n%s\n' "$local_last" "${public_last#v}" | sed '/^$/d' | sort -V | tail -1)
+          track_last=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --json tagName -q '.[].tagName' | sed -nE 's/^shizuku-v([0-9]+[.][0-9])$/\1/p' | sort -V | tail -1 || true)
+          latest=$(printf '%s\n%s\n%s\n' "$local_last" "${public_last#v}" "$track_last" | sed '/^$/d' | sort -V | tail -1)
           if [ -n "$REQUESTED" ]; then
             echo "$REQUESTED" | grep -Eq '^[0-9]+[.][0-9]$' || exit 1
             version="$REQUESTED"
@@ -88,6 +109,7 @@ jobs:
           suffix=""
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then suffix="-experimental.$GITHUB_RUN_NUMBER"; fi
           echo "VERSION_SUFFIX=$suffix" >> "$GITHUB_ENV"
+          echo "APK_NAME=McpAdbAndroidLogger-SHIZUKU-$version$suffix" >> "$GITHUB_ENV"
           {
             echo "## $APP $version"
             echo "Version code: $VERSION_CODE"
@@ -108,7 +130,23 @@ jobs:
         run: |
           set -euo pipefail
           python3 .github/scripts/experimental_naming.py --self-test
-          python3 .github/scripts/experimental_naming.py "$GITHUB_REPOSITORY" "$APP" "$GITHUB_RUN_NUMBER" "$PR_NUMBER"
+          GITHUB_ENV="$RUNNER_TEMP/architecture-naming.env" python3 .github/scripts/experimental_naming.py "$GITHUB_REPOSITORY" "$APP" "$GITHUB_RUN_NUMBER" "$PR_NUMBER"
+          grep -v '^APK_NAME=' "$RUNNER_TEMP/architecture-naming.env" >> "$GITHUB_ENV"
+          base=$(sed -n 's/^VERSION=//p' "$RUNNER_TEMP/architecture-naming.env")
+          suffix=$(sed -n 's/^VERSION_SUFFIX=//p' "$RUNNER_TEMP/architecture-naming.env")
+          echo "APK_NAME=McpAdbAndroidLogger-SHIZUKU-$base$suffix" >> "$GITHUB_ENV"
+      - name: Validate architecture-qualified APK filename
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$APP-${RELEASE_TRACK^^}-$VERSION"
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            [[ "$VERSION_SUFFIX" =~ ^-experimental[.][0-9]+$ ]] || { echo "::error::Invalid experimental suffix"; exit 1; }
+            expected="$expected$VERSION_SUFFIX"
+          else
+            [[ -z "$VERSION_SUFFIX" ]] || { echo "::error::Stable APK has an experimental suffix"; exit 1; }
+          fi
+          [[ "$APK_NAME" == "$expected" ]] || { echo "::error::Wrong APK name: $APK_NAME (expected $expected)"; exit 1; }
       - name: Label experimental release notes
         if: github.event_name == 'pull_request'
         run: |
@@ -245,11 +283,12 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ env.APP }}-${{ env.VERSION }}
-          path: ${{ env.APK_NAME || format('{0}-{1}', env.APP, env.VERSION) }}.apk
+          name: ${{ env.APK_NAME }}.apk
+          path: ${{ env.APK_NAME }}.apk
           if-no-files-found: error
 
       - name: Publish stable or PR experimental release
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'experimental')
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -257,19 +296,19 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            tag="experimental-pr-$PR_NUMBER-run-$GITHUB_RUN_NUMBER"
+            tag="experimental-shizuku-pr-$PR_NUMBER-run-$GITHUB_RUN_NUMBER"
             title="$EXPERIMENTAL_TITLE"
             target="$PR_HEAD_SHA"
             extra=(--prerelease --latest=false)
           else
-            tag="v$VERSION"
+            tag="shizuku-v$VERSION"
             title="$APP $VERSION"
             target="$BUILD_COMMIT"
             extra=(--latest)
           fi
           if gh release view "$tag" >/dev/null 2>&1; then
             if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-              gh release upload "$tag" "${APK_NAME:-$APP-$VERSION}.apk" --clobber
+              gh release view "$tag" --json assets --jq '.assets[].name' | grep -Fxq "${APK_NAME:-$APP-$VERSION}.apk"
             else
               echo "::error::Stable release tag already exists"
               exit 1
@@ -277,3 +316,4 @@ jobs:
           else
             gh release create "$tag" "${APK_NAME:-$APP-$VERSION}.apk" --target "$target"               --title "$title" --notes-file release-notes.md "${extra[@]}"
           fi
+

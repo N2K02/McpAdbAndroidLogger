@@ -236,6 +236,8 @@ class SurfaceActivityDiagnosticsTest {
         assertTrue(src.contains("perfetto_processor_status"))
         assertTrue(src.contains("perfetto_frame_status"))
         assertTrue(src.contains("perfetto_scheduler_status"))
+        assertTrue(src.contains("perfetto_fallback_used"))
+        assertTrue(src.contains("surfaceflinger_timestats"))
         assertTrue(src.contains("elapsedSoFar < seconds * 1000L"))
         assertTrue(src.contains("runTrace(seconds, processor.first, catalog, finishCapture)"))
         assertTrue(src.contains("onCaptured()"))

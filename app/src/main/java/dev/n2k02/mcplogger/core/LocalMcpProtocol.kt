@@ -8,12 +8,11 @@ internal object LocalMcpProtocol {
     const val VERSION = "2025-11-25"
     // Readable through the original get_device_status tool even when an MCP client
     // still has an old tools/list cache. Never starts a shell diagnostic.
-    const val CATALOG_REVISION = "2026-11-16-adb-transport-health-1"
+    const val CATALOG_REVISION = "2026-11-20-shizuku-transport-profile-1"
     private val names = listOf("get_device_status", "list_installed_apps", "get_live_logs",
         "search_logs", "get_crashes", "get_anrs", "get_cpu_usage",
         "get_frame_timing", "get_performance_snapshot", "get_decoder_surface_profile",
-        "get_adb_transport_profile",
-        "get_battery_diagnostics", "get_memory_pressure", "get_wakelock_usage",
+        "get_adb_transport_profile", "get_battery_diagnostics", "get_memory_pressure", "get_wakelock_usage",
         "get_screen_off_baseline", "get_screen_off_report",
         "get_surfaceflinger_layers", "get_surfaceflinger_activity",
         "get_surfaceflinger_perfetto", "list_logcat_profiles",
@@ -101,7 +100,7 @@ internal object LocalMcpProtocol {
             "Read recent UI frame timing and GPU completion latency (not GPU utilization) for one app",
             "Read CPU plus optional app UI frame timing in a bounded on-demand request",
             "Read decoder/surface lifecycle hints plus separate main-app and Chromium renderer CPU snapshots",
-            "Read bounded local ADB connect/shell latency and failure totals (no secrets or commands)",
+            "Read bounded Shizuku Binder-backed shell verification and latency, not integrated ADB socket metrics",
             "Read battery temperature, charge state and estimated per-UID energy since charge on demand",
             "Read RAM, swap and kernel PSI memory stall metrics in a bounded on-demand snapshot",
             "Read currently held partial wakelocks plus per-UID partial hold times since charge",

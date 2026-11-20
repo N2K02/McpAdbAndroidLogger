@@ -117,21 +117,6 @@ internal object DecoderSurfaceDiagnostics {
                 if (explicit) explicitlyAttributed++ else pidCorrelated++
             }
         }
-        // Scrcpy-inspired diagnostic categories, not direct scrcpy decoder statistics.
-        // Historical Logcat can be truncated and PIDs recycled; never infer live state.
-        val lifecycle = JSONObject()
-            .put("decoder_configuration_events", counts.getInt("decoder_created"))
-            .put("decoder_teardown_events", counts.getInt("decoder_released"))
-            .put("decoder_error_events", counts.getInt("decoder_error"))
-            .put("surface_create_events", counts.getInt("surface_created"))
-            .put("surface_destroy_events", counts.getInt("surface_destroyed"))
-            .put("surface_replacement_events", counts.getInt("surface_replaced"))
-            .put("surface_churn_event_hint", counts.getInt("surface_destroyed") +
-                counts.getInt("surface_replaced"))
-            .put("attribution", if (explicitlyAttributed > 0) "explicit_package_and_optional_pid"
-                else if (pidCorrelated > 0) "historical_pid_only" else "not_observed")
-            .put("interpretation", "Historical event counts, not live codec state, exact frame " +
-                "loss, decoder restart count, or proof of an application playback stall")
         fun group(rows: JSONArray, cpu: Double): JSONObject = JSONObject()
             .put("processes", rows)
             .put("cpu_percent_sum", kotlin.math.round(cpu * 10) / 10)
@@ -143,13 +128,6 @@ internal object DecoderSurfaceDiagnostics {
             .put("chromium_renderer_cpu", group(renderers, rendererCpu))
             .put("other_app_process_cpu", group(other, otherCpu))
             .put("lifecycle_event_counts", counts)
-            .put("playback_reliability_hints", lifecycle)
-            .put("decoder_fps", JSONObject.NULL)
-            .put("dropped_frames", JSONObject.NULL)
-            .put("socket_to_surface_p95_ms", JSONObject.NULL)
-            .put("audio_video_sync_offset_ms", JSONObject.NULL)
-            .put("unavailable_metrics_reason", "External app decoder and presentation " +
-                "timestamps are not exposed by this bounded ADB/Logcat snapshot")
             .put("attributed_lifecycle_log_lines", matchedLines)
             .put("explicit_package_lifecycle_lines", explicitlyAttributed)
             .put("pid_correlated_lifecycle_lines", pidCorrelated)
