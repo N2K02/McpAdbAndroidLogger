@@ -6,7 +6,7 @@ Android Logcat monitoring and a read-only AI MCP bridge, using the **same shared
 
 ## Stable and experimental: one Shizuku APK per channel
 
-The release layout is **one Stable release** and **one Experimental release**, each containing **one Shizuku APK** (not separate ADB and Shizuku downloads). The canonical branches are `main` (stable) and `experimental` (experimental). Existing signed Shizuku APKs and their signing lineage must remain update-compatible.
+The release layout is **one Stable release** and **one Experimental release**, each published directly to GitHub Releases with **one Shizuku APK** (no grouped download releases). The canonical branches are `main` (stable) and `experimental` (experimental). Existing signed Shizuku APKs and their signing lineage must remain update-compatible.
 
 **Branch consolidation:** [PR #59](https://github.com/N2K02/McpAdbAndroidLogger/pull/59) migrates Shizuku stable onto `main`. After it is merged and the stable release verifies successfully, `main-shizuku` can be retired; use `experimental` for future Shizuku changes. Historical integrated-ADB releases must not be offered as Shizuku updates, and previously published versioned releases should remain available for update continuity.
 
@@ -86,11 +86,11 @@ pytest gateway/tests
 - **Stable:** source `main`, tag `shizuku-vX.Y`, signed asset `McpAdbAndroidLogger-SHIZUKU-X.Y.apk`.
 - **Experimental:** source `experimental` through its PR into `main`, prerelease tag `experimental-shizuku-pr-N-run-R`, signed asset `McpAdbAndroidLogger-SHIZUKU-X.Y-experimental.R.apk`.
 
-Each channel should expose only its newest eligible Shizuku APK in the public grouped download release; do not add ADB APK assets. Release tags, version metadata and Shizuku track selection must remain compatible with existing installed Shizuku builds. ADB-to-Shizuku switching is a manual migration, never an automatic update. Avoid lowering versionCode or changing the application ID or signing identity.
+Stable and Experimental publish directly to their versioned GitHub Releases from `main` and `experimental` respectively; do not create `downloads-stable` or `downloads-experimental` grouped releases, and do not add ADB APK assets. Release tags, version metadata and Shizuku track selection must remain compatible with existing installed Shizuku builds. ADB-to-Shizuku switching is a manual migration, never an automatic update. Avoid lowering versionCode or changing the application ID or signing identity.
 
 The release workflow builds/tests a debug APK, then publishes an R8-minified **release** APK signed with the configured release key. Secrets missing or a signing mismatch must fail CI; never publish a debug-signed fallback. Require gateway tests, unit tests, Android lint, signed APK verification, release-contract checks and all branch protection checks before a stable publication.
 
-The prior dual-architecture releases and tags are historical and must not be automatically deleted until the new stable release and updater continuity are verified on a device. See [Release channels and cleanup policy](docs/RELEASE_CHANNELS.md).
+Older architecture-specific releases and grouped-download tags are historical; they do not drive update selection. Preserve versioned releases until the new stable release and updater continuity are verified on a device. See [Release channels and cleanup policy](docs/RELEASE_CHANNELS.md).
 
 ## Hardware validation needed
 
