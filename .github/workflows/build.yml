@@ -317,9 +317,3 @@ jobs:
             gh release create "$tag" "${APK_NAME:-$APP-$VERSION}.apk" --target "$target"               --title "$title" --notes-file release-notes.md "${extra[@]}"
           fi
 
-  download-index:
-    needs: build
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'experimental')
-    permissions:
-      contents: write
-    uses: N2K02/n2k02updater/.github/workflows/index-downloads.yml@ae58c3ce0196b1b30d214927dd529ce5d779febf
