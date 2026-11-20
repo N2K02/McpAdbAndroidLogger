@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Consistent next-stable experimental labels, with counters restarting at 1 per version.
 
-Keep internal experimental-pr-*-run-* GitHub tags for backwards compatibility.
+Use architecture-scoped Shizuku experimental tags.
 Set VERSION, VERSION_SUFFIX, APK_NAME and EXPERIMENTAL_TITLE via GITHUB_ENV.
 """
 import json
@@ -13,7 +13,7 @@ import urllib.request
 
 TAG = re.compile(r"^(?:(?:adb|shizuku)-)?(?:sdcleaner-)?v?(\d+)\.(\d)$", re.I)
 EXPERIMENT = re.compile(r"^(.*?) (\d+\.\d)-experimental\.(\d+)$", re.I)
-LEGACY = re.compile(r"^experimental-pr-(\d+)-run-(\d+)$", re.I)
+LEGACY = re.compile(r"^experimental-shizuku-pr-(\d+)-run-(\d+)$", re.I)
 MAX_PAGES = 20
 
 def next_base(stable_tag):
@@ -63,8 +63,8 @@ def naming(repo, app, run, pr):
         raise ValueError("invalid app name")
     if not 0 < run < 2_000_000_000 or not 0 < pr < 2_000_000_000:
         raise ValueError("invalid GitHub run or PR number")
-    latest = api(repo, "releases/latest")
-    base = next_base(latest["tag_name"]) if latest else "1.0"
+    # The repository's global latest may be a retired ADB release.
+    # Only Shizuku stable tags determine the experimental baseline.
     releases = []
     for page in range(1, MAX_PAGES + 1):
         batch = api(repo, f"releases?per_page=100&page={page}")
@@ -75,6 +75,15 @@ def naming(repo, app, run, pr):
             break
     else:
         raise ValueError("too many releases to safely calculate experimental sequence")
+    stable_versions = [
+        tuple(map(int, tag.removeprefix("shizuku-v").split(".")))
+        for item in releases
+        if not item.get("draft") and not item.get("prerelease")
+        for tag in [item.get("tag_name") or ""]
+        if re.fullmatch(r"shizuku-v\d+\.\d+", tag)
+    ]
+    latest_stable = max(stable_versions, default=None)
+    base = next_base(f"shizuku-v{latest_stable[0]}.{latest_stable[1]}") if latest_stable else "1.0"
     sequence = latest_sequence(releases, app, base, run, pr)
     if sequence > 99999:
         raise ValueError("experimental sequence exhausted")
@@ -90,12 +99,13 @@ def tests():
     assert next_base("v8.3") == "8.4"
     assert next_base("adb-v4.1") == "4.2"
     assert next_base("shizuku-v4.1") == "4.2"
+    assert next_base("shizuku-v4.9") == "5.0"
     assert next_base("adb-sdcleaner-v2.9") == "3.0"
     assert next_base("sdcleaner-v2.9") == "3.0"
     assert latest_sequence([], "VREC", "8.4", 5, 1) == 1
-    releases = [{"name": "VREC 8.4-experimental.2", "tag_name": "experimental-pr-1-run-5", "prerelease": True},
-                {"name": "VREC 8.4-experimental.3", "tag_name": "experimental-pr-1-run-6", "prerelease": True},
-                {"name": "VREC 8.3-experimental.9", "tag_name": "experimental-pr-1-run-4", "prerelease": True}]
+    releases = [{"name": "VREC 8.4-experimental.2", "tag_name": "experimental-shizuku-pr-1-run-5", "prerelease": True},
+                {"name": "VREC 8.4-experimental.3", "tag_name": "experimental-shizuku-pr-1-run-6", "prerelease": True},
+                {"name": "VREC 8.3-experimental.9", "tag_name": "experimental-shizuku-pr-1-run-4", "prerelease": True}]
     assert latest_sequence(releases, "VREC", "8.4", 7, 1) == 4
     assert latest_sequence(releases, "VREC", "8.4", 5, 1) == 2
     assert latest_sequence(releases, "VREC", "8.5", 7, 1) == 1
