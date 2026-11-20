@@ -11,7 +11,7 @@ from pathlib import Path
 
 APP = "McpAdbAndroidLogger"
 ROOT = "https://github.com/N2K02/McpAdbAndroidLogger/releases"
-VERSION = re.compile(r"(?im)^Version code:[ \\t]*(\\d+)[ \\t]*$", re.M)
+VERSION = re.compile(r"(?im)^Version code:[ \t]*(\d+)[ \t]*$", re.M)
 
 def gh(*args):
     return subprocess.run(["gh", *args], check=True, text=True, capture_output=True).stdout
@@ -21,11 +21,11 @@ def candidate(release, channel):
         return None
     tag = release.get("tag_name", "")
     if channel == "stable":
-        match = re.fullmatch(r"shizuku-v(\\d+\\.\\d+)", tag)
-        pattern = rf"{APP}-SHIZUKU-{re.escape(match.group(1))}\\.apk" if match else None
+        match = re.fullmatch(r"shizuku-v(\d+\.\d+)", tag)
+        pattern = rf"{APP}-SHIZUKU-{re.escape(match.group(1))}\.apk" if match else None
     else:
-        match = re.fullmatch(r"experimental-shizuku-pr-\\d+-run-\\d+", tag)
-        pattern = rf"{APP}-SHIZUKU-\\d+\\.\\d+-experimental\\.\\d+\\.apk" if match else None
+        match = re.fullmatch(r"experimental-shizuku-pr-\d+-run-\d+", tag)
+        pattern = rf"{APP}-SHIZUKU-\d+\.\d+-experimental\.\d+\.apk" if match else None
     if not pattern:
         return None
     codes = VERSION.findall(release.get("body") or "")
@@ -67,9 +67,9 @@ def publish(repo, channel, releases):
                 or not (old.get("body") or "").startswith(marker)):
         raise RuntimeError("Unmanaged or incompatible grouped release; refusing overwrite")
     title = f"{channel.title()} downloads · Shizuku"
-    body = (f"{marker}\\n# {title}\\n\\n"
-            f"Official Shizuku APK: [{asset['name']}]({asset['browser_download_url']})\\n\\n"
-            f"Version code: {code}\\nInstall only the Shizuku build.\\n")
+    body = (f"{marker}\n# {title}\n\n"
+            f"Official Shizuku APK: [{asset['name']}]({asset['browser_download_url']})\n\n"
+            f"Version code: {code}\nInstall only the Shizuku build.\n")
     old_assets = {a["name"]: a for a in (old.get("assets") or [])} if old else {}
     current = old_assets.get(asset["name"])
     if current and current.get("digest") != asset.get("digest"):
