@@ -6,14 +6,6 @@ on:
   pull_request:
     branches: [main-shizuku]
     types: [opened, synchronize, reopened]
-  pull_request_target:
-    types: [closed]
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Version to release, e.g. 1.1; blank increments previous tag."
-        required: false
-        default: ""
 
 permissions:
   contents: write
@@ -25,16 +17,22 @@ concurrency:
 env:
   APP: McpAdbAndroidLogger
   RELEASE_TRACK: shizuku
-  BUILD_COMMIT: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.merge_commit_sha || github.sha }}
+  BUILD_COMMIT: ${{ github.sha }}
 
 jobs:
+  stable-approval:
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: N2K02/n2k02updater/.github/workflows/require-stable-merge.yml@cfbb69f4ac19cf6b24aea96f82cadf2144c29635
   build:
-    if: (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'pull_request_target' || (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main-shizuku' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.title, '[skip ci]')))
+    needs: stable-approval
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.merge_commit_sha || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - uses: actions/setup-java@v6
@@ -282,7 +280,7 @@ jobs:
           fi
           if gh release view "$tag" >/dev/null 2>&1; then
             if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-              gh release upload "$tag" "${APK_NAME:-$APP-$VERSION}.apk" --clobber
+              gh release view "$tag" --json assets --jq '.assets[].name' | grep -Fxq "${APK_NAME:-$APP-$VERSION}.apk"
             else
               echo "::error::Stable release tag already exists"
               exit 1
@@ -290,3 +288,10 @@ jobs:
           else
             gh release create "$tag" "${APK_NAME:-$APP-$VERSION}.apk" --target "$target"               --title "$title" --notes-file release-notes.md "${extra[@]}"
           fi
+
+  download-index:
+    needs: build
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    permissions:
+      contents: write
+    uses: N2K02/n2k02updater/.github/workflows/index-downloads.yml@ae58c3ce0196b1b30d214927dd529ce5d779febf

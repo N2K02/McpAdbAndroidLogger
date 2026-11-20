@@ -236,6 +236,8 @@ class SurfaceActivityDiagnosticsTest {
         assertTrue(src.contains("perfetto_processor_status"))
         assertTrue(src.contains("perfetto_frame_status"))
         assertTrue(src.contains("perfetto_scheduler_status"))
+        assertTrue(src.contains("perfetto_fallback_used"))
+        assertTrue(src.contains("surfaceflinger_timestats"))
         assertTrue(src.contains("elapsedSoFar < seconds * 1000L"))
         assertTrue(src.contains("runTrace(seconds, processor.first, catalog, finishCapture)"))
         assertTrue(src.contains("onCaptured()"))
@@ -278,7 +280,7 @@ class SurfaceActivityDiagnosticsTest {
             """{"jsonrpc":"2.0","method":"tools/list","id":1}"""),
             performanceReader = reader)!!
             .getJSONObject("result").getJSONArray("tools")
-        assertEquals(28, tools.length())
+        assertEquals(29, tools.length())
         assertEquals(0, called)
         for (name in names) {
             val schema = (0 until tools.length()).map { tools.getJSONObject(it) }

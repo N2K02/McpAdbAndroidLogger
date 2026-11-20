@@ -21,8 +21,8 @@ class AdbBrokenStreamRecoveryTest {
     @Test fun commandsRequirePermissionAndShellUid() {
         val s = source("shizuku/ShizukuSession.kt")
         assertTrue(s.contains("Shizuku.pingBinder()"))
-        assertTrue(s.contains("Shizuku.getUid() == Process.SHELL_UID"))
-        assertTrue(s.contains("Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED"))
+        assertTrue(s.contains("Shizuku.getUid() != Process.SHELL_UID"))
+        assertTrue(s.contains("Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED"))
         assertTrue(s.contains("bridge.execute(\"id -u\", 3_000L)"))
         assertTrue(s.contains("bridge.close()"))
     }
@@ -35,5 +35,15 @@ class AdbBrokenStreamRecoveryTest {
         assertTrue(s.contains("Shizuku.removeBinderDeadListener(binderDied)"))
         assertTrue(s.contains("Shizuku.removeBinderReceivedListener(binderReceived)"))
         assertTrue(s.contains("scope.cancel()"))
+    }
+
+    @Test fun authorizedUserServiceHasRequiredProcessSuffixAndDistinctFailureStatus() {
+        val s = source("shizuku/ShizukuSession.kt")
+        assertTrue(s.contains(".processNameSuffix(\"logger_shell\").daemon(false)"))
+        assertTrue(s.contains("Shizuku.bindUserService(args, connection)"))
+        assertTrue(s.contains("accessFailure() ?: ShizukuConnectionFailure.BIND_FAILED"))
+        assertTrue(s.contains("accessFailure() ?: ShizukuConnectionFailure.BIND_TIMEOUT"))
+        assertTrue(s.contains("message = failure.message"))
+        assertFalse(s.contains("Start LocalADB and grant this app access"))
     }
 }
