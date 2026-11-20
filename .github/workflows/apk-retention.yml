@@ -13,4 +13,4 @@ permissions:
 
 jobs:
   downloads:
-    uses: N2K02/n2k02updater/.github/workflows/group-downloads.yml@5ca31445255562f39f68fd2d0afa791d782105a4
+    uses: N2K02/n2k02updater/.github/workflows/group-downloads.yml@67eb7a2a1e817f7b48b88910e8492c924737ba7e
