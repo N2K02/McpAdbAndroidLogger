@@ -38,18 +38,18 @@ android {
     }
 }
 dependencies {
-    implementation("dev.n2k02:theme:0.1.14")
-    implementation("dev.n2k02:updater:0.1.38")
+    implementation("dev.n2k02:theme:0.1.15")
+    implementation("dev.n2k02:updater:0.1.39")
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")
-    implementation("androidx.compose.material3:material3:1.5.0-rc01")
+    implementation("androidx.compose.material3:material3:1.6.0-alpha01")
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
     implementation("androidx.activity:activity-compose:1.11.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     implementation("androidx.work:work-runtime-ktx:2.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
-    implementation("org.bouncycastle:bcprov-jdk15to18:1.86")
-    implementation("org.bouncycastle:bcpkix-jdk15to18:1.86")
+    implementation("org.bouncycastle:bcprov-jdk15to18:1.87")
+    implementation("org.bouncycastle:bcpkix-jdk15to18:1.87")
     implementation("org.conscrypt:conscrypt-android:2.9.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20260814")
