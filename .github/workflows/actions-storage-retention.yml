@@ -59,7 +59,7 @@ jobs:
             const stale=(c,protectedRefs)=>!protectedRefs.has(c.ref)&&Number.isFinite(Date.parse(c.last_accessed_at))&&now-Date.parse(c.last_accessed_at)>14*day;
             assert.equal(key(parse('experimental-adb-pr-7-run-337')),'experimental:adb');
             assert.equal(key(parse('shizuku-v1.0')),'stable:shizuku');
-            assert.equal(parse('downloads-stable'),null);
+            assert.equal(parse('download-index'),null);
             assert.equal(lane({head_branch:'main-adb',event:'push'}),'stable:adb');
             assert.equal(lane({head_branch:'experimental/shizuku',event:'push'}),'experimental:shizuku');
             assert.equal(stale({ref:'refs/heads/main',last_accessed_at:'2000-01-01'},new Set(['refs/heads/main'])),false);
@@ -136,8 +136,7 @@ jobs:
             const activeBuild=runs.some(r=>r.id!==context.runId&&r.status!=='completed'&&/build|apk|ci|release/i.test(r.name+' '+r.path));
             // Never delete a sole channel or unrecognized release. Stable tags remain
             // permanent version high-water marks. Non-APK releases are untouched.
-            const tracked=['adb','shizuku'].some(t=>buckets.has('stable:'+t)||buckets.has('experimental:'+t));
-            const ready=tracked?['stable:adb','stable:shizuku','experimental:adb','experimental:shizuku'].every(k=>buckets.has(k)):buckets.has('stable:legacy')&&buckets.has('experimental:legacy');
+            const ready=['adb','shizuku','legacy'].some(t=>buckets.has('stable:'+t)&&buckets.has('experimental:'+t));
             if(ready&&!activeBuild){
               for(const r of releases){
                 const p=classify(r);
@@ -151,7 +150,7 @@ jobs:
               const tags=await github.paginate(github.rest.repos.listTags,{owner,repo,per_page:100});
               for(const t of tags){
                 const p=parse(t.name);
-                if(p?.channel!=='experimental'||liveTags.has(t.name)||activePRs.has(p.pr)||p.number>=(maxima.get(p.track)||0)||removedTags>=300)continue;
+                if(p?.channel!=='experimental'||!buckets.has('stable:'+p.track)||!buckets.has('experimental:'+p.track)||liveTags.has(t.name)||activePRs.has(p.pr)||p.number>=(maxima.get(p.track)||0)||removedTags>=300)continue;
                 if(await remove(()=>github.rest.git.deleteRef({owner,repo,ref:'tags/'+t.name}),'tag '+t.name))removedTags++;
               }
             }else core.info('APK releases/tags unchanged: missing verified channel or active build.');
